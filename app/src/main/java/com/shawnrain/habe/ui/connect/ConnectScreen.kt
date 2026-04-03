@@ -16,7 +16,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material3.*
@@ -34,13 +33,15 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.MultiplePermissionsState
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.shawnrain.habe.MainViewModel
+import com.shawnrain.habe.ui.theme.bezierPillShape
+import com.shawnrain.habe.ui.theme.bezierRoundedShape
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun ConnectScreen(viewModel: MainViewModel, onNavigateToDashboard: () -> Unit, modifier: Modifier = Modifier) {
     val scannedDevices by viewModel.filteredDevices.collectAsState()
-    var isScanning by remember { mutableStateOf(false) }
-    var hasSearched by remember { mutableStateOf(false) }
+    val isScanning by viewModel.isScanning.collectAsState()
+    val hasSearched by viewModel.hasSearched.collectAsState()
     var deviceToConnect by remember { mutableStateOf<BluetoothDevice?>(null) }
 
     val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -70,7 +71,6 @@ fun ConnectScreen(viewModel: MainViewModel, onNavigateToDashboard: () -> Unit, m
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.stopScan()
-                    isScanning = false
                     viewModel.connect(deviceToConnect!!)
                     deviceToConnect = null
                     onNavigateToDashboard()
@@ -81,7 +81,6 @@ fun ConnectScreen(viewModel: MainViewModel, onNavigateToDashboard: () -> Unit, m
             dismissButton = {
                 TextButton(onClick = {
                     viewModel.stopScan()
-                    isScanning = false
                     viewModel.connectBms(deviceToConnect!!)
                     deviceToConnect = null
                     onNavigateToDashboard()
@@ -118,20 +117,17 @@ fun ConnectScreen(viewModel: MainViewModel, onNavigateToDashboard: () -> Unit, m
         Button(
             onClick = {
                 if (permissionState.allPermissionsGranted) {
-                    hasSearched = true
                     if (isScanning) {
                         viewModel.stopScan()
-                        isScanning = false
                     } else {
                         viewModel.startScan()
-                        isScanning = true
                     }
                 } else {
                     permissionState.launchMultiplePermissionRequest()
                 }
             },
             modifier = Modifier.fillMaxWidth().height(56.dp),
-            shape = RoundedCornerShape(16.dp)
+            shape = bezierPillShape()
         ) {
             Text(if (isScanning) "停止搜索" else "搜索附近的控制器", fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
@@ -143,7 +139,7 @@ fun ConnectScreen(viewModel: MainViewModel, onNavigateToDashboard: () -> Unit, m
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(bottom = 24.dp)
-                    .border(BorderStroke(2.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(16.dp))
+                    .border(BorderStroke(2.dp, MaterialTheme.colorScheme.outlineVariant), bezierRoundedShape(16.dp))
                     .padding(12.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -168,7 +164,7 @@ fun ConnectScreen(viewModel: MainViewModel, onNavigateToDashboard: () -> Unit, m
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .clip(bezierRoundedShape(12.dp))
                                     .background(MaterialTheme.colorScheme.surfaceVariant)
                                     .clickable {
                                         deviceToConnect = device
@@ -192,7 +188,7 @@ fun ConnectScreen(viewModel: MainViewModel, onNavigateToDashboard: () -> Unit, m
                                 }
                                 Button(onClick = { 
                                     deviceToConnect = device
-                                }, shape = RoundedCornerShape(8.dp)) {
+                                }, shape = bezierPillShape()) {
                                     Text("连接")
                                 }
                             }

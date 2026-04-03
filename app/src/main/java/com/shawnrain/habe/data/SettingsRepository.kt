@@ -2,10 +2,12 @@ package com.shawnrain.habe.data
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.shawnrain.habe.debug.AppLogLevel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flatMapLatest
@@ -50,6 +52,8 @@ class SettingsRepository(private val context: Context) {
         const val K_SPEED_SRC = "speed_src"
         const val K_BATT_SRC = "batt_src"
         const val K_DASH_ITEMS = "dash_items"
+        val LOG_LEVEL = stringPreferencesKey("log_level")
+        val OVERLAY_ENABLED = booleanPreferencesKey("overlay_enabled")
     }
 
     val currentVehicleId: Flow<String> = context.dataStore.data.map { it[CURRENT_VEHICLE_ID] ?: "default" }
@@ -97,6 +101,14 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
+    val logLevel: Flow<AppLogLevel> = context.dataStore.data.map { pref ->
+        AppLogLevel.fromName(pref[LOG_LEVEL])
+    }
+
+    val overlayEnabled: Flow<Boolean> = context.dataStore.data.map { pref ->
+        pref[OVERLAY_ENABLED] ?: false
+    }
+
     suspend fun saveCurrentVehicleId(id: String) = context.dataStore.edit { it[CURRENT_VEHICLE_ID] = id }
 
     suspend fun saveWheelCircumference(value: Float) {
@@ -127,5 +139,13 @@ class SettingsRepository(private val context: Context) {
     suspend fun saveDashboardItems(items: List<MetricType>) {
         val id = currentVehicleId.first()
         context.dataStore.edit { it[vKey(id, K_DASH_ITEMS)] = items.joinToString(",") { it.name } }
+    }
+
+    suspend fun saveLogLevel(level: AppLogLevel) {
+        context.dataStore.edit { it[LOG_LEVEL] = level.name }
+    }
+
+    suspend fun saveOverlayEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[OVERLAY_ENABLED] = enabled }
     }
 }

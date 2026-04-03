@@ -2,7 +2,6 @@ package com.shawnrain.habe.ui.speedtest
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material3.*
@@ -13,6 +12,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.shawnrain.habe.MainViewModel
+import com.shawnrain.habe.ui.theme.bezierPillShape
+import com.shawnrain.habe.ui.theme.bezierRoundedShape
 
 @Composable
 fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
@@ -64,7 +65,7 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         Card(
             modifier = Modifier.fillMaxWidth().height(150.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            shape = RoundedCornerShape(24.dp)
+            shape = bezierRoundedShape(24.dp)
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -88,7 +89,8 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                     currentRecord = "测试中..."
                 }
             },
-            modifier = Modifier.fillMaxWidth().height(56.dp)
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = bezierPillShape()
         ) {
             Text(if (isTesting) "停止测试" else "准备起步")
         }

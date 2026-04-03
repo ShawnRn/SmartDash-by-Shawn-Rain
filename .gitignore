@@ -1,36 +1,40 @@
-# Android & Gradle
-.gradle/
-build/
-app/build/
-.kotlin/
-.cxx/
-.externalNativeBuild/
-
-# IDE Settings
-.idea/
-*.iml
-*.ipr
-*.iws
-.idea/workspace.xml
-.idea/libraries/
-.idea/modules.xml
-.idea/navEditor.xml
-.idea/assetWizardSettings.xml
-
-# Local files
-local.properties
-captures/
+# Android default
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
 .DS_Store
+/build
+/app/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
 
-# Logs
+# Mini-program source (Reverse Engineering)
+zhike_source/
+zhike_unpacked/
+habe_miniprogram/
+__APP__.wxapkg
+*.wxapkg
+
+# Compiled APKs
+/Habe Dashboard-v*.apk
+/Habe Dashboard-latest.apk
+app/build/outputs/apk/debug/*.apk
+
+# Temporary files
+/tmp/
 *.log
 
-# APK/Bundle
-*.apk
-*.aab
-/app/*.apk
+# Local agent assets and generated workflow artifacts
+.agent/
+.agents/logs/
+.agents/artifacts/
 
-# Keys/Secrets
-*.jks
-*.keystore
-/app/google-services.json
+# Local reverse-engineering / helper tools
+tools/unveilr/

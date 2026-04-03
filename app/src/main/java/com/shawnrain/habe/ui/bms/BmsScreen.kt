@@ -3,7 +3,6 @@ package com.shawnrain.habe.ui.bms
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -18,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.shawnrain.habe.MainViewModel
+import com.shawnrain.habe.ui.theme.bezierRoundedShape
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -96,7 +96,7 @@ fun BmsScreen(viewModel: MainViewModel, onBack: () -> Unit, modifier: Modifier =
 fun CellCard(index: Int, voltage: Float) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        shape = RoundedCornerShape(8.dp),
+        shape = bezierRoundedShape(8.dp),
         modifier = Modifier.width(70.dp)
     ) {
         Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -116,7 +116,7 @@ fun StatusRow(label: String, isOn: Boolean) {
         Text(label, style = MaterialTheme.typography.bodyMedium)
         Surface(
             color = if (isOn) Color(0xFF10B981).copy(alpha = 0.2f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
-            shape = RoundedCornerShape(12.dp)
+            shape = bezierRoundedShape(12.dp)
         ) {
             Text(
                 text = if (isOn) "开启" else "关闭",
@@ -132,7 +132,7 @@ fun StatusRow(label: String, isOn: Boolean) {
 fun InfoCard(title: String, value: String, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
+            .clip(bezierRoundedShape(16.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(16.dp)
     ) {

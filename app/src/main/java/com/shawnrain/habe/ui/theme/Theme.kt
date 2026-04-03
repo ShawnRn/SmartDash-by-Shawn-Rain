@@ -4,6 +4,7 @@ import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -15,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import androidx.compose.ui.unit.dp
 
 private val DarkColorScheme = darkColorScheme(
     primary = Color(0xFFD0BCFF),
@@ -26,6 +28,14 @@ private val LightColorScheme = lightColorScheme(
     primary = Color(0xFF6650a4),
     secondary = Color(0xFF625b71),
     tertiary = Color(0xFF7D5260)
+)
+
+private val HabeShapes = Shapes(
+    extraSmall = BezierRoundedShape(14.dp),
+    small = BezierRoundedShape(20.dp),
+    medium = BezierRoundedShape(26.dp),
+    large = BezierRoundedShape(34.dp),
+    extraLarge = BezierRoundedShape(42.dp)
 )
 
 @Composable
@@ -52,6 +62,7 @@ fun HabeTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
+        shapes = HabeShapes,
         content = content
     )
 }

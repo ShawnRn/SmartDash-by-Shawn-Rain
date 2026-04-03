@@ -4,6 +4,8 @@ import com.shawnrain.habe.ble.protocols.AptProtocol
 import com.shawnrain.habe.ble.protocols.ControllerProtocol
 import com.shawnrain.habe.ble.protocols.YuanquProtocol
 import com.shawnrain.habe.ble.protocols.ZhikeProtocol
+import com.shawnrain.habe.ble.protocols.ZhikeSettings
+import com.shawnrain.habe.debug.AppLogger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,13 +24,20 @@ data class VehicleMetrics(
     val totalPowerW: Float = 0f,
     val motorTemp: Float = 0f,
     val mosfetTemp: Float = 0f,
+    val controllerTemp: Float = 0f,
     val soc: Float = 0f,
     val rpm: Float = 0f,
     val tripDistance: Double = 0.0,
-    val efficiencyWhKm: Float = 0f
+    val efficiencyWhKm: Float = 0f,
+    val avgEfficiencyWhKm: Float = 0f,
+    val faultCode: Int = 0,
+    val isBraking: Boolean = false,
+    val isCruise: Boolean = false,
+    val isReverse: Boolean = false
 )
 
 object ProtocolParser {
+    private const val TAG = "ProtocolParser"
 
     private val protocols = listOf(
         ZhikeProtocol(),
@@ -36,13 +45,20 @@ object ProtocolParser {
         YuanquProtocol()
     )
 
+    private val _activeProtocolId = MutableStateFlow<String?>(null)
+    val activeProtocolId: StateFlow<String?> = _activeProtocolId.asStateFlow()
+
     private var activeProtocol: ControllerProtocol? = null
+    fun getActiveProtocolId(): String? = activeProtocolId.value
 
     private val _metrics = MutableStateFlow(VehicleMetrics())
     val metrics: StateFlow<VehicleMetrics> = _metrics.asStateFlow()
 
     private val _autoConfigUpdates = MutableSharedFlow<Pair<String, Int>>(extraBufferCapacity = 10)
     val autoConfigUpdates: SharedFlow<Pair<String, Int>> = _autoConfigUpdates.asSharedFlow()
+
+    private val _zhikeSettings = MutableSharedFlow<ZhikeSettings>(extraBufferCapacity = 1)
+    val zhikeSettings: SharedFlow<ZhikeSettings> = _zhikeSettings.asSharedFlow()
 
     private val _activeProtocolLabel = MutableStateFlow("未识别")
     val activeProtocolLabel: StateFlow<String> = _activeProtocolLabel.asStateFlow()
@@ -57,11 +73,15 @@ object ProtocolParser {
         val best = scored.firstOrNull()
         if (best != null && best.second > 0.1f) {
             activeProtocol = best.first
+            _activeProtocolId.value = best.first.id
             _activeProtocolLabel.value = best.first.label
             activeProtocol?.resetState()
+            AppLogger.i(TAG, "协议匹配 ${best.first.id} score=${"%.2f".format(best.second)} device=$deviceName")
         } else {
             activeProtocol = null
+            _activeProtocolId.value = null
             _activeProtocolLabel.value = "通用协议"
+            AppLogger.w(TAG, "未识别具体协议，回退到通用解析 device=$deviceName")
         }
     }
 
@@ -75,8 +95,13 @@ object ProtocolParser {
                 emit = { _metrics.value = it },
                 onConfigChange = { _autoConfigUpdates.tryEmit(it) }
             )
-            // Note: We don't return here if we want to allow overlapping parsers, 
-            // but usually a controller has only one protocol.
+
+            if (protocol is ZhikeProtocol) {
+                protocol.consumePendingSettings()?.let { settings ->
+                    AppLogger.i(TAG, "收到智科参数快照 polePairs=${settings.polePairs} busCurrent=${settings.busCurrent}")
+                    _zhikeSettings.tryEmit(settings)
+                }
+            }
             return 
         }
 

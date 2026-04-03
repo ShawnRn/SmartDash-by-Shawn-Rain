@@ -9,7 +9,7 @@ STAMP="$(timestamp)"
 LOG_FILE="$LOG_DIR/build-debug-$STAMP.log"
 ARCHIVE_APK="$ARTIFACT_DIR/habe-debug-$STAMP.apk"
 
-run_gradle_logged "$LOG_FILE" :app:assembleDebug
+run_gradle_logged_with_dex_retry "$LOG_FILE" debug :app:assembleDebug
 
 grep "BUILD SUCCESSFUL" "$LOG_FILE" >/dev/null
 test -f "$APK_PATH"

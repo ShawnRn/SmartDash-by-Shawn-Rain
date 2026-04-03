@@ -1,6 +1,8 @@
 package com.shawnrain.habe.ui.dashboard
 
+import android.app.Activity
 import android.content.res.Configuration
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -12,12 +14,15 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Navigation
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,33 +31,68 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.core.view.WindowCompat
 import com.shawnrain.habe.MainViewModel
 import com.shawnrain.habe.ble.VehicleMetrics
 import com.shawnrain.habe.data.MetricType
+import com.shawnrain.habe.debug.AppLogger
+import com.shawnrain.habe.ui.theme.bezierPillShape
 import com.shawnrain.habe.ui.theme.bezierRoundedShape
 import androidx.compose.ui.zIndex
+import kotlin.math.abs
+import kotlin.math.roundToInt
+
+private const val DRAG_LOG_TAG = "DashboardDrag"
+
+private fun Offset.toLogString(): String = "(%.1f, %.1f)".format(x, y)
+
+private fun Rect.toLogString(): String = "[l=%.1f t=%.1f r=%.1f b=%.1f]".format(left, top, right, bottom)
+
+private fun shouldSwapWithTarget(
+    draggedCenter: Offset,
+    currentBounds: Rect,
+    targetBounds: Rect
+): Boolean {
+    val deltaX = targetBounds.center.x - currentBounds.center.x
+    val deltaY = targetBounds.center.y - currentBounds.center.y
+    return if (abs(deltaX) >= abs(deltaY)) {
+        val midpointX = (currentBounds.center.x + targetBounds.center.x) / 2f
+        if (deltaX > 0f) draggedCenter.x >= midpointX else draggedCenter.x <= midpointX
+    } else {
+        val midpointY = (currentBounds.center.y + targetBounds.center.y) / 2f
+        if (deltaY > 0f) draggedCenter.y >= midpointY else draggedCenter.y <= midpointY
+    }
+}
 
 fun formatMetricValue(type: MetricType, metrics: VehicleMetrics): String {
     return when (type) {
         MetricType.VOLTAGE -> String.format("%.1f", metrics.voltage)
+        MetricType.VOLTAGE_SAG -> String.format("%.1f", metrics.voltageSag)
         MetricType.BUS_CURRENT -> String.format("%.1f", metrics.busCurrent)
         MetricType.PHASE_CURRENT -> String.format("%.1f", metrics.phaseCurrent)
         MetricType.POWER -> String.format("%.1f", metrics.totalPowerW / 1000)
-        MetricType.TEMP -> String.format("%.1f", metrics.motorTemp)
+        MetricType.TEMP -> String.format("%.1f", metrics.controllerTemp)
         MetricType.SOC -> String.format("%.0f", metrics.soc)
         MetricType.RPM -> String.format("%.0f", metrics.rpm)
         MetricType.EFFICIENCY -> String.format("%.1f", metrics.efficiencyWhKm)
@@ -67,14 +107,26 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val config = LocalConfiguration.current
     val isLandscape = config.orientation == Configuration.ORIENTATION_LANDSCAPE
     val dashboardItems by viewModel.dashboardItems.collectAsState()
-    val isDrivingMode by viewModel.isDrivingMode.collectAsState()
     val haptic = LocalHapticFeedback.current
     val view = LocalView.current
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
 
     var isEditMode by remember { mutableStateOf(false) }
     var showAddPicker by remember { mutableStateOf(false) }
     var draggingItem by remember { mutableStateOf<MetricType?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
+    var dragStartBounds by remember { mutableStateOf<Rect?>(null) }
+    var lastReorderHapticAt by remember { mutableLongStateOf(0L) }
+    val itemBounds = remember { mutableStateMapOf<MetricType, Rect>() }
+    val displayedDashboardItems = remember { mutableStateListOf<MetricType>() }
+
+    LaunchedEffect(dashboardItems, draggingItem) {
+        if (draggingItem == null) {
+            displayedDashboardItems.clear()
+            displayedDashboardItems.addAll(dashboardItems)
+        }
+    }
 
     val isRegen = metrics.busCurrent < 0
     val ringColor = if (isRegen) Color(0xFF10B981) else MaterialTheme.colorScheme.primary
@@ -89,16 +141,20 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         }
     }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "shake")
-    val angle by infiniteTransition.animateFloat(
-        initialValue = -1.5f,
-        targetValue = 1.5f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(120, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "shake_angle"
-    )
+    val angle = if (isEditMode) {
+        val infiniteTransition = rememberInfiniteTransition(label = "shake")
+        infiniteTransition.animateFloat(
+            initialValue = -1.5f,
+            targetValue = 1.5f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(120, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "shake_angle"
+        ).value
+    } else {
+        0f
+    }
 
     if (isEditMode) {
         BackHandler {
@@ -113,27 +169,34 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         }
     }
 
+    DisposableEffect(isLandscape, activity, view) {
+        val window = activity?.window
+        val controller = window?.let { WindowCompat.getInsetsController(it, view) }
+        if (controller != null) {
+            controller.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (isLandscape) {
+                controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            } else {
+                controller.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            }
+        }
+        onDispose {
+            controller?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        val uniqueDashboardItems = dashboardItems.distinct()
-
         if (!isLandscape) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp)
-                    .pointerInput(isEditMode) {
-                        if (!isEditMode) {
-                            detectTapGestures(onLongPress = {
-                                isEditMode = true
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            })
-                        }
-                    },
+                    .padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp)
@@ -141,11 +204,16 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                 // Header
                 item(span = { GridItemSpan(2) }) {
                     val activeProtocol by viewModel.activeProtocolLabel.collectAsState()
+                    val isRideActive by viewModel.isRideActive.collectAsState()
+                    val rideDirectionLabel by viewModel.rideDirectionLabel.collectAsState()
                     DashboardTopSection(
                         isEditMode = isEditMode,
                         activeProtocol = activeProtocol,
+                        isRideActive = isRideActive,
+                        rideDirectionLabel = rideDirectionLabel,
                         onEditModeToggle = { isEditMode = it },
-                        onAddClick = { showAddPicker = true }
+                        onAddClick = { showAddPicker = true },
+                        onRideToggle = { viewModel.toggleRideTracking() }
                     )
                 }
                 
@@ -157,27 +225,43 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                 }
 
                 dashboardItemsGridContent(
-                    items = uniqueDashboardItems,
+                    items = displayedDashboardItems,
                     metrics = metrics,
                     isEditMode = isEditMode,
                     draggingItem = draggingItem,
-                    dragOffset = dragOffset,
                     shakeAngle = angle,
                     onMove = { from, to -> 
+                        val moved = displayedDashboardItems.removeAt(from)
+                        displayedDashboardItems.add(to, moved)
                         viewModel.moveDashboardItem(from, to)
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        val now = SystemClock.elapsedRealtime()
+                        if (now - lastReorderHapticAt >= 110L) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            lastReorderHapticAt = now
+                        }
                     },
-                    onRemove = { idx -> viewModel.removeDashboardItem(idx) },
+                    onRemove = { idx ->
+                        displayedDashboardItems.removeAt(idx)
+                        viewModel.removeDashboardItem(idx)
+                    },
+                    onEnterEditMode = {
+                        if (!isEditMode) {
+                            isEditMode = true
+                        }
+                    },
                     onDragStart = { type -> 
                         draggingItem = type
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        dragOffset = Offset.Zero
+                        dragStartBounds = itemBounds[type]
+                        lastReorderHapticAt = 0L
                     },
                     onDrag = { offset -> dragOffset += offset },
-                    onAdjustOffset = { adjustment -> dragOffset += adjustment },
                     onDragEnd = {
                         draggingItem = null
                         dragOffset = Offset.Zero
-                    }
+                        dragStartBounds = null
+                    },
+                    itemBounds = itemBounds
                 )
             }
         } else {
@@ -188,16 +272,11 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             )
         }
 
-        // Immersive Driving Mode Overlay
-        if (isDrivingMode) {
-            ImmersiveDrivingView(metrics = metrics, items = uniqueDashboardItems)
-        }
-
         if (showAddPicker) {
             ModalBottomSheet(onDismissRequest = { showAddPicker = false }) {
                 Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
                     Text("添加数据模块", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 16.dp))
-                    val available = MetricType.entries.filter { it !in uniqueDashboardItems }
+                    val available = MetricType.entries.filter { it !in displayedDashboardItems }
                     if (available.isEmpty()) {
                         Text("所有支持的数据模块均已添加", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
                     } else {
@@ -206,6 +285,7 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                                 headlineContent = { Text(type.title) },
                                 modifier = Modifier.clickable {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    displayedDashboardItems.add(type)
                                     viewModel.addDashboardItem(type)
                                     showAddPicker = false
                                 }
@@ -222,6 +302,34 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
         )
+
+        val draggedType = draggingItem
+        val startBounds = dragStartBounds
+        if (draggedType != null && startBounds != null) {
+            StatCardWrap(
+                metrics = metrics,
+                type = draggedType,
+                isEditMode = false,
+                shakeAngle = 0f,
+                onRemove = {},
+                modifier = Modifier
+                    .zIndex(10f)
+                    .offset {
+                        IntOffset(
+                            (startBounds.left + dragOffset.x).roundToInt(),
+                            (startBounds.top + dragOffset.y).roundToInt()
+                        )
+                    }
+                    .width(with(LocalDensity.current) { startBounds.width.toDp() })
+                    .height(with(LocalDensity.current) { startBounds.height.toDp() })
+                    .graphicsLayer {
+                        scaleX = 1f
+                        scaleY = 1f
+                        alpha = 1f
+                        shadowElevation = 16f
+                    }
+            )
+        }
     }
 }
 
@@ -248,11 +356,21 @@ private fun LandscapeDashboardFocus(
 private fun DashboardTopSection(
     isEditMode: Boolean,
     activeProtocol: String,
+    isRideActive: Boolean,
+    rideDirectionLabel: String,
     onEditModeToggle: (Boolean) -> Unit,
-    onAddClick: () -> Unit
+    onAddClick: () -> Unit,
+    onRideToggle: () -> Unit
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-        DashboardHeader(isEditMode = isEditMode, onEditModeToggle = onEditModeToggle, onAddClick = onAddClick)
+        DashboardHeader(
+            isEditMode = isEditMode,
+            isRideActive = isRideActive,
+            rideDirectionLabel = rideDirectionLabel,
+            onEditModeToggle = onEditModeToggle,
+            onAddClick = onAddClick,
+            onRideToggle = onRideToggle
+        )
         Surface(
             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
             shape = bezierRoundedShape(12.dp),
@@ -273,19 +391,18 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.dashboardItemsGr
     metrics: VehicleMetrics,
     isEditMode: Boolean,
     draggingItem: MetricType?,
-    dragOffset: Offset,
     shakeAngle: Float,
     onMove: (Int, Int) -> Unit,
     onRemove: (Int) -> Unit,
+    onEnterEditMode: () -> Unit,
     onDragStart: (MetricType) -> Unit,
     onDrag: (Offset) -> Unit,
-    onAdjustOffset: (Offset) -> Unit,
-    onDragEnd: () -> Unit
+    onDragEnd: () -> Unit,
+    itemBounds: MutableMap<MetricType, Rect>
 ) {
     itemsIndexed(items, key = { _, type -> type.name }) { index, type ->
         val isDragging = draggingItem == type
         val shake = if (isEditMode && !isDragging) shakeAngle else 0f
-        val density = androidx.compose.ui.platform.LocalDensity.current
         
         StatCardWrap(
             metrics = metrics,
@@ -294,80 +411,180 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.dashboardItemsGr
             shakeAngle = shake,
             onRemove = { onRemove(index) },
             modifier = Modifier
-                .animateItem()
-                .zIndex(if (isDragging) 1f else 0f)
+                .then(if (isDragging) Modifier else Modifier.animateItem())
                 .graphicsLayer {
                     if (isDragging) {
-                        scaleX = 1.05f
-                        scaleY = 1.05f
-                        alpha = 0.9f
-                        translationX = dragOffset.x
-                        translationY = dragOffset.y
+                        alpha = 0f
                     }
                 }
-                .pointerInput(isEditMode, type) {
-                    if (isEditMode) {
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = { onDragStart(type) },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                onDrag(dragAmount)
-                                
-                                // Precise Grid Metrics in Pixels
-                                val spacingPx = with(density) { 8.dp.toPx() }
-                                val fullW = size.width.toFloat() + spacingPx
-                                val fullH = size.height.toFloat() + spacingPx
-                                
-                                // X Swap (Left/Right)
-                                if (dragOffset.x > fullW * 0.5f && index % 2 == 0 && index + 1 < items.size) {
-                                    onMove(index, index + 1)
-                                    onAdjustOffset(Offset(-fullW, 0f))
-                                } else if (dragOffset.x < -fullW * 0.5f && index % 2 == 1) {
-                                    onMove(index, index - 1)
-                                    onAdjustOffset(Offset(fullW, 0f))
-                                }
-                                
-                                // Y Swap (Up/Down)
-                                if (dragOffset.y > fullH * 0.5f && index + 2 < items.size) {
-                                    onMove(index, index + 2)
-                                    onAdjustOffset(Offset(0f, -fullH))
-                                } else if (dragOffset.y < -fullH * 0.5f && index - 2 >= 0) {
-                                    onMove(index, index - 2)
-                                    onAdjustOffset(Offset(0f, fullH))
-                                }
-                            },
-                            onDragEnd = onDragEnd
-                        )
-                    }
+                .onGloballyPositioned { coordinates ->
+                    itemBounds[type] = coordinates.boundsInRoot()
+                }
+                .pointerInput(type) {
+                    var localDragOffset = Offset.Zero
+                    var dragAnchorBounds: Rect? = null
+                    var lastMoveLogAt = 0L
+                    var lastLoggedTargetIndex = -1
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = {
+                            localDragOffset = Offset.Zero
+                            dragAnchorBounds = itemBounds[type]
+                            lastMoveLogAt = 0L
+                            lastLoggedTargetIndex = -1
+                            AppLogger.i(
+                                DRAG_LOG_TAG,
+                                "drag_start type=${type.name} startIndex=$index anchor=${dragAnchorBounds?.toLogString() ?: "null"}"
+                            )
+                            onDragStart(type)
+                            onEnterEditMode()
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            localDragOffset += dragAmount
+                            onDrag(dragAmount)
+
+                            val currentItems = items
+                            val currentIndex = currentItems.indexOf(type)
+                            if (currentIndex == -1) return@detectDragGesturesAfterLongPress
+                            val sourceBounds = dragAnchorBounds ?: return@detectDragGesturesAfterLongPress
+                            val currentBounds = itemBounds[type] ?: sourceBounds
+                            val floatingRect = Rect(
+                                offset = Offset(
+                                    x = sourceBounds.left + localDragOffset.x,
+                                    y = sourceBounds.top + localDragOffset.y
+                                ),
+                                size = sourceBounds.size
+                            )
+                            val draggedCenter = Offset(
+                                x = sourceBounds.center.x + localDragOffset.x,
+                                y = sourceBounds.center.y + localDragOffset.y
+                            )
+                            val targetType = currentItems.firstOrNull { candidate ->
+                                candidate != type && itemBounds[candidate]?.contains(draggedCenter) == true
+                            }
+                            val targetIndex = targetType?.let(currentItems::indexOf) ?: -1
+                            val now = SystemClock.elapsedRealtime()
+                            if (now - lastMoveLogAt >= 120L) {
+                                AppLogger.i(
+                                    DRAG_LOG_TAG,
+                                    "drag_move type=${type.name} offset=${localDragOffset.toLogString()} floating=${floatingRect.toLogString()} center=${draggedCenter.toLogString()} current=$currentIndex target=$targetIndex"
+                                )
+                                lastMoveLogAt = now
+                            }
+                            if (targetIndex != lastLoggedTargetIndex) {
+                                AppLogger.i(
+                                    DRAG_LOG_TAG,
+                                    "drag_target type=${type.name} offset=${localDragOffset.toLogString()} floating=${floatingRect.toLogString()} center=${draggedCenter.toLogString()} current=$currentIndex target=$targetIndex"
+                                )
+                                lastLoggedTargetIndex = targetIndex
+                            }
+                            val targetBounds = targetType?.let(itemBounds::get)
+                            val canSwap = targetBounds != null &&
+                                targetIndex != -1 &&
+                                targetIndex != currentIndex &&
+                                shouldSwapWithTarget(
+                                    draggedCenter = draggedCenter,
+                                    currentBounds = currentBounds,
+                                    targetBounds = targetBounds
+                                )
+                            if (canSwap) {
+                                AppLogger.i(
+                                    DRAG_LOG_TAG,
+                                    "drag_reorder type=${type.name} offset=${localDragOffset.toLogString()} floating=${floatingRect.toLogString()} center=${draggedCenter.toLogString()} currentBounds=${currentBounds.toLogString()} targetBounds=${targetBounds.toLogString()} from=$currentIndex to=$targetIndex"
+                                )
+                                onMove(currentIndex, targetIndex)
+                            }
+                        },
+                        onDragEnd = {
+                            AppLogger.i(
+                                DRAG_LOG_TAG,
+                                "drag_end type=${type.name} finalOffset=${localDragOffset.toLogString()} finalAnchor=${dragAnchorBounds?.toLogString() ?: "null"}"
+                            )
+                            onDragEnd()
+                        },
+                        onDragCancel = {
+                            AppLogger.i(
+                                DRAG_LOG_TAG,
+                                "drag_cancel type=${type.name} finalOffset=${localDragOffset.toLogString()} finalAnchor=${dragAnchorBounds?.toLogString() ?: "null"}"
+                            )
+                            onDragEnd()
+                        }
+                    )
                 }
         )
     }
 }
 
 @Composable
-fun DashboardHeader(isEditMode: Boolean, onEditModeToggle: (Boolean) -> Unit, onAddClick: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().height(48.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+fun DashboardHeader(
+    isEditMode: Boolean,
+    isRideActive: Boolean,
+    rideDirectionLabel: String,
+    onEditModeToggle: (Boolean) -> Unit,
+    onAddClick: () -> Unit,
+    onRideToggle: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
     ) {
-        if (isEditMode) {
-            IconButton(onClick = onAddClick) {
-                Icon(Icons.Default.Add, contentDescription = "Add", tint = MaterialTheme.colorScheme.primary)
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (isEditMode) {
+                IconButton(onClick = onAddClick) {
+                    Icon(Icons.Default.Add, contentDescription = "Add", tint = MaterialTheme.colorScheme.primary)
+                }
+            } else {
+                TextButton(
+                    onClick = onRideToggle,
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = if (isRideActive) "结束" else "开始",
+                        color = if (isRideActive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
-        } else {
-            Spacer(modifier = Modifier.size(48.dp))
-        }
-        
-        Text("Habe", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
-        
-        if (isEditMode) {
-            TextButton(onClick = { onEditModeToggle(false) }) {
-                Text("完成", fontWeight = FontWeight.Bold)
+
+            Spacer(modifier = Modifier.width(1.dp))
+
+            if (isEditMode) {
+                TextButton(onClick = { onEditModeToggle(false) }) {
+                    Text("完成", fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Navigation,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = rideDirectionLabel,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                }
             }
-        } else {
-            Spacer(modifier = Modifier.size(48.dp))
         }
+
+        Text(
+            "Habe",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.Center)
+        )
     }
 }
 
@@ -401,11 +618,14 @@ fun StatCardWrap(
             Column(horizontalAlignment = Alignment.Start) {
                 Text(text = type.title, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(modifier = Modifier.height(6.dp))
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(text = valueStr, color = MaterialTheme.colorScheme.onSurface, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(text = type.unit, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, modifier = Modifier.padding(bottom = 3.dp))
-                }
+                BaselineMetricValue(
+                    value = valueStr,
+                    unit = type.unit,
+                    valueColor = MaterialTheme.colorScheme.onSurface,
+                    unitColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    valueFontSize = 24.sp,
+                    unitFontSize = 12.sp
+                )
             }
         }
 
@@ -413,14 +633,14 @@ fun StatCardWrap(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .offset(x = 8.dp, y = (-8).dp)
-                    .size(28.dp)
-                    .clip(bezierRoundedShape(14.dp))
-                    .background(Color.Red)
+                    .padding(8.dp)
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFB77A81))
                     .clickable { onRemove() },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Remove, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(16.dp))
             }
         }
     }
@@ -467,18 +687,19 @@ fun SquareSpeedIndicator(metrics: VehicleMetrics, color: Color) {
                 modifier = Modifier.weight(1.5f), // Slightly more weight for speed
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = String.format("%.1f", metrics.speedKmH),
-                    fontSize = 68.sp, // Larger speed
-                    fontWeight = FontWeight.Black,
-                    color = color,
-                    lineHeight = 68.sp
-                )
-                Text(
-                    text = "km/h",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                BaselineMetricValue(
+                    value = String.format("%.0f", metrics.speedKmH),
+                    unit = "",
+                    valueColor = color,
+                    unitColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    valueFontSize = 68.sp,
+                    unitFontSize = 14.sp,
+                    valueFontWeight = FontWeight.Black,
+                    unitFontWeight = FontWeight.Bold,
+                    valueLineHeight = 68.sp,
+                    horizontalArrangement = Arrangement.Center,
+                    textAlign = TextAlign.Center,
+                    singleLine = true
                 )
             }
 
@@ -501,20 +722,73 @@ fun SquareSpeedIndicator(metrics: VehicleMetrics, color: Color) {
             }
         }
         
-        // Horizontal speed bar at the bottom
-        Box(
+        PowerBalanceBar(
+            powerKw = metrics.totalPowerW / 1000f,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(4.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-        ) {
-            val progress = (metrics.speedKmH / 120f).coerceIn(0f, 1f)
+                .padding(horizontal = 2.dp, vertical = 0.dp)
+                .height(7.dp)
+        )
+    }
+}
+
+@Composable
+private fun PowerBalanceBar(
+    powerKw: Float,
+    modifier: Modifier = Modifier
+) {
+    var positivePeakKw by remember { mutableFloatStateOf(3.5f) }
+    var regenPeakKw by remember { mutableFloatStateOf(1.2f) }
+
+    LaunchedEffect(powerKw) {
+        positivePeakKw = when {
+            powerKw > 0f -> maxOf(positivePeakKw * 0.985f, 3.5f, powerKw * 1.12f)
+            else -> maxOf(positivePeakKw * 0.992f, 3.5f)
+        }
+        regenPeakKw = when {
+            powerKw < 0f -> maxOf(regenPeakKw * 0.985f, 1.2f, abs(powerKw) * 1.18f)
+            else -> maxOf(regenPeakKw * 0.992f, 1.2f)
+        }
+    }
+
+    val targetFraction = when {
+        powerKw > 0f -> (powerKw / positivePeakKw).coerceIn(0f, 1f)
+        powerKw < 0f -> (abs(powerKw) / regenPeakKw).coerceIn(0f, 1f)
+        else -> 0f
+    }
+    val animatedFraction by animateFloatAsState(
+        targetValue = targetFraction,
+        animationSpec = tween(durationMillis = 180),
+        label = "power_balance_fraction"
+    )
+    val isOutput = powerKw >= 0f
+    val hasActivePower = abs(powerKw) >= 0.08f
+
+    Box(
+        modifier = modifier
+            .clip(bezierRoundedShape(999.dp))
+            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f))
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxHeight()
+                .width(1.5.dp)
+                .background(Color.White.copy(alpha = 0.38f))
+        )
+        if (hasActivePower) {
+            val activeColor = powerBarColor(
+                normalizedFraction = animatedFraction,
+                isOutput = isOutput
+            )
             Box(
                 modifier = Modifier
+                    .align(if (isOutput) Alignment.CenterEnd else Alignment.CenterStart)
                     .fillMaxHeight()
-                    .fillMaxWidth(progress)
-                    .background(color)
+                    .fillMaxWidth(0.5f * animatedFraction)
+                    .clip(bezierRoundedShape(999.dp))
+                    .background(activeColor)
             )
         }
     }
@@ -552,19 +826,19 @@ private fun FocusSpeedIndicator(
                 modifier = Modifier.weight(1.8f),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = String.format("%.1f", metrics.speedKmH),
-                    fontSize = 128.sp,
-                    lineHeight = 128.sp,
-                    fontWeight = FontWeight.Black,
-                    color = color,
-                    textAlign = TextAlign.Center
-                )
-                Text(
-                    text = "km/h",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                BaselineMetricValue(
+                    value = String.format("%.0f", metrics.speedKmH),
+                    unit = "",
+                    valueColor = color,
+                    unitColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    valueFontSize = 128.sp,
+                    unitFontSize = 24.sp,
+                    valueFontWeight = FontWeight.Black,
+                    unitFontWeight = FontWeight.Bold,
+                    valueLineHeight = 128.sp,
+                    horizontalArrangement = Arrangement.Center,
+                    textAlign = TextAlign.Center,
+                    singleLine = true
                 )
             }
 
@@ -575,22 +849,41 @@ private fun FocusSpeedIndicator(
             )
         }
 
-        Box(
+        PowerBalanceBar(
+            powerKw = metrics.totalPowerW / 1000f,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(6.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-        ) {
-            val progress = (metrics.speedKmH / 120f).coerceIn(0f, 1f)
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(progress)
-                    .background(color)
-            )
+                .padding(horizontal = 3.dp, vertical = 0.dp)
+                .height(8.dp)
+        )
+    }
+}
+
+private fun powerBarColor(normalizedFraction: Float, isOutput: Boolean): Color {
+    val fraction = normalizedFraction.coerceIn(0f, 1f)
+    return if (isOutput) {
+        when {
+            fraction < 0.33f -> blendColor(Color(0xFFD4BF7A), Color(0xFFD6A86A), fraction / 0.33f)
+            fraction < 0.66f -> blendColor(Color(0xFFD6A86A), Color(0xFFCC8968), (fraction - 0.33f) / 0.33f)
+            else -> blendColor(Color(0xFFCC8968), Color(0xFFBA6F68), (fraction - 0.66f) / 0.34f)
+        }
+    } else {
+        when {
+            fraction < 0.5f -> blendColor(Color(0xFF7EA68E), Color(0xFF9DAA73), fraction / 0.5f)
+            else -> blendColor(Color(0xFF9DAA73), Color(0xFFC1A06A), (fraction - 0.5f) / 0.5f)
         }
     }
+}
+
+private fun blendColor(start: Color, end: Color, fraction: Float): Color {
+    val t = fraction.coerceIn(0f, 1f)
+    return Color(
+        red = start.red + (end.red - start.red) * t,
+        green = start.green + (end.green - start.green) * t,
+        blue = start.blue + (end.blue - start.blue) * t,
+        alpha = start.alpha + (end.alpha - start.alpha) * t
+    )
 }
 
 @Composable
@@ -622,8 +915,27 @@ private fun FocusMetricColumn(
 }
 
 @Composable
-fun ImmersiveDrivingView(metrics: VehicleMetrics, items: List<MetricType>) {
+fun ImmersiveDrivingView(
+    metrics: VehicleMetrics,
+    items: List<MetricType>,
+    onManualExit: () -> Unit
+) {
     val haptic = LocalHapticFeedback.current
+    val detailItems = remember(items) {
+        val preferredOrder = listOf(
+            MetricType.VOLTAGE,
+            MetricType.BUS_CURRENT,
+            MetricType.PHASE_CURRENT,
+            MetricType.TEMP,
+            MetricType.TRIP_DISTANCE,
+            MetricType.SOC,
+            MetricType.EFFICIENCY,
+            MetricType.RPM
+        )
+        (preferredOrder.filter { it in items } + items.filterNot { it in preferredOrder })
+            .distinct()
+            .take(6)
+    }
 
     Box(
         modifier = Modifier
@@ -639,79 +951,217 @@ fun ImmersiveDrivingView(metrics: VehicleMetrics, items: List<MetricType>) {
         contentAlignment = Alignment.Center
     ) {
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Spacer(modifier = Modifier.height(40.dp))
-            
-            // Massive Speed Display
-            Text(
-                text = String.format("%.0f", metrics.speedKmH),
-                fontSize = 140.sp,
-                fontWeight = FontWeight.Black,
-                color = Color.White,
-                lineHeight = 140.sp
-            )
-            Text(
-                text = "KM/H",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White.copy(alpha = 0.5f)
-            )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // Dynamic grid for ALL items
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                contentPadding = PaddingValues(bottom = 32.dp)
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                items(items.size) { index ->
-                    val type = items[index]
-                    val valueStr = formatMetricValue(type, metrics)
-                    val displayUnit = when (type) {
-                        MetricType.VOLTAGE -> "V"
-                        MetricType.BUS_CURRENT, MetricType.PHASE_CURRENT -> "A"
-                        MetricType.TEMP -> "°C"
-                        MetricType.SOC -> "%"
-                        else -> ""
-                    }
+                BaselineMetricValue(
+                    value = String.format("%.0f", metrics.speedKmH),
+                    unit = "",
+                    valueColor = Color.White,
+                    unitColor = Color.White.copy(alpha = 0.55f),
+                    valueFontSize = 148.sp,
+                    unitFontSize = 22.sp,
+                    valueFontWeight = FontWeight.Black,
+                    unitFontWeight = FontWeight.Bold,
+                    valueLineHeight = 136.sp,
+                    horizontalArrangement = Arrangement.Center,
+                    textAlign = TextAlign.Center,
+                    singleLine = true
+                )
 
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = if (displayUnit.isNotEmpty()) valueStr + displayUnit else valueStr, 
-                            fontSize = 20.sp, 
-                            fontWeight = FontWeight.Bold, 
-                            color = Color.White,
-                            textAlign = TextAlign.Center
-                        )
-                        Text(
-                            text = if (type == MetricType.POWER) "功率(kW)" else type.title, 
-                            fontSize = 11.sp, 
-                            color = Color.White.copy(alpha = 0.5f),
-                            textAlign = TextAlign.Center
-                        )
-                    }
+                Spacer(modifier = Modifier.height(18.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    ImmersiveHighlightCard(
+                        label = "功率",
+                        value = String.format("%.2f", metrics.totalPowerW / 1000f),
+                        unit = "kW",
+                        modifier = Modifier.weight(1f)
+                    )
+                    ImmersiveHighlightCard(
+                        label = "平均能耗",
+                        value = String.format("%.1f", metrics.avgEfficiencyWhKm),
+                        unit = "Wh/km",
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
+
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(detailItems.size) { index ->
+                    ImmersiveMetricTile(
+                        type = detailItems[index],
+                        metrics = metrics
+                    )
+                }
+            }
+
+            Text(
+                text = "驾驶模式 · 静止约 2.5 秒自动退出",
+                color = Color.White.copy(alpha = 0.38f),
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
-        // Lock Hint
         Icon(
             imageVector = Icons.Default.Lock,
             contentDescription = null,
-            tint = Color.White.copy(alpha = 0.2f),
-            modifier = Modifier.align(Alignment.TopEnd).padding(24.dp).size(24.dp)
+            tint = Color.White.copy(alpha = 0.22f),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(20.dp)
+                .size(22.dp)
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onLongPress = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onManualExit()
+                        }
+                    )
+                }
         )
-        
+    }
+}
+
+@Composable
+private fun ImmersiveHighlightCard(
+    label: String,
+    value: String,
+    unit: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        color = Color.White.copy(alpha = 0.06f),
+        shape = bezierRoundedShape(18.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(text = label, style = TextStyle(fontSize = 12.sp), color = Color.White.copy(alpha = 0.56f))
+            Spacer(modifier = Modifier.height(6.dp))
+            BaselineMetricValue(
+                value = value,
+                unit = unit,
+                valueColor = Color.White,
+                unitColor = Color.White.copy(alpha = 0.62f),
+                valueFontSize = 28.sp,
+                unitFontSize = 12.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun ImmersiveMetricTile(
+    type: MetricType,
+    metrics: VehicleMetrics
+) {
+    val value = formatMetricValue(type, metrics)
+    Surface(
+        color = Color.White.copy(alpha = 0.05f),
+        shape = bezierRoundedShape(18.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            BaselineMetricValue(
+                value = value,
+                unit = type.unit,
+                valueColor = Color.White,
+                unitColor = Color.White.copy(alpha = 0.62f),
+                valueFontSize = 22.sp,
+                unitFontSize = 11.sp,
+                horizontalArrangement = Arrangement.Center,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = type.title,
+                fontSize = 11.sp,
+                color = Color.White.copy(alpha = 0.5f),
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+fun BaselineMetricValue(
+    value: String,
+    unit: String,
+    valueColor: Color,
+    unitColor: Color,
+    valueFontSize: androidx.compose.ui.unit.TextUnit,
+    unitFontSize: androidx.compose.ui.unit.TextUnit,
+    modifier: Modifier = Modifier,
+    valueFontWeight: FontWeight = FontWeight.Bold,
+    unitFontWeight: FontWeight = FontWeight.Normal,
+    valueLineHeight: androidx.compose.ui.unit.TextUnit = valueFontSize,
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
+    textAlign: TextAlign? = null,
+    singleLine: Boolean = false,
+    unitSpacing: androidx.compose.ui.unit.Dp = 4.dp
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = horizontalArrangement
+    ) {
         Text(
-            text = "驾驶模式 · 停车自动退出",
-            color = Color.White.copy(alpha = 0.3f),
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
-            fontSize = 10.sp
+            text = value,
+            color = valueColor,
+            fontSize = valueFontSize,
+            fontWeight = valueFontWeight,
+            lineHeight = valueLineHeight,
+            textAlign = textAlign,
+            maxLines = 1,
+            overflow = TextOverflow.Clip,
+            softWrap = !singleLine,
+            modifier = Modifier.alignByBaseline()
         )
+        if (unit.isNotEmpty()) {
+            Spacer(modifier = Modifier.width(unitSpacing))
+            Text(
+                text = unit,
+                color = unitColor,
+                fontSize = unitFontSize,
+                fontWeight = unitFontWeight,
+                textAlign = textAlign,
+                maxLines = 1,
+                overflow = TextOverflow.Visible,
+                modifier = Modifier.alignByBaseline()
+            )
+        }
+    }
+}
+
+private tailrec fun android.content.Context.findActivity(): Activity? {
+    return when (this) {
+        is Activity -> this
+        is android.content.ContextWrapper -> baseContext.findActivity()
+        else -> null
     }
 }

@@ -33,6 +33,7 @@ data class GpsCalibrationState(
 class AutoCalibrator(
     private val scope: CoroutineScope,
     private val gpsSpeedFlow: StateFlow<Float>,
+    private val controllerSpeedFlow: StateFlow<Float>,
     private val metricsRpmFlow: StateFlow<Float>,
     private val polePairsFlow: StateFlow<Int>,
     private val currentCircumferenceFlow: StateFlow<Float>,
@@ -59,7 +60,7 @@ class AutoCalibrator(
     )
 
     private val gpsHistory = ArrayDeque<Float>(STABLE_WINDOW_SAMPLES)
-    private val rpmHistory = ArrayDeque<Float>(STABLE_WINDOW_SAMPLES)
+    private val controllerSpeedHistory = ArrayDeque<Float>(STABLE_WINDOW_SAMPLES)
     private var observingStarted = false
     private var session: Session? = null
 
@@ -72,19 +73,27 @@ class AutoCalibrator(
 
         combine(
             gpsSpeedFlow,
+            controllerSpeedFlow,
             metricsRpmFlow,
             polePairsFlow,
             currentCircumferenceFlow,
             locationFlow
-        ) { gpsSpeed, rpm, polePairs, circumference, location ->
-            CalibrationInputs(gpsSpeed, rpm, polePairs, circumference, location)
+        ) { values ->
+            CalibrationInputs(
+                gpsSpeedKmh = values[0] as Float,
+                controllerSpeedKmh = values[1] as Float,
+                rpm = values[2] as Float,
+                polePairs = values[3] as Int,
+                currentCircumferenceMm = values[4] as Float,
+                location = values[5] as Location?
+            )
         }.onEach(::handleInputs).launchIn(scope)
     }
 
     fun startSession() {
         val now = System.currentTimeMillis()
         gpsHistory.clear()
-        rpmHistory.clear()
+        controllerSpeedHistory.clear()
         session = Session(
             startTs = now,
             lastUpdateTs = now,
@@ -96,7 +105,7 @@ class AutoCalibrator(
     fun stopSession() {
         val currentState = _state.value
         gpsHistory.clear()
-        rpmHistory.clear()
+        controllerSpeedHistory.clear()
         session = null
         _state.value = currentState.copy(
             isRunning = false,
@@ -111,11 +120,13 @@ class AutoCalibrator(
     private fun handleInputs(inputs: CalibrationInputs) {
         val activeSession = session ?: return
         val now = System.currentTimeMillis()
-        val controllerSpeed = calculateControllerSpeed(
-            rpm = inputs.rpm,
-            polePairs = inputs.polePairs,
-            wheelCircumferenceMm = inputs.currentCircumferenceMm
-        )
+        val controllerSpeed = inputs.controllerSpeedKmh
+            .takeIf { it > 0.5f }
+            ?: calculateControllerSpeed(
+                rpm = inputs.rpm,
+                polePairs = inputs.polePairs,
+                wheelCircumferenceMm = inputs.currentCircumferenceMm
+            )
 
         val elapsedSeconds = ((now - activeSession.startTs) / 1000L).toInt().coerceAtLeast(0)
         val deltaSeconds = ((now - activeSession.lastUpdateTs).coerceAtLeast(0L) / 1000f)
@@ -129,8 +140,7 @@ class AutoCalibrator(
 
         val suggestedCircumference = updateStableSuggestion(
             gpsSpeed = inputs.gpsSpeedKmh,
-            rpm = inputs.rpm,
-            polePairs = inputs.polePairs,
+            controllerSpeed = controllerSpeed,
             currentCircumferenceMm = inputs.currentCircumferenceMm,
             activeSession = activeSession
         )
@@ -182,40 +192,38 @@ class AutoCalibrator(
 
     private fun updateStableSuggestion(
         gpsSpeed: Float,
-        rpm: Float,
-        polePairs: Int,
+        controllerSpeed: Float,
         currentCircumferenceMm: Float,
         activeSession: Session
     ): Float? {
-        if (gpsSpeed < MIN_SPEED_KMH || rpm <= 0f || polePairs <= 0 || currentCircumferenceMm <= 0f) {
+        if (gpsSpeed < MIN_SPEED_KMH || controllerSpeed <= 0f || currentCircumferenceMm <= 0f) {
             gpsHistory.clear()
-            rpmHistory.clear()
+            controllerSpeedHistory.clear()
             return averageSuggestion(activeSession.suggestions)
         }
 
         gpsHistory.addLast(gpsSpeed)
-        rpmHistory.addLast(rpm)
+        controllerSpeedHistory.addLast(controllerSpeed)
         if (gpsHistory.size > STABLE_WINDOW_SAMPLES) gpsHistory.removeFirst()
-        if (rpmHistory.size > STABLE_WINDOW_SAMPLES) rpmHistory.removeFirst()
+        if (controllerSpeedHistory.size > STABLE_WINDOW_SAMPLES) controllerSpeedHistory.removeFirst()
 
-        if (gpsHistory.size < STABLE_WINDOW_SAMPLES || rpmHistory.size < STABLE_WINDOW_SAMPLES) {
+        if (gpsHistory.size < STABLE_WINDOW_SAMPLES || controllerSpeedHistory.size < STABLE_WINDOW_SAMPLES) {
             return averageSuggestion(activeSession.suggestions)
         }
 
         val gpsAvg = gpsHistory.average().toFloat()
-        val rpmAvg = rpmHistory.average().toFloat()
-        if (gpsAvg <= 0f || rpmAvg <= 0f) return averageSuggestion(activeSession.suggestions)
+        val controllerAvg = controllerSpeedHistory.average().toFloat()
+        if (gpsAvg <= 0f || controllerAvg <= 0f) return averageSuggestion(activeSession.suggestions)
 
         val gpsJitter = ((gpsHistory.maxOrNull() ?: gpsAvg) - (gpsHistory.minOrNull() ?: gpsAvg)) / gpsAvg
-        val rpmJitter = ((rpmHistory.maxOrNull() ?: rpmAvg) - (rpmHistory.minOrNull() ?: rpmAvg)) / rpmAvg
-        if (gpsJitter >= MAX_JITTER_RATIO || rpmJitter >= MAX_JITTER_RATIO) {
+        val controllerJitter =
+            ((controllerSpeedHistory.maxOrNull() ?: controllerAvg) - (controllerSpeedHistory.minOrNull() ?: controllerAvg)) /
+                controllerAvg
+        if (gpsJitter >= MAX_JITTER_RATIO || controllerJitter >= MAX_JITTER_RATIO) {
             return averageSuggestion(activeSession.suggestions)
         }
 
-        val effectiveRpm = rpmAvg / polePairs
-        if (effectiveRpm <= 0f) return averageSuggestion(activeSession.suggestions)
-
-        val derivedCircumference = (gpsAvg * 1_000_000f) / (effectiveRpm * 60f)
+        val derivedCircumference = currentCircumferenceMm * (gpsAvg / controllerAvg)
         if (derivedCircumference !in 500f..5000f) {
             return averageSuggestion(activeSession.suggestions)
         }
@@ -266,6 +274,7 @@ class AutoCalibrator(
 
     private data class CalibrationInputs(
         val gpsSpeedKmh: Float,
+        val controllerSpeedKmh: Float,
         val rpm: Float,
         val polePairs: Int,
         val currentCircumferenceMm: Float,

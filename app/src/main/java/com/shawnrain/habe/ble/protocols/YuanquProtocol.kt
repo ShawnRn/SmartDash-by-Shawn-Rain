@@ -18,7 +18,9 @@ class YuanquProtocol : ControllerProtocol {
         var s = 0f
         val name = deviceName.uppercase()
         if (name.contains("YUANQU") || name.contains("YQ")) s += 0.7f
-        if (charIds.any { it.contains("ffe1") }) s += 0.3f
+        // FFE1 alone is too common and causes GEKOO/Zhike devices to be misdetected.
+        if (serviceIds.any { it.contains("fff0", ignoreCase = true) || it.contains("ffe5", ignoreCase = true) }) s += 0.2f
+        if (charIds.any { it.contains("ffe4", ignoreCase = true) || it.contains("ffe5", ignoreCase = true) }) s += 0.2f
         return s.coerceIn(0f, 1f)
     }
 

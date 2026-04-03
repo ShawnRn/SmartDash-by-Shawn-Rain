@@ -4,6 +4,10 @@ description: 标准化 Debug APK 构建、校验与归档
 
 本工作流用于生成 Habe Android 的最新 Debug APK，并输出构建日志、APK 路径与 SHA-256。
 
+> [!IMPORTANT]
+> `build-debug.sh` 仅用于本地调试或纯 Debug 环境验证。
+> 如果目标设备上安装的是正式签名版本，请不要用它做覆盖安装，优先改用 `build-dev-release.sh` 或 `build-release.sh`。
+
 ### 1. 运行构建脚本
 // turbo
 ```bash

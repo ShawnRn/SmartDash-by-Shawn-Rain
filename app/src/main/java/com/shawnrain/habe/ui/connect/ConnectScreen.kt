@@ -32,9 +32,18 @@ import androidx.compose.ui.unit.sp
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.MultiplePermissionsState
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
+import com.shawnrain.habe.ble.ConnectionState
 import com.shawnrain.habe.MainViewModel
 import com.shawnrain.habe.ui.theme.bezierPillShape
 import com.shawnrain.habe.ui.theme.bezierRoundedShape
+
+private data class ConnectListItem(
+    val name: String,
+    val address: String,
+    val device: BluetoothDevice?,
+    val isRemembered: Boolean,
+    val isConnected: Boolean
+)
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -42,7 +51,51 @@ fun ConnectScreen(viewModel: MainViewModel, onNavigateToDashboard: () -> Unit, m
     val scannedDevices by viewModel.filteredDevices.collectAsState()
     val isScanning by viewModel.isScanning.collectAsState()
     val hasSearched by viewModel.hasSearched.collectAsState()
+    val connectionState by viewModel.connectionState.collectAsState()
+    val rememberedAddress by viewModel.lastControllerDeviceAddress.collectAsState()
+    val rememberedName by viewModel.lastControllerDeviceName.collectAsState()
     var deviceToConnect by remember { mutableStateOf<BluetoothDevice?>(null) }
+    val connectedDevice = (connectionState as? ConnectionState.Connected)?.device
+    val deviceItems = remember(scannedDevices, rememberedAddress, rememberedName, connectedDevice) {
+        buildList {
+            val merged = linkedMapOf<String, ConnectListItem>()
+
+            connectedDevice?.let { device ->
+                merged[device.address] = ConnectListItem(
+                    name = device.name ?: rememberedName ?: "已连接设备",
+                    address = device.address,
+                    device = device,
+                    isRemembered = device.address == rememberedAddress,
+                    isConnected = true
+                )
+            }
+
+            rememberedAddress?.let { address ->
+                val existing = merged[address]
+                merged[address] = ConnectListItem(
+                    name = rememberedName ?: existing?.name ?: "已保存设备",
+                    address = address,
+                    device = existing?.device ?: scannedDevices.firstOrNull { it.address == address },
+                    isRemembered = true,
+                    isConnected = existing?.isConnected == true
+                )
+            }
+
+            scannedDevices.forEach { device ->
+                val existing = merged[device.address]
+                merged[device.address] = ConnectListItem(
+                    name = device.name ?: existing?.name ?: "未知设备",
+                    address = device.address,
+                    device = device,
+                    isRemembered = existing?.isRemembered == true,
+                    isConnected = existing?.isConnected == true
+                )
+            }
+
+            addAll(merged.values)
+        }
+    }
+    val shouldShowDeviceList = hasSearched || deviceItems.isNotEmpty()
 
     val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         listOf(
@@ -59,15 +112,15 @@ fun ConnectScreen(viewModel: MainViewModel, onNavigateToDashboard: () -> Unit, m
     val permissionState = rememberMultiplePermissionsState(permissions = permissions)
 
     val topPadding by animateDpAsState(
-        targetValue = if (hasSearched) 24.dp else 200.dp,
+        targetValue = if (shouldShowDeviceList) 24.dp else 200.dp,
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow)
     )
 
     if (deviceToConnect != null) {
         AlertDialog(
             onDismissRequest = { deviceToConnect = null },
-            title = { Text("选择设备角色") },
-            text = { Text("您希望将此设备作为主驱动控制器还是独立的 BMS 板连接？") },
+            title = { Text("选择连接方式") },
+            text = { Text("将这个设备连接为主控制器，还是作为独立 BMS 使用？") },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.stopScan()
@@ -85,7 +138,7 @@ fun ConnectScreen(viewModel: MainViewModel, onNavigateToDashboard: () -> Unit, m
                     deviceToConnect = null
                     onNavigateToDashboard()
                 }) {
-                    Text("辅 BMS")
+                    Text("独立 BMS")
                 }
             }
         )
@@ -129,45 +182,57 @@ fun ConnectScreen(viewModel: MainViewModel, onNavigateToDashboard: () -> Unit, m
             modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = bezierPillShape()
         ) {
-            Text(if (isScanning) "停止搜索" else "搜索附近的控制器", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            if (isScanning) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.5.dp,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            } else {
+                Text("搜索附近设备", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
         }
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        AnimatedVisibility(visible = hasSearched, enter = fadeIn()) {
+        AnimatedVisibility(visible = shouldShowDeviceList, enter = fadeIn()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(bottom = 24.dp)
-                    .border(BorderStroke(2.dp, MaterialTheme.colorScheme.outlineVariant), bezierRoundedShape(16.dp))
+                    .border(BorderStroke(2.dp, MaterialTheme.colorScheme.outlineVariant), bezierRoundedShape(24.dp))
                     .padding(12.dp),
                 contentAlignment = Alignment.Center
             ) {
-                if (scannedDevices.isEmpty() && isScanning) {
+                if (deviceItems.isEmpty() && isScanning) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("正在雷达扫描...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("正在扫描附近设备...", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                } else if (scannedDevices.isEmpty() && !isScanning) {
-                    Text("未发现可用控制器阵列", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else if (deviceItems.isEmpty() && !isScanning) {
+                    Text("未发现可连接设备", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(scannedDevices) { device ->
-                            @SuppressLint("MissingPermission")
-                            val deviceName = device.name ?: "Unknown Device"
-                            val deviceAddress = device.address
-
+                        items(deviceItems, key = { it.address }) { item ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(bezierRoundedShape(12.dp))
                                     .background(MaterialTheme.colorScheme.surfaceVariant)
                                     .clickable {
-                                        deviceToConnect = device
+                                        when {
+                                            item.isConnected -> viewModel.disconnect()
+                                            item.device != null -> deviceToConnect = item.device
+                                            item.isRemembered -> {
+                                                viewModel.stopScan()
+                                                viewModel.connectRememberedController()
+                                                onNavigateToDashboard()
+                                            }
+                                        }
                                     }
                                     .padding(16.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -175,21 +240,61 @@ fun ConnectScreen(viewModel: MainViewModel, onNavigateToDashboard: () -> Unit, m
                             ) {
                                 Column {
                                     Text(
-                                        text = deviceName,
+                                        text = item.name,
                                         style = MaterialTheme.typography.titleMedium,
                                         color = MaterialTheme.colorScheme.onSurface,
                                         fontWeight = FontWeight.Bold
                                     )
+                                    if (item.isRemembered) {
+                                        Text(
+                                            text = if (item.isConnected) "已连接设备" else "已保存设备",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                     Text(
-                                        text = deviceAddress,
+                                        text = item.address,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                Button(onClick = { 
-                                    deviceToConnect = device
-                                }, shape = bezierPillShape()) {
-                                    Text("连接")
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (item.isRemembered) {
+                                        OutlinedButton(
+                                            onClick = { viewModel.forgetRememberedController() },
+                                            shape = bezierPillShape(),
+                                            colors = ButtonDefaults.outlinedButtonColors(
+                                                contentColor = MaterialTheme.colorScheme.error
+                                            ),
+                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.55f))
+                                        ) {
+                                            Text("忘记")
+                                        }
+                                    }
+                                    Button(
+                                        onClick = {
+                                            when {
+                                                item.isConnected -> viewModel.disconnect()
+                                                item.device != null -> deviceToConnect = item.device
+                                                item.isRemembered -> {
+                                                    viewModel.stopScan()
+                                                    viewModel.connectRememberedController()
+                                                    onNavigateToDashboard()
+                                                }
+                                            }
+                                        },
+                                        shape = bezierPillShape(),
+                                        colors = if (item.isConnected) {
+                                            ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                        } else {
+                                            ButtonDefaults.buttonColors()
+                                        }
+                                    ) {
+                                        Text(if (item.isConnected) "断开" else "连接")
+                                    }
                                 }
                             }
                         }

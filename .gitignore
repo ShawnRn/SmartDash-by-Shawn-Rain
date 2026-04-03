@@ -1,5 +1,6 @@
 # Android default
 .gradle
+.kotlin/
 /local.properties
 /.idea/caches
 /.idea/libraries
@@ -26,6 +27,16 @@ __APP__.wxapkg
 /Habe Dashboard-v*.apk
 /Habe Dashboard-latest.apk
 app/build/outputs/apk/debug/*.apk
+app/build/outputs/apk/release/*.apk
+
+# Signing materials must stay local / iCloud only, never GitHub
+*.jks
+*.keystore
+*.p12
+signing.properties
+keystore.properties
+.env
+.env.*
 
 # Temporary files
 /tmp/

@@ -1,7 +1,10 @@
 package com.shawnrain.habe.ble.protocols
 
+import android.os.SystemClock
 import com.shawnrain.habe.ble.VehicleMetrics
-import android.util.Log
+import com.shawnrain.habe.debug.AppLogger
+import java.util.Locale
+import kotlin.math.abs
 
 // Settings Data Model based on GEKOO Protocol
 data class ZhikeSettings(
@@ -17,6 +20,7 @@ data class ZhikeSettings(
     var weakMagCurrent: Int = 0,    // Word 21
     var regenCurrent: Int = 10,     // Word 23
     var bluetoothPassword: Int = 8888, // Word 60
+    var speedCoefficient: Int = 0,
     var loadedFromController: Boolean = false,
     var rawWords: IntArray = IntArray(64) // Keep raw data for unmapped fields
 )
@@ -27,17 +31,21 @@ class ZhikeProtocol : ControllerProtocol {
 
     private var buffer = ByteArray(0)
     private var pendingSettings: ZhikeSettings? = null
+    private var lastRealtimeMetrics: VehicleMetrics? = null
+    private var lastRealtimeAtMs: Long = 0L
     
     companion object {
         private const val TAG = "ZhikeProtocol"
         private const val FRAME_HEADER = 0xAA.toByte()
         private const val CMD_REALTIME = 0x13.toByte()
-        private const val FRAME_LENGTH = 67
+        private const val MAX_REASONABLE_CURRENT_A = 5_000f
     }
 
     override fun resetState() {
         buffer = ByteArray(0)
         pendingSettings = null
+        lastRealtimeMetrics = null
+        lastRealtimeAtMs = 0L
     }
 
     fun consumePendingSettings(): ZhikeSettings? {
@@ -51,8 +59,11 @@ class ZhikeProtocol : ControllerProtocol {
         val name = deviceName.uppercase()
         // Gekoo devices often start with "GEKOO" or "ZX"
         if (name.contains("GEKOO") || name.contains("ZX") || name.contains("ZK")) s += 0.8f
-        // Service FFE0 is a strong indicator
+        // FFE0 + FFE1/FFE2 + FFF1/FFF2 is the characteristic Zhike/GEKOO layout.
         if (serviceIds.any { it.contains("ffe0", ignoreCase = true) }) s += 0.2f
+        if (charIds.any { it.contains("ffe1", ignoreCase = true) }) s += 0.2f
+        if (charIds.any { it.contains("ffe2", ignoreCase = true) }) s += 0.15f
+        if (charIds.any { it.contains("fff1", ignoreCase = true) || it.contains("fff2", ignoreCase = true) }) s += 0.15f
         return s.coerceIn(0f, 1f)
     }
 
@@ -75,10 +86,10 @@ class ZhikeProtocol : ControllerProtocol {
                 buffer = buffer.sliceArray(headerIndex until buffer.size)
             }
             
-            if (buffer.size < 2) return false
+            if (buffer.size < 4) return false // Need at least 4 bytes to determine frame length reliably for some commands
             
             val cmd = buffer[1]
-            val expectedLen = getFrameLength(cmd)
+            val expectedLen = getFrameLength(cmd, buffer)
             
             if (expectedLen == null) {
                 // Unknown command, skip header
@@ -87,6 +98,11 @@ class ZhikeProtocol : ControllerProtocol {
             }
             
             if (buffer.size < expectedLen) return false // Wait for more data
+
+            if (cmd == CMD_REALTIME && expectedLen == 67 && !hasValidRealtimeChecksum(buffer, expectedLen)) {
+                buffer = buffer.sliceArray(1 until buffer.size)
+                continue
+            }
             
             val frame = buffer.sliceArray(0 until expectedLen)
             processFrame(cmd, frame, emit, onConfigChange)
@@ -121,6 +137,7 @@ class ZhikeProtocol : ControllerProtocol {
         settings.weakMagCurrent = words[21]
         settings.regenCurrent = words[23]
         settings.bluetoothPassword = words[60]
+        settings.speedCoefficient = extractSpeedCoefficient(frame)
         settings.loadedFromController = true
         
         return settings
@@ -162,9 +179,16 @@ class ZhikeProtocol : ControllerProtocol {
         return result
     }
 
-    private fun getFrameLength(cmd: Byte): Int? {
+    private fun getFrameLength(cmd: Byte, buffer: ByteArray): Int? {
         return when (cmd) {
-            0x13.toByte() -> 67  // Real-time telemetry
+            0x13.toByte() -> {
+                // Check if this is a 4-byte ACK echo from realtime start/stop command
+                if ((buffer[2] == 0x00.toByte() || buffer[2] == 0xFF.toByte()) && buffer[3] == 0x01.toByte()) {
+                    4
+                } else {
+                    67  // Real-time telemetry
+                }
+            }
             0x11.toByte() -> 131 // Parameter read response
             0x17.toByte() -> 5   // Key check response?
             0x12.toByte() -> 4   // Parameter write/reset ack
@@ -181,49 +205,64 @@ class ZhikeProtocol : ControllerProtocol {
     ) {
         when (cmd) {
             CMD_REALTIME -> {
-                // Packet length 67
-                // byte[0]=AA, byte[1]=13, byte[2]=??
-                // byte[3..66] are 32 words (Little Endian)
-                val words = IntArray(32)
-                var sum = 0
-                for (i in 0 until 32) {
-                    val idx = 3 + i * 2
-                    if (idx + 1 < frame.size) {
-                        val word = ((frame[idx + 1].toInt() and 0xFF) shl 8) or (frame[idx].toInt() and 0xFF)
-                        words[i] = word
-                        sum = (sum + word) and 0xFFFF
-                    }
-                }
-                
-                // Official Checksum: Sum of all 16-bit words (from index 3) must be 0xFFFF
-                if (sum != 0xFFFF) {
-                    Log.w(TAG, "Zhike Checksum Failed: expected 0xFFFF, got 0x${"%04X".format(sum)}")
-                    // return // Optional: Some users prefer seeing "noisy" data than nothing
-                }
-                
-                // Using the word offsets from realtimedata.js
-                // Note: JS uses o[X], where o is the words array
-                val rpmRaw = words[6]
-                val voltRaw = words[8]
-                val currRaw = words[9]
-                val phaseCurrRaw = words[10]
-                val motorTempRaw = words[12]
-                val controllerTempRaw = words[18]
-                val ioStatus = words[23]
-                val faultCode = words[22]
+                if (frame.size == 4) return // Skip 4-byte command ACK
 
-                emit(VehicleMetrics(
-                    voltage = voltRaw / 273.0666667f,
-                    busCurrent = currRaw.toFloat(), // JS: parseFloat(o[9])
-                    phaseCurrent = phaseCurrRaw.toFloat(),
-                    rpm = rpmRaw / 5.46f,
-                    motorTemp = motorTempRaw / 100f,
-                    controllerTemp = controllerTempRaw / 100f,
+                val words = extractWords(frame)
+                val realtimeWords = words.dropLast(1)
+                if (realtimeWords.size < 26) return
+
+                val voltage = decodeWord(realtimeWords, 8, scale = 273.0666667f, digits = 1)
+                val busCurrent = decodeWord(realtimeWords, 9, signed = true, digits = 1)
+                val phaseCurrentRaw = decodeWord(realtimeWords, 17, scale = 146.0249554f, digits = 1)
+                val rpmSigned = decodeWord(realtimeWords, 6, scale = 5.46f, signed = true, digits = 1)
+                val speedRaw = decodeWord(realtimeWords, 6, scale = 10f, signed = true, digits = 1)
+                val controllerTemp = decodeWord(realtimeWords, 18, scale = 100f, signed = true, digits = 1)
+                val motorTemp = decodeWord(realtimeWords, 25, scale = 100f, signed = true, digits = 1)
+                val ioStatus = realtimeWords.getOrElse(21) { 0 }
+                val faultCode = realtimeWords.getOrElse(22) { 0 }
+
+                if (
+                    voltage !in 5f..200f ||
+                    abs(busCurrent) > MAX_REASONABLE_CURRENT_A ||
+                    phaseCurrentRaw !in 0f..MAX_REASONABLE_CURRENT_A ||
+                    motorTemp !in -60f..220f ||
+                    controllerTemp !in -60f..220f
+                ) {
+                    AppLogger.w(
+                        TAG,
+                        "丢弃异常智科数据 voltage=${"%.2f".format(voltage)} busCurrent=${"%.1f".format(busCurrent)} phaseCurrent=${"%.1f".format(phaseCurrentRaw)} rpm=${"%.1f".format(rpmSigned)} speed=${"%.1f".format(speedRaw)}"
+                    )
+                    return
+                }
+
+                val isReverse = (ioStatus and 0x04) != 0
+                val sanitizedSpeed = sanitizeSpeedCandidate(
+                    candidateSpeedKmh = abs(speedRaw),
+                    busCurrent = busCurrent,
+                    rpm = abs(rpmSigned)
+                )
+                val normalizedPhaseCurrent = sanitizePhaseCurrent(
+                    candidatePhaseCurrent = phaseCurrentRaw,
+                    busCurrent = busCurrent,
+                    rpm = abs(rpmSigned)
+                )
+                val realtimeMetrics = VehicleMetrics(
+                    voltage = voltage,
+                    busCurrent = busCurrent,
+                    phaseCurrent = normalizedPhaseCurrent,
+                    speedKmH = sanitizedSpeed,
+                    rpm = abs(rpmSigned),
+                    motorTemp = motorTemp,
+                    mosfetTemp = controllerTemp,
+                    controllerTemp = controllerTemp,
                     faultCode = faultCode,
-                    isBraking = (ioStatus and 0x0C) != 0, 
+                    isBraking = (ioStatus and 0x08) != 0,
                     isCruise = (ioStatus and 0x40) != 0,
-                    isReverse = (ioStatus and 0x02) != 0
-                ))
+                    isReverse = isReverse
+                )
+                lastRealtimeMetrics = realtimeMetrics
+                lastRealtimeAtMs = SystemClock.elapsedRealtime()
+                emit(realtimeMetrics)
             }
             0x11.toByte() -> {
                 val settings = decodeSettings(frame)
@@ -233,6 +272,101 @@ class ZhikeProtocol : ControllerProtocol {
                     onConfigChange("polePairs" to polePairs)
                 }
             }
+        }
+    }
+
+    private fun signedWord(value: Int): Float {
+        return if (value > 0x7FFF) (value - 0x10000).toFloat() else value.toFloat()
+    }
+
+    private fun decodeWord(
+        words: List<Int>,
+        index: Int,
+        scale: Float = 1f,
+        signed: Boolean = false,
+        digits: Int = 2
+    ): Float {
+        if (index !in words.indices) return 0f
+        var value = words[index]
+        if (signed && value > 0x7FFF) {
+            value -= 0x10000
+        }
+        val scaled = value / scale
+        return String.format(Locale.US, "%.${digits}f", scaled).toFloatOrNull() ?: scaled
+    }
+
+    private fun extractWords(frame: ByteArray): List<Int> {
+        val words = mutableListOf<Int>()
+        var checksum = 0
+        var index = 3
+        while (index + 1 < frame.size) {
+            val word = (frame[index].toInt() and 0xFF) or ((frame[index + 1].toInt() and 0xFF) shl 8)
+            words += word
+            checksum = (checksum + word) and 0xFFFF
+            index += 2
+        }
+        return if (checksum == 0xFFFF) words else emptyList()
+    }
+
+    private fun extractSpeedCoefficient(frame: ByteArray): Int {
+        if (frame.size < 24) return 0
+        return ((frame[23].toInt() and 0xFF) shl 8) or (frame[22].toInt() and 0xFF)
+    }
+
+    private fun sanitizeSpeedCandidate(
+        candidateSpeedKmh: Float,
+        busCurrent: Float,
+        rpm: Float
+    ): Float {
+        val speed = candidateSpeedKmh.coerceIn(0f, 160f)
+        val previous = lastRealtimeMetrics ?: return speed
+        val now = SystemClock.elapsedRealtime()
+        val deltaMs = (now - lastRealtimeAtMs).coerceAtLeast(1L)
+        val speedDelta = abs(speed - previous.speedKmH)
+        val lowLoad = abs(busCurrent) < 3f && abs(previous.busCurrent) < 3f
+
+        if (speed < 0.6f) return 0f
+        if (lowLoad && previous.speedKmH < 5f && speed > 20f) return 0f
+        if (speed > 100f && lowLoad) return previous.speedKmH.coerceAtMost(5f)
+        if (deltaMs < 400L) {
+            val maxAllowedDelta = if (lowLoad) 10f else 24f
+            if (speedDelta > maxAllowedDelta) {
+                return previous.speedKmH
+            }
+        }
+        if (speed > 10f && rpm < 20f && lowLoad) {
+            return previous.speedKmH
+        }
+        return speed
+    }
+
+    private fun sanitizePhaseCurrent(
+        candidatePhaseCurrent: Float,
+        busCurrent: Float,
+        rpm: Float
+    ): Float {
+        return if (abs(busCurrent) < 1.5f && rpm < 30f && candidatePhaseCurrent in 0f..20f) {
+            0f
+        } else {
+            candidatePhaseCurrent
+        }
+    }
+
+    private fun hasValidRealtimeChecksum(data: ByteArray, expectedLen: Int): Boolean {
+        if (data.size < expectedLen || expectedLen < 67) return false
+
+        var sum = 0
+        for (i in 0 until 32) {
+            val idx = 3 + i * 2
+            val word = ((data[idx + 1].toInt() and 0xFF) shl 8) or (data[idx].toInt() and 0xFF)
+            sum = (sum + word) and 0xFFFF
+        }
+        return sum == 0xFFFF
+    }
+
+    private fun ByteArray.toHexPreview(maxBytes: Int = 20): String {
+        return joinToString(separator = " ", limit = maxBytes, truncated = " ...") {
+            "%02X".format(it)
         }
     }
 }

@@ -7,20 +7,23 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.shawnrain.habe.data.history.RideHistoryRecord
+import com.shawnrain.habe.data.speedtest.SpeedTestRecord
 import com.shawnrain.habe.debug.AppLogLevel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 
 val Context.dataStore by preferencesDataStore(name = "habe_settings")
 
 enum class MetricType(val title: String, val unit: String) {
     VOLTAGE("电压", "V"),
+    VOLTAGE_SAG("压降", "V"),
     BUS_CURRENT("母线电流", "A"),
     PHASE_CURRENT("相电流", "A"),
     POWER("实时功率", "kW"),
-    TEMP("温度", "°C"),
+    TEMP("控制器温度", "°C"),
     SOC("电量(预估)", "%"),
     RPM("转速", "rpm"),
     EFFICIENCY("实时能效", "Wh/km"),
@@ -28,7 +31,7 @@ enum class MetricType(val title: String, val unit: String) {
 }
 
 enum class SpeedSource(val title: String) {
-    CONTROLLER("控制器 (BLE)"),
+    CONTROLLER("控制器蓝牙"),
     GPS("手机 GPS")
 }
 
@@ -41,6 +44,9 @@ class SettingsRepository(private val context: Context) {
     companion object {
         val CURRENT_VEHICLE_ID = stringPreferencesKey("current_vehicle_id")
         val VEHICLE_LIST = stringPreferencesKey("vehicle_list_json")
+        val LAST_CONTROLLER_DEVICE_ADDRESS = stringPreferencesKey("last_controller_device_address")
+        val LAST_CONTROLLER_DEVICE_NAME = stringPreferencesKey("last_controller_device_name")
+        val LAST_CONTROLLER_PROTOCOL_ID = stringPreferencesKey("last_controller_protocol_id")
         
         private fun vKey(id: String, key: String) = stringPreferencesKey("v_${id}_$key")
         private fun vKeyF(id: String, key: String) = floatPreferencesKey("v_${id}_$key")
@@ -52,6 +58,8 @@ class SettingsRepository(private val context: Context) {
         const val K_SPEED_SRC = "speed_src"
         const val K_BATT_SRC = "batt_src"
         const val K_DASH_ITEMS = "dash_items"
+        const val K_SPEEDTEST_HISTORY = "speedtest_history"
+        const val K_RIDE_HISTORY = "ride_history"
         val LOG_LEVEL = stringPreferencesKey("log_level")
         val OVERLAY_ENABLED = booleanPreferencesKey("overlay_enabled")
     }
@@ -101,12 +109,38 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val speedTestHistory: Flow<List<SpeedTestRecord>> = currentVehicleId.flatMapLatest { id ->
+        context.dataStore.data.map { pref ->
+            SpeedTestRecord.listFromJson(pref[vKey(id, K_SPEEDTEST_HISTORY)])
+        }
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val rideHistory: Flow<List<RideHistoryRecord>> = currentVehicleId.flatMapLatest { id ->
+        context.dataStore.data.map { pref ->
+            RideHistoryRecord.listFromJson(pref[vKey(id, K_RIDE_HISTORY)])
+        }
+    }
+
     val logLevel: Flow<AppLogLevel> = context.dataStore.data.map { pref ->
-        AppLogLevel.fromName(pref[LOG_LEVEL])
+        AppLogLevel.fromName(pref[LOG_LEVEL] ?: AppLogLevel.DEBUG.name)
     }
 
     val overlayEnabled: Flow<Boolean> = context.dataStore.data.map { pref ->
         pref[OVERLAY_ENABLED] ?: false
+    }
+
+    val lastControllerDeviceAddress: Flow<String?> = context.dataStore.data.map { pref ->
+        pref[LAST_CONTROLLER_DEVICE_ADDRESS]?.takeIf { it.isNotBlank() }
+    }
+
+    val lastControllerDeviceName: Flow<String?> = context.dataStore.data.map { pref ->
+        pref[LAST_CONTROLLER_DEVICE_NAME]?.takeIf { it.isNotBlank() }
+    }
+
+    val lastControllerProtocolId: Flow<String?> = context.dataStore.data.map { pref ->
+        pref[LAST_CONTROLLER_PROTOCOL_ID]?.takeIf { it.isNotBlank() }
     }
 
     suspend fun saveCurrentVehicleId(id: String) = context.dataStore.edit { it[CURRENT_VEHICLE_ID] = id }
@@ -141,11 +175,53 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { it[vKey(id, K_DASH_ITEMS)] = items.joinToString(",") { it.name } }
     }
 
+    suspend fun saveSpeedTestHistory(records: List<SpeedTestRecord>) {
+        val id = currentVehicleId.first()
+        context.dataStore.edit { it[vKey(id, K_SPEEDTEST_HISTORY)] = SpeedTestRecord.listToJson(records) }
+    }
+
+    suspend fun saveRideHistory(records: List<RideHistoryRecord>) {
+        val id = currentVehicleId.first()
+        context.dataStore.edit { it[vKey(id, K_RIDE_HISTORY)] = RideHistoryRecord.listToJson(records) }
+    }
+
     suspend fun saveLogLevel(level: AppLogLevel) {
         context.dataStore.edit { it[LOG_LEVEL] = level.name }
     }
 
     suspend fun saveOverlayEnabled(enabled: Boolean) {
         context.dataStore.edit { it[OVERLAY_ENABLED] = enabled }
+    }
+
+    suspend fun isOverlayEnabled(): Boolean {
+        return context.dataStore.data.first()[OVERLAY_ENABLED] ?: false
+    }
+
+    suspend fun saveLastControllerDevice(address: String, name: String?) {
+        saveLastControllerProfile(address = address, name = name, protocolId = null)
+    }
+
+    suspend fun saveLastControllerProfile(address: String, name: String?, protocolId: String?) {
+        context.dataStore.edit {
+            it[LAST_CONTROLLER_DEVICE_ADDRESS] = address
+            if (!name.isNullOrBlank()) {
+                it[LAST_CONTROLLER_DEVICE_NAME] = name
+            }
+            if (!protocolId.isNullOrBlank()) {
+                it[LAST_CONTROLLER_PROTOCOL_ID] = protocolId
+            }
+        }
+    }
+
+    suspend fun clearLastControllerDevice() {
+        context.dataStore.edit {
+            it.remove(LAST_CONTROLLER_DEVICE_ADDRESS)
+            it.remove(LAST_CONTROLLER_DEVICE_NAME)
+            it.remove(LAST_CONTROLLER_PROTOCOL_ID)
+        }
+    }
+
+    suspend fun getLastControllerDeviceAddress(): String? {
+        return context.dataStore.data.first()[LAST_CONTROLLER_DEVICE_ADDRESS]?.takeIf { it.isNotBlank() }
     }
 }

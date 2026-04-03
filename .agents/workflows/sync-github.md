@@ -22,6 +22,7 @@ description: 构建、测试、提交并推送当前分支到 GitHub
 ### 3. 默认行为
 - 构建 `:app:assembleDebug`
 - 运行 `:app:testDebugUnitTest`
+- 若检测到 keystore / 签名密码文件被加入 Git，将直接中止
 - `git add -A`
 - `git commit -m <message>`
 - `git push origin <current-branch>`

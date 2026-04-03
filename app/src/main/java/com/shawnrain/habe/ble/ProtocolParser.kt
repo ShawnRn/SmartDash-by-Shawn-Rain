@@ -21,6 +21,7 @@ data class VehicleMetrics(
     val busCurrent: Float = 0f,
     val phaseCurrent: Float = 0f,
     val voltage: Float = 0f,
+    val voltageSag: Float = 0f,
     val totalPowerW: Float = 0f,
     val motorTemp: Float = 0f,
     val mosfetTemp: Float = 0f,
@@ -66,10 +67,31 @@ object ProtocolParser {
     /**
      * Select the best protocol based on device metadata.
      */
-    fun selectProtocol(deviceName: String, serviceIds: List<String>, charIds: List<String>) {
+    fun selectProtocol(
+        deviceName: String,
+        serviceIds: List<String>,
+        charIds: List<String>,
+        preferredProtocolId: String? = null
+    ) {
         val scored = protocols.map { it to it.score(deviceName, serviceIds, charIds) }
             .sortedByDescending { it.second }
-        
+        AppLogger.i(
+            TAG,
+            "协议候选 ${scored.joinToString { "${it.first.id}=${"%.2f".format(it.second)}" }} device=$deviceName"
+        )
+
+        val preferred = preferredProtocolId?.let { hint ->
+            protocols.firstOrNull { it.id == hint }
+        }
+        if (preferred != null) {
+            activeProtocol = preferred
+            _activeProtocolId.value = preferred.id
+            _activeProtocolLabel.value = preferred.label
+            activeProtocol?.resetState()
+            AppLogger.i(TAG, "协议命中记忆画像 ${preferred.id} device=$deviceName")
+            return
+        }
+
         val best = scored.firstOrNull()
         if (best != null && best.second > 0.1f) {
             activeProtocol = best.first
@@ -83,6 +105,14 @@ object ProtocolParser {
             _activeProtocolLabel.value = "通用协议"
             AppLogger.w(TAG, "未识别具体协议，回退到通用解析 device=$deviceName")
         }
+    }
+
+    fun reset() {
+        activeProtocol?.resetState()
+        activeProtocol = null
+        _activeProtocolId.value = null
+        _activeProtocolLabel.value = "未识别"
+        _metrics.value = VehicleMetrics()
     }
 
     fun parse(data: ByteArray) {

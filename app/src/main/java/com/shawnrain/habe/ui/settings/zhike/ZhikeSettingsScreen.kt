@@ -39,6 +39,9 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             settings = it
             isDirty = false
             isSyncing = false
+            if (it.loadedFromController) {
+                password = String.format(java.util.Locale.getDefault(), "%04d", it.bluetoothPassword)
+            }
         }
     }
 
@@ -141,6 +144,25 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                     settings = settings.copy(regenCurrent = it); isDirty = true
                 }
             }
+
+            // --- Security Section ---
+            SettingsSection("安全设置") {
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = {
+                        password = it.filter(Char::isDigit).take(4)
+                        authError = null
+                    },
+                    label = { Text("蓝牙管理密码 (4位数字)") },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    singleLine = true,
+                    isError = authError != null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    supportingText = {
+                        authError?.let { err -> Text(err) } ?: Text("读写参数必须输入正确的密码")
+                    }
+                )
+            }
             
             Spacer(modifier = Modifier.height(80.dp))
         }
@@ -152,22 +174,7 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             title = { Text("安全身份验证") },
             text = {
                 Column {
-                    Text("写入参数需要智科蓝牙管理密码：", modifier = Modifier.padding(bottom = 8.dp))
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = {
-                            password = it.filter(Char::isDigit).take(4)
-                            authError = null
-                        },
-                        label = { Text("4位蓝牙密码") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        isError = authError != null,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        supportingText = {
-                            authError?.let { Text(it) }
-                        }
-                    )
+                    Text("写入参数将使用下方设定的 4 位数字密码进行身份验证。请确保密码准确无误。", modifier = Modifier.padding(bottom = 8.dp))
                 }
             },
             confirmButton = {

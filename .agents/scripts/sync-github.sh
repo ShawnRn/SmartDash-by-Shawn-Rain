@@ -13,7 +13,9 @@ BRANCH="$(cd "$PROJECT_ROOT" && git branch --show-current)"
 "$SCRIPT_DIR/test-debug.sh" >/tmp/habe-sync-test.out
 
 cd "$PROJECT_ROOT"
+warn_if_repo_contains_signing_files
 git add -A
+fail_if_staged_signing_files
 
 if git diff --cached --quiet; then
   echo "No staged changes to commit."

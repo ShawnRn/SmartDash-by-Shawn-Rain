@@ -62,6 +62,8 @@ class BleManager(private val context: Context) {
     private var zhikeAuxWriteCharacteristic: BluetoothGattCharacteristic? = null
     private var zhikeHandshakeCharacteristic: BluetoothGattCharacteristic? = null
     private var activeProtocolId: String? = null
+    private var pendingDeviceNameHint: String? = null
+    private var pendingProtocolIdHint: String? = null
     
     private val pollingHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val pollingRunnable = object : Runnable {
@@ -95,10 +97,34 @@ class BleManager(private val context: Context) {
     }
 
     fun connect(device: BluetoothDevice) {
+        pendingDeviceNameHint = device.name ?: pendingDeviceNameHint
+        stopPolling()
+        ProtocolParser.reset()
+        bluetoothGatt?.close()
         _connectionState.value = ConnectionState.Connecting
         AppLogger.i(TAG, "连接设备: ${device.name ?: "Unknown"} (${device.address})")
         bluetoothGatt = device.connectGatt(context, false, gattCallback)
         startPolling()
+    }
+
+    fun connect(address: String, nameHint: String? = null, protocolIdHint: String? = null): Boolean {
+        val adapter = bluetoothAdapter ?: run {
+            AppLogger.w(TAG, "蓝牙适配器不可用，无法自动重连 $address")
+            return false
+        }
+        val device = try {
+            adapter.getRemoteDevice(address)
+        } catch (error: IllegalArgumentException) {
+            AppLogger.e(TAG, "设备地址无效，无法重连 $address", error)
+            return false
+        } catch (error: SecurityException) {
+            AppLogger.e(TAG, "缺少蓝牙权限，无法自动重连 $address", error)
+            return false
+        }
+        pendingDeviceNameHint = nameHint?.takeIf { it.isNotBlank() }
+        pendingProtocolIdHint = protocolIdHint?.takeIf { it.isNotBlank() }
+        connect(device)
+        return true
     }
 
     fun disconnect() {
@@ -235,7 +261,15 @@ class BleManager(private val context: Context) {
                 _connectionState.value = ConnectionState.Connected(gatt.device)
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                stopPolling()
+                ProtocolParser.reset()
+                pendingDeviceNameHint = null
+                pendingProtocolIdHint = null
                 _connectionState.value = ConnectionState.Disconnected
+                if (bluetoothGatt === gatt) {
+                    bluetoothGatt = null
+                }
+                runCatching { gatt.close() }
                 writeCharacteristic = null
                 zhikeMainWriteCharacteristic = null
                 zhikeAuxWriteCharacteristic = null
@@ -246,6 +280,7 @@ class BleManager(private val context: Context) {
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
+                val identifiedName = gatt.device.name ?: pendingDeviceNameHint ?: "Unknown"
                 val serviceIds = mutableListOf<String>()
                 val charIds = mutableListOf<String>()
                 val writableCharacteristics = mutableListOf<BluetoothGattCharacteristic>()
@@ -268,14 +303,15 @@ class BleManager(private val context: Context) {
 
                 AppLogger.i(
                     TAG,
-                    "发现服务成功 services=${serviceIds.size} chars=${charIds.size} device=${gatt.device.name ?: "Unknown"}"
+                    "发现服务成功 services=${serviceIds.size} chars=${charIds.size} device=$identifiedName"
                 )
 
                 // Trigger Protocol Identification
                 ProtocolParser.selectProtocol(
-                    deviceName = gatt.device.name ?: "Unknown",
+                    deviceName = identifiedName,
                     serviceIds = serviceIds,
-                    charIds = charIds
+                    charIds = charIds,
+                    preferredProtocolId = pendingProtocolIdHint
                 )
 
                 activeProtocolId = ProtocolParser.getActiveProtocolId()

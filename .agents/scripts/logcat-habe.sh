@@ -25,8 +25,8 @@ echo "Streaming logcat to $LOG_FILE"
   BleManager:V \
   ProtocolParser:V \
   ZhikeProtocol:V \
-  MainViewModel:D \
-  AppLogger:D \
+  MainViewModel:V \
+  AppLogger:V \
   OverlayHud:D \
   HudOverlayService:D \
   *:S | tee "$LOG_FILE"

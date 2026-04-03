@@ -83,10 +83,10 @@ object AppLogger {
     fun createShareIntent(context: Context): Intent {
         val uri = exportLogs(context)
         return Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
+            type = "*/*"
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, "Habe 调试日志")
-            putExtra(Intent.EXTRA_TEXT, "附上 Habe 调试日志，包含 BLE 连接与协议解析记录。")
+            // Intentionally omit EXTRA_TEXT so target apps treat this exclusively as a file share
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
     }

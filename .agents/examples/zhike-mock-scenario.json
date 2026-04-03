@@ -1,0 +1,58 @@
+{
+  "name": "city-ride-demo",
+  "updateHz": 6,
+  "settings": {
+    "busCurrentLimit": 80,
+    "phaseCurrentLimit": 320,
+    "motorDirection": false,
+    "sensorType": 0,
+    "hallSequence": false,
+    "phaseShiftAngle": 0,
+    "polePairs": 50,
+    "underVoltage": 39,
+    "overVoltage": 67,
+    "weakMagCurrent": 0,
+    "regenCurrent": 15,
+    "bluetoothPassword": 8888
+  },
+  "steps": [
+    {
+      "name": "idle",
+      "durationSeconds": 4,
+      "voltage": 54.3,
+      "busCurrent": 0.0,
+      "phaseCurrent": 0.0,
+      "speedKmh": 0.0,
+      "controllerTemp": 32.0
+    },
+    {
+      "name": "launch",
+      "durationSeconds": 5,
+      "voltage": 51.6,
+      "busCurrent": 32.0,
+      "phaseCurrent": 128.0,
+      "speedKmh": 42.0,
+      "controllerTemp": 36.5
+    },
+    {
+      "name": "steady",
+      "durationSeconds": 7,
+      "voltage": 52.4,
+      "busCurrent": 16.0,
+      "phaseCurrent": 60.0,
+      "speedKmh": 31.0,
+      "controllerTemp": 38.0,
+      "cruise": true
+    },
+    {
+      "name": "regen",
+      "durationSeconds": 4,
+      "voltage": 54.7,
+      "busCurrent": -8.0,
+      "phaseCurrent": 10.0,
+      "speedKmh": 18.0,
+      "controllerTemp": 37.0,
+      "braking": true
+    }
+  ]
+}

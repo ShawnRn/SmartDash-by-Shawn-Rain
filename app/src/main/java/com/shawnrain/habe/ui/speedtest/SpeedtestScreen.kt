@@ -1,13 +1,22 @@
-@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class
+)
 
 package com.shawnrain.habe.ui.speedtest
 
+import android.graphics.Paint
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.*
@@ -17,23 +26,22 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -50,6 +58,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,30 +67,48 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.lerp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.shawnrain.habe.MainViewModel
 import com.shawnrain.habe.data.history.RideHistoryRecord
 import com.shawnrain.habe.data.history.RideMetricSample
 import com.shawnrain.habe.data.history.RideTrackPoint
 import com.shawnrain.habe.data.speedtest.SpeedTestRecord
 import com.shawnrain.habe.ui.dashboard.BaselineMetricValue
+import com.shawnrain.habe.ui.navigation.ApplyDialogWindowBlurEffect
+import com.shawnrain.habe.ui.navigation.BlurredAlertDialog
+import com.shawnrain.habe.ui.navigation.BlurredModalBottomSheet
+import com.shawnrain.habe.ui.navigation.PredictiveBackPopupTransform
+import com.shawnrain.habe.ui.navigation.rememberPredictiveBackMotion
+import com.shawnrain.habe.ui.text.withDisplaySpacing
 import com.shawnrain.habe.ui.theme.bezierPillShape
 import com.shawnrain.habe.ui.theme.bezierRoundedShape
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -109,10 +136,17 @@ private enum class RideChartMetric(val title: String, val unit: String, val colo
     SPEED("速度", "km/h", Color(0xFF8DB4FF)),
     POWER("功率", "kW", Color(0xFFB7A1FF)),
     VOLTAGE("电压", "V", Color(0xFF8DE0B5)),
+    VOLTAGE_SAG("压降", "V", Color(0xFFFFD166)),
     BUS_CURRENT("母线电流", "A", Color(0xFFFFB682)),
     PHASE_CURRENT("相电流", "A", Color(0xFFFF8FA3)),
+    MOTOR_TEMP("电机温度", "°C", Color(0xFFFFC27A)),
     CONTROLLER_TEMP("控制器温度", "°C", Color(0xFFFFA86B)),
     EFFICIENCY("能耗", "Wh/km", Color(0xFF8CE0FF)),
+    AVG_EFFICIENCY("平均能耗", "Wh/km", Color(0xFF6EE7F2)),
+    RANGE("续航", "km", Color(0xFFD8F28F)),
+    TOTAL_ENERGY("总能耗", "Wh", Color(0xFFFFB4A2)),
+    RECOVERED_ENERGY("回收能量", "Wh", Color(0xFF86EFAC)),
+    MAX_CONTROLLER_TEMP("控制器最高温度", "°C", Color(0xFFF59E8B)),
     SOC("电量", "%", Color(0xFF98E57A)),
     RPM("转速", "rpm", Color(0xFFC2C7D0))
 }
@@ -135,11 +169,18 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         )
     }
     var selectedOption by remember { mutableStateOf(options[2]) }
+    val bestSpeedTestRecord = remember(speedTestHistory, selectedOption) {
+        speedTestHistory
+            .filter { it.label == selectedOption.label }
+            .minByOrNull { it.timeMs }
+    }
     var selectedRideRecord by remember { mutableStateOf<RideHistoryRecord?>(null) }
+    var selectedRideIds by remember { mutableStateOf(setOf<String>()) }
     val pagerState = rememberPagerState(
         initialPage = 0,
         pageCount = { SpeedPageTab.entries.size }
     )
+    val rideSelectionMode = selectedRideIds.isNotEmpty()
 
     LaunchedEffect(speedTestSession.statusText) {
         if (!speedTestSession.isActive && speedTestSession.statusText.isNotBlank() && speedTestSession.statusText != "等待开始") {
@@ -212,6 +253,7 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                                 SpeedTestHero(
                                     option = selectedOption,
                                     speedTestSession = speedTestSession,
+                                    bestRecord = bestSpeedTestRecord,
                                     onStart = {
                                         val error = viewModel.startSpeedTest(selectedOption.label, selectedOption.targetSpeedKmh)
                                         if (error != null) {
@@ -247,9 +289,7 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                                     SpeedTestHistoryCard(
                                         record = record,
                                         onShare = {
-                                            context.startActivity(
-                                                viewModel.createSpeedTestShareIntent(record).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            )
+                                            context.startActivity(viewModel.createSpeedTestShareIntent(record))
                                         },
                                         onDelete = { viewModel.deleteSpeedTestRecord(record.id) }
                                     )
@@ -276,11 +316,36 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                                 items(rideHistory, key = { it.id }) { record ->
                                     RideHistoryCard(
                                         record = record,
-                                        onOpen = { selectedRideRecord = record },
+                                        selectionMode = rideSelectionMode,
+                                        selected = record.id in selectedRideIds,
+                                        onOpen = {
+                                            if (rideSelectionMode) {
+                                                selectedRideIds = if (record.id in selectedRideIds) {
+                                                    selectedRideIds - record.id
+                                                } else {
+                                                    selectedRideIds + record.id
+                                                }
+                                            } else {
+                                                selectedRideRecord = record
+                                            }
+                                        },
+                                        onLongPress = {
+                                            selectedRideIds = selectedRideIds + record.id
+                                        },
                                         onShare = {
-                                            context.startActivity(
-                                                viewModel.createRideShareIntent(record).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            )
+                                            context.startActivity(viewModel.createRideShareIntent(record))
+                                        },
+                                        onSaveToAlbum = {
+                                            runCatching { viewModel.saveRidePosterToGallery(record) }
+                                                .onSuccess { fileName ->
+                                                    scope.launch { snackbarHostState.showSnackbar("已保存到相册: $fileName") }
+                                                }
+                                                .onFailure {
+                                                    scope.launch { snackbarHostState.showSnackbar("保存到相册失败") }
+                                                }
+                                        },
+                                        onExportCsv = {
+                                            context.startActivity(viewModel.createRideCsvShareIntent(record))
                                         },
                                         onDelete = { viewModel.deleteRideHistoryRecord(record.id) }
                                     )
@@ -296,16 +361,74 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
         )
+
+        AnimatedVisibility(
+            visible = rideSelectionMode,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 20.dp, vertical = 84.dp)
+        ) {
+            Surface(
+                shape = bezierRoundedShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.94f),
+                tonalElevation = 6.dp,
+                shadowElevation = 0.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "已选 ${selectedRideIds.size} 条",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedButton(
+                        onClick = { selectedRideIds = emptySet() },
+                        shape = bezierPillShape()
+                    ) {
+                        Text("取消")
+                    }
+                    Button(
+                        onClick = {
+                            val merged = viewModel.mergeRideHistoryRecords(selectedRideIds)
+                            if (merged != null) {
+                                selectedRideIds = emptySet()
+                                selectedRideRecord = merged
+                                scope.launch { snackbarHostState.showSnackbar("已合并行程记录") }
+                            } else {
+                                scope.launch { snackbarHostState.showSnackbar("至少选择 2 条行程记录") }
+                            }
+                        },
+                        enabled = selectedRideIds.size >= 2,
+                        shape = bezierPillShape()
+                    ) {
+                        Text("合并")
+                    }
+                }
+            }
+        }
     }
 
     selectedRideRecord?.let { record ->
-        RideHistoryDetailSheet(
+        RideHistoryDetailLayer(
             record = record,
             onDismiss = { selectedRideRecord = null },
             onShare = {
-                context.startActivity(
-                    viewModel.createRideShareIntent(record).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
+                context.startActivity(viewModel.createRideShareIntent(record))
+            },
+            onSaveToAlbum = {
+                runCatching { viewModel.saveRidePosterToGallery(record) }
+                    .onSuccess { fileName ->
+                        scope.launch { snackbarHostState.showSnackbar("已保存到相册: $fileName") }
+                    }
+                    .onFailure {
+                        scope.launch { snackbarHostState.showSnackbar("保存到相册失败") }
+                    }
+            },
+            onExportCsv = {
+                context.startActivity(viewModel.createRideCsvShareIntent(record))
             }
         )
     }
@@ -331,6 +454,7 @@ private fun Header(currentSpeed: Float) {
 private fun SpeedTestHero(
     option: SpeedTestOption,
     speedTestSession: com.shawnrain.habe.data.speedtest.SpeedTestSessionUiState,
+    bestRecord: SpeedTestRecord?,
     onStart: () -> Unit,
     onStop: () -> Unit
 ) {
@@ -404,6 +528,15 @@ private fun SpeedTestHero(
                     StatChip("母线电流", metricOf(speedTestSession.peakBusCurrentA, "A"), modifier = Modifier.weight(1f))
                     StatChip("最低电压", metricOf(speedTestSession.minVoltage, "V"), modifier = Modifier.weight(1f))
                     StatChip("冲刺距离", metricOf(speedTestSession.distanceMeters, "m"), modifier = Modifier.weight(1f))
+                }
+                bestRecord?.let { record ->
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        StatChip(
+                            label = "最佳成绩",
+                            metric = metricOf(formatSeconds(record.timeMs)),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
         }
@@ -479,14 +612,17 @@ private fun SpeedTestHistoryCard(
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatChip("目标", metricOf(record.targetSpeedKmh.toInt().toString(), "km/h"))
-                    StatChip("最高速度", metricOf(record.maxSpeedKmh, "km/h"))
-                    StatChip("峰值功率", metricOf(record.peakPowerKw, "kW"))
-                    StatChip("峰值母线电流", metricOf(record.peakBusCurrentA, "A"))
-                    StatChip("最低电压", metricOf(record.minVoltage, "V"))
-                    StatChip("轨迹点", metricOf(record.trackPoints.size.toString()))
-                }
+                StatMetricGrid(
+                    metrics = listOf(
+                        "目标" to metricOf(record.targetSpeedKmh.toInt().toString(), "km/h"),
+                        "最高速度" to metricOf(record.maxSpeedKmh, "km/h"),
+                        "峰值功率" to metricOf(record.peakPowerKw, "kW"),
+                        "峰值母线电流" to metricOf(record.peakBusCurrentA, "A"),
+                        "最低电压" to metricOf(record.minVoltage, "V"),
+                        "轨迹点" to metricOf(record.trackPoints.size.toString())
+                    ),
+                    columns = 3
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     AssistChip(
                         onClick = onShare,
@@ -506,7 +642,7 @@ private fun SpeedTestHistoryCard(
     }
 
     if (showDeleteConfirm) {
-        AlertDialog(
+        BlurredAlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("删除加速记录？") },
             text = { Text("删除后将无法恢复，这条加速成绩和轨迹会一起移除。") },
@@ -536,83 +672,111 @@ private fun SpeedTestHistoryCard(
 @Composable
 private fun RideHistoryCard(
     record: RideHistoryRecord,
+    selectionMode: Boolean,
+    selected: Boolean,
     onOpen: () -> Unit,
+    onLongPress: () -> Unit,
     onShare: () -> Unit,
+    onSaveToAlbum: () -> Unit,
+    onExportCsv: () -> Unit,
     onDelete: () -> Unit
 ) {
     var showDeleteConfirm by remember(record.id) { mutableStateOf(false) }
+    var showShareActions by remember(record.id) { mutableStateOf(false) }
     var isRemoving by remember(record.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val summaryMetrics = remember(record.id) {
+        listOf(
+            "里程" to metricOf(record.distanceMeters / 1000f, "km"),
+            "最高速度" to metricOf(record.maxSpeedKmh, "km/h"),
+            "平均速度" to metricOf(record.avgSpeedKmh, "km/h"),
+            "峰值功率" to metricOf(record.peakPowerKw, "kW"),
+            "能耗" to metricOf(record.avgEfficiencyWhKm, "Wh/km"),
+            "采样点" to metricOf(record.samples.size.toString())
+        )
+    }
 
     AnimatedVisibility(
         visible = !isRemoving,
         exit = fadeOut()
     ) {
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = onOpen,
+                    onLongClick = onLongPress
+                ),
             shape = bezierRoundedShape(26.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
+            color = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
+            },
+            border = if (selected) {
+                BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.72f))
+            } else {
+                null
+            }
         ) {
             Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(record.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            "${formatDate(record.startedAtMs)} · ${formatDuration(record.durationMs)}",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(formatRideTitle(record.title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                        if (selectionMode) {
+                            Text(
+                                text = if (selected) "已选择" else "点按选择",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                    AssistChip(
-                        onClick = onOpen,
-                        label = { Text("查看曲线") },
-                        leadingIcon = { Icon(Icons.Default.AutoGraph, contentDescription = null) }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        "${formatDate(record.startedAtMs)} · ${formatDuration(record.durationMs)}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 StatMetricGrid(
-                    metrics = listOf(
-                        "里程" to metricOf(record.distanceMeters / 1000f, "km"),
-                        "最高速度" to metricOf(record.maxSpeedKmh, "km/h"),
-                        "平均速度" to metricOf(record.avgSpeedKmh, "km/h"),
-                        "峰值功率" to metricOf(record.peakPowerKw, "kW"),
-                        "能耗" to metricOf(record.avgEfficiencyWhKm, "Wh/km"),
-                        "采样点" to metricOf(record.samples.size.toString())
-                    ),
+                    metrics = summaryMetrics,
                     columns = 2
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    AssistChip(
-                        onClick = onShare,
-                        label = { Text("分享图", maxLines = 1, softWrap = false) },
-                        leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    AssistChip(
-                        onClick = onOpen,
-                        label = { Text("轨迹图表", maxLines = 1, softWrap = false) },
-                        leadingIcon = { Icon(Icons.Default.Map, contentDescription = null) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    AssistChip(
-                        onClick = { showDeleteConfirm = true },
-                        label = { Text("删除", maxLines = 1, softWrap = false) },
-                        leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) },
-                        modifier = Modifier.weight(1f)
-                    )
+                if (!selectionMode) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        HistoryActionChip(
+                            onClick = onOpen,
+                            text = "详情",
+                            icon = { Icon(Icons.Default.AutoGraph, contentDescription = null) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        HistoryActionChip(
+                            onClick = { showShareActions = true },
+                            text = "分享",
+                            icon = { Icon(Icons.Default.Share, contentDescription = null) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        HistoryActionChip(
+                            onClick = { showDeleteConfirm = true },
+                            text = "删除",
+                            icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) },
+                            modifier = Modifier.weight(1f),
+                            danger = true
+                        )
+                    }
                 }
             }
         }
     }
 
     if (showDeleteConfirm) {
-        AlertDialog(
+        BlurredAlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("删除行程记录？") },
             text = { Text("删除后将无法恢复，这条行程、轨迹和图表数据会一起移除。") },
@@ -637,6 +801,348 @@ private fun RideHistoryCard(
             }
         )
     }
+
+    if (showShareActions) {
+        ShareActionsSheet(
+            onDismiss = { showShareActions = false },
+            onSharePoster = {
+                showShareActions = false
+                onShare()
+            },
+            onSaveToAlbum = {
+                showShareActions = false
+                onSaveToAlbum()
+            },
+            onExportCsv = {
+                showShareActions = false
+                onExportCsv()
+            }
+        )
+    }
+}
+
+@Composable
+private fun HistoryActionChip(
+    onClick: () -> Unit,
+    text: String,
+    icon: @Composable (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    danger: Boolean = false
+) {
+    val labelColor = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+    val chipColors = if (danger) {
+        AssistChipDefaults.assistChipColors(
+            labelColor = MaterialTheme.colorScheme.error,
+            leadingIconContentColor = MaterialTheme.colorScheme.error
+        )
+    } else {
+        AssistChipDefaults.assistChipColors()
+    }
+    val chipBorder = if (danger) {
+        BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.55f))
+    } else {
+        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.9f))
+    }
+    AssistChip(
+        onClick = onClick,
+        label = {
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                Text(text, maxLines = 1, softWrap = false, color = labelColor)
+            }
+        },
+        leadingIcon = icon,
+        modifier = modifier,
+        colors = chipColors,
+        border = chipBorder
+    )
+}
+
+@Composable
+private fun RideHistoryDetailLayer(
+    record: RideHistoryRecord,
+    onDismiss: () -> Unit,
+    onShare: () -> Unit,
+    onSaveToAlbum: () -> Unit,
+    onExportCsv: () -> Unit
+) {
+    var fullscreenMetric by remember(record.id) { mutableStateOf<RideChartMetric?>(null) }
+    var showShareActions by remember(record.id) { mutableStateOf(false) }
+    var dismissDragOffset by remember(record.id) { mutableFloatStateOf(0f) }
+    val samples = remember(record.id, record.samples) { normalizeRideDetailSamples(record) }
+    var selectedIndex by remember(record.id) { mutableIntStateOf((samples.lastIndex).coerceAtLeast(0)) }
+    val overviewCards = remember(record.id, samples) { buildRideOverviewCards(record, samples) }
+    val navigationBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        ApplyDialogWindowBlurEffect(blurRadius = 28.dp, fullscreen = true)
+
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val motion = rememberPredictiveBackMotion(
+                width = maxWidth,
+                onBack = onDismiss,
+                maxHorizontalInset = 10.dp,
+                maxVerticalInset = 8.dp,
+                maxCorner = 20.dp,
+                maxScaleTravelFraction = 0.1f
+            )
+            val scale = 1f - (0.05f * motion.progress)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.56f))
+                    .clickable(
+                        onClick = onDismiss,
+                        indication = null,
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                    )
+            )
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.92f)
+                    .padding(horizontal = motion.insetHorizontal, vertical = motion.insetVertical)
+                    .offset { IntOffset(motion.translationX.roundToInt(), dismissDragOffset.toInt()) }
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        alpha = motion.alpha
+                    }
+                    .pointerInput(record.id) {
+                        detectVerticalDragGestures(
+                            onVerticalDrag = { _, dragAmount ->
+                                dismissDragOffset = (dismissDragOffset + dragAmount).coerceAtLeast(0f)
+                            },
+                            onDragEnd = {
+                                if (dismissDragOffset > 96.dp.toPx()) {
+                                    onDismiss()
+                                }
+                                dismissDragOffset = 0f
+                            },
+                            onDragCancel = {
+                                dismissDragOffset = 0f
+                            }
+                        )
+                    },
+                shape = bezierRoundedShape(32.dp + motion.corner),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp, bottom = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(44.dp)
+                                .height(5.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                    shape = bezierPillShape()
+                                )
+                        )
+                    }
+                    RideHistoryDetailBody(
+                        record = record,
+                        samples = samples,
+                        overviewCards = overviewCards,
+                        selectedIndex = selectedIndex,
+                        onSelectIndex = { selectedIndex = it },
+                        navigationBottomInset = navigationBottomInset,
+                        onMetricClick = { fullscreenMetric = it },
+                        onShowShare = { showShareActions = true },
+                        onDismiss = onDismiss
+                    )
+                }
+            }
+        }
+    }
+
+    if (showShareActions) {
+        ShareActionsSheet(
+            onDismiss = { showShareActions = false },
+            onSharePoster = {
+                showShareActions = false
+                onShare()
+            },
+            onSaveToAlbum = {
+                showShareActions = false
+                onSaveToAlbum()
+            },
+            onExportCsv = {
+                showShareActions = false
+                onExportCsv()
+            }
+        )
+    }
+
+    fullscreenMetric?.let { metric ->
+        RideMetricFullscreenDialog(
+            title = formatRideTitle(record.title),
+            samples = samples,
+            metric = metric,
+            onDismiss = { fullscreenMetric = null }
+        )
+    }
+}
+
+@Composable
+private fun RideHistoryDetailBody(
+    record: RideHistoryRecord,
+    samples: List<RideMetricSample>,
+    overviewCards: List<RideOverviewCard>,
+    selectedIndex: Int,
+    onSelectIndex: (Int) -> Unit,
+    navigationBottomInset: Dp,
+    onMetricClick: (RideChartMetric) -> Unit,
+    onShowShare: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            start = 20.dp,
+            end = 20.dp,
+            top = 10.dp,
+            bottom = 44.dp + navigationBottomInset
+        ),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Column {
+                Text(formatRideTitle(record.title), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "${formatDate(record.startedAtMs)} · ${formatDuration(record.durationMs)} · ${formatFloat(record.distanceMeters / 1000f)} km",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = bezierRoundedShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
+            ) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("统计概览", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "卡片展示的是整段行程统计值；底部固定显示速度图表，点击任一参数卡片可打开对应横屏全屏图表。",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (overviewCards.isEmpty()) {
+                        Text("暂无可查看的采样数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            overviewCards.chunked(2).forEach { row ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(IntrinsicSize.Min),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    row.forEach { card ->
+                                        RideOverviewMetricCard(
+                                            card = card,
+                                            selected = false,
+                                            onClick = { onMetricClick(card.metric) },
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                        )
+                                    }
+                                    repeat(2 - row.size) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            val voltageSagSummary = remember(record.id, samples) { summarizeVoltageSag(samples) }
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = bezierRoundedShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
+            ) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("压降分析", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        MetricStatCard(
+                            title = "平均压降",
+                            metric = metricOf(voltageSagSummary.average, "V"),
+                            modifier = Modifier.weight(1f)
+                        )
+                        MetricStatCard(
+                            title = "最大压降",
+                            metric = metricOf(voltageSagSummary.maximum, "V"),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+        }
+        item {
+            RideMetricChart(
+                samples = samples,
+                metric = RideChartMetric.SPEED,
+                selectedIndex = selectedIndex,
+                onSelectIndex = onSelectIndex
+            )
+        }
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = bezierRoundedShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
+            ) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text("GPS 轨迹路线", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    RoutePreview(
+                        points = record.trackPoints,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(220.dp)
+                    )
+                }
+            }
+        }
+        item {
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Button(
+                    onClick = onShowShare,
+                    modifier = Modifier.fillMaxWidth().weight(1f, false).height(54.dp),
+                    shape = bezierPillShape()
+                ) {
+                    Text("分享")
+                }
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth().weight(1f, false).height(54.dp),
+                    shape = bezierPillShape()
+                ) {
+                    Text("关闭")
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -644,22 +1150,34 @@ private fun RideHistoryCard(
 private fun RideHistoryDetailSheet(
     record: RideHistoryRecord,
     onDismiss: () -> Unit,
-    onShare: () -> Unit
+    onShare: () -> Unit,
+    onSaveToAlbum: () -> Unit,
+    onExportCsv: () -> Unit
 ) {
-    var selectedMetric by remember(record.id) { mutableStateOf(RideChartMetric.SPEED) }
-    val samples = record.samples
+    var fullscreenMetric by remember(record.id) { mutableStateOf<RideChartMetric?>(null) }
+    var showShareActions by remember(record.id) { mutableStateOf(false) }
+    val samples = remember(record.id, record.samples) { normalizeRideDetailSamples(record) }
     var selectedIndex by remember(record.id) { mutableIntStateOf((samples.lastIndex).coerceAtLeast(0)) }
-    val selectedSample = samples.getOrNull(selectedIndex)
-
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 20.dp, top = 0.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+    val overviewCards = remember(record.id, samples) { buildRideOverviewCards(record, samples) }
+    val navigationBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    BlurredModalBottomSheet(onDismissRequest = onDismiss) {
+        PredictiveBackPopupTransform(
+            onBack = onDismiss,
+            modifier = Modifier.fillMaxWidth()
         ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    start = 20.dp,
+                    end = 20.dp,
+                    top = 0.dp,
+                    bottom = 28.dp + navigationBottomInset
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
             item {
                 Column {
-                    Text(record.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                    Text(formatRideTitle(record.title), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         "${formatDate(record.startedAtMs)} · ${formatDuration(record.durationMs)} · ${formatFloat(record.distanceMeters / 1000f)} km",
@@ -668,26 +1186,47 @@ private fun RideHistoryDetailSheet(
                 }
             }
             item {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    RideChartMetric.entries.forEach { metric ->
-                        FilterChip(
-                            selected = metric == selectedMetric,
-                            onClick = { selectedMetric = metric },
-                            label = { Text(metric.title) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = metric.color.copy(alpha = 0.2f)
-                            )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = bezierRoundedShape(24.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("统计概览", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            "卡片展示的是整段行程统计值；底部固定显示速度图表，点击任一参数卡片可打开对应横屏全屏图表。",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (overviewCards.isEmpty()) {
+                            Text("暂无可查看的采样数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                overviewCards.chunked(2).forEach { row ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(IntrinsicSize.Min),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        row.forEach { card ->
+                                            RideOverviewMetricCard(
+                                                card = card,
+                                                selected = false,
+                                                onClick = { fullscreenMetric = card.metric },
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .fillMaxHeight()
+                                            )
+                                        }
+                                        repeat(2 - row.size) {
+                                            Spacer(modifier = Modifier.weight(1f))
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-            }
-            item {
-                RideMetricChart(
-                    samples = samples,
-                    metric = selectedMetric,
-                    selectedIndex = selectedIndex,
-                    onSelectIndex = { selectedIndex = it }
-                )
             }
             item {
                 val voltageSagSummary = remember(record.id, samples) { summarizeVoltageSag(samples) }
@@ -717,40 +1256,12 @@ private fun RideHistoryDetailSheet(
                 }
             }
             item {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = bezierRoundedShape(24.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
-                ) {
-                    Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("时间点明细", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        if (selectedSample == null) {
-                            Text("暂无可查看的采样数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            Text(
-                                "时间 ${formatDuration(selectedSample.elapsedMs)}",
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                            HorizontalDivider()
-                            val detailMetrics = remember(selectedSample) {
-                                listOf(
-                                    "速度" to metricOf(selectedSample.speedKmH, "km/h"),
-                                    "功率" to metricOf(selectedSample.powerKw, "kW"),
-                                    "电压" to metricOf(selectedSample.voltage, "V"),
-                                    "母线电流" to metricOf(selectedSample.busCurrent, "A"),
-                                    "相电流" to metricOf(selectedSample.phaseCurrent, "A"),
-                                    "控制器温度" to metricOf(selectedSample.controllerTemp, "°C"),
-                                    "电量" to metricOf(selectedSample.soc, "%"),
-                                    "转速" to metricOf(selectedSample.rpm, "rpm"),
-                                    "能耗" to metricOf(selectedSample.efficiencyWhKm, "Wh/km"),
-                                    "里程" to metricOf(selectedSample.distanceMeters, "m")
-                                )
-                            }
-                            StatMetricGrid(metrics = detailMetrics, columns = 3)
-                        }
-                    }
-                }
+                RideMetricChart(
+                    samples = samples,
+                    metric = RideChartMetric.SPEED,
+                    selectedIndex = selectedIndex,
+                    onSelectIndex = { selectedIndex = it }
+                )
             }
             item {
                 Surface(
@@ -759,7 +1270,7 @@ private fun RideHistoryDetailSheet(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
                 ) {
                     Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Text("轨迹路线", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("GPS 轨迹路线", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         RoutePreview(
                             points = record.trackPoints,
                             modifier = Modifier
@@ -770,22 +1281,131 @@ private fun RideHistoryDetailSheet(
                 }
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Button(
-                        onClick = onShare,
-                        modifier = Modifier.weight(1f).height(54.dp),
+                        onClick = { showShareActions = true },
+                        modifier = Modifier.fillMaxWidth().weight(1f, false).height(54.dp),
                         shape = bezierPillShape()
                     ) {
-                        Text("导出分享图")
+                        Text("分享")
                     }
                     OutlinedButton(
                         onClick = onDismiss,
-                        modifier = Modifier.weight(1f).height(54.dp),
+                        modifier = Modifier.fillMaxWidth().weight(1f, false).height(54.dp),
                         shape = bezierPillShape()
                     ) {
                         Text("关闭")
                     }
                 }
+            }
+        }
+        }
+    }
+
+    if (showShareActions) {
+        ShareActionsSheet(
+            onDismiss = { showShareActions = false },
+            onSharePoster = {
+                showShareActions = false
+                onShare()
+            },
+            onSaveToAlbum = {
+                showShareActions = false
+                onSaveToAlbum()
+            },
+            onExportCsv = {
+                showShareActions = false
+                onExportCsv()
+            }
+        )
+    }
+
+    fullscreenMetric?.let { metric ->
+        RideMetricFullscreenDialog(
+            title = formatRideTitle(record.title),
+            samples = samples,
+            metric = metric,
+            onDismiss = { fullscreenMetric = null }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ShareActionsSheet(
+    onDismiss: () -> Unit,
+    onSharePoster: () -> Unit,
+    onSaveToAlbum: () -> Unit,
+    onExportCsv: () -> Unit
+) {
+    BlurredModalBottomSheet(onDismissRequest = onDismiss) {
+        PredictiveBackPopupTransform(
+            onBack = onDismiss,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("分享与导出", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                RoundedSheetAction(
+                    title = "分享分享图",
+                    subtitle = "生成海报后调用系统分享面板",
+                    icon = { Icon(Icons.Default.Share, contentDescription = null) },
+                    onClick = onSharePoster
+                )
+                RoundedSheetAction(
+                    title = "保存到相册",
+                    subtitle = "将当前行程分享图保存到系统相册",
+                    icon = { Icon(Icons.Default.PhotoLibrary, contentDescription = null) },
+                    onClick = onSaveToAlbum
+                )
+                RoundedSheetAction(
+                    title = "保存 CSV",
+                    subtitle = "导出当前行程的原始采样数据",
+                    icon = { Icon(Icons.Default.Download, contentDescription = null) },
+                    onClick = onExportCsv
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoundedSheetAction(
+    title: String,
+    subtitle: String,
+    icon: @Composable () -> Unit,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = bezierRoundedShape(22.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.36f),
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier.size(22.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                icon()
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -796,102 +1416,596 @@ private fun RideMetricChart(
     samples: List<RideMetricSample>,
     metric: RideChartMetric,
     selectedIndex: Int,
-    onSelectIndex: (Int) -> Unit
+    onSelectIndex: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    chartHeight: Dp = 260.dp,
+    landscapeMode: Boolean = false
 ) {
     val values = remember(samples, metric) { samples.map { it.metricValue(metric) } }
+    val averageValue = remember(values) { values.takeIf { it.isNotEmpty() }?.average()?.toFloat() ?: 0f }
+    val peakIndex = remember(values) { values.indices.maxByOrNull { values[it] } ?: 0 }
+    val averageLabelBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+    val density = LocalDensity.current
+    val axisTextSizePx = with(density) { if (landscapeMode) 12.sp.toPx() else 11.sp.toPx() }
+    val averageLabelSizePx = with(density) { if (landscapeMode) 12.sp.toPx() else 10.sp.toPx() }
+    val axisPaint = remember(axisTextSizePx) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textAlign = Paint.Align.LEFT
+            textSize = axisTextSizePx
+        }
+    }
+    val averagePaint = remember(averageLabelSizePx) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textAlign = Paint.Align.RIGHT
+            textSize = averageLabelSizePx
+        }
+    }
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = bezierRoundedShape(28.dp),
+        modifier = modifier.fillMaxWidth(),
+        shape = bezierRoundedShape(if (landscapeMode) 30.dp else 28.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f)
     ) {
         val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-        Column(modifier = Modifier.padding(18.dp)) {
+        axisPaint.color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f).toArgb()
+        averagePaint.color = metric.color.copy(alpha = 0.96f).toArgb()
+        Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = if (landscapeMode) 16.dp else 18.dp)) {
             Text(metric.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                "拖动图表可查看任意时间点数据走势",
+                "拖动图表查看采样点；带坐标轴，虚线显示平均值并标出数值。",
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.height(16.dp))
-            Box(
+            Spacer(modifier = Modifier.height(if (landscapeMode) 12.dp else 16.dp))
+            RideMetricPlot(
+                samples = samples,
+                metric = metric,
+                selectedIndex = selectedIndex,
+                onSelectIndex = onSelectIndex,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(260.dp)
-                    .pointerInput(values) {
-                        detectDragGestures(
-                            onDragStart = { offset ->
-                                if (values.isNotEmpty()) {
-                                    val step = size.width / values.size.toFloat().coerceAtLeast(1f)
-                                    onSelectIndex(((offset.x / step).toInt()).coerceIn(0, values.lastIndex))
-                                }
-                            }
-                        ) { change, _ ->
-                            if (values.isNotEmpty()) {
-                                val step = size.width / values.size.toFloat().coerceAtLeast(1f)
-                                onSelectIndex(((change.position.x / step).toInt()).coerceIn(0, values.lastIndex))
-                            }
-                        }
-                    }
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    if (values.isEmpty()) return@Canvas
-                    val paddingLeft = 26.dp.toPx()
-                    val paddingRight = 18.dp.toPx()
-                    val paddingTop = 20.dp.toPx()
-                    val paddingBottom = 28.dp.toPx()
-                    val chartWidth = size.width - paddingLeft - paddingRight
-                    val chartHeight = size.height - paddingTop - paddingBottom
-                    val maxValue = values.maxOrNull()?.takeIf { it > 0f } ?: 1f
-                    val minValue = values.minOrNull() ?: 0f
-                    val span = (maxValue - minValue).takeIf { it > 0.001f } ?: 1f
-
-                    repeat(4) { index ->
-                        val y = paddingTop + chartHeight * index / 3f
-                        drawLine(
-                            color = gridColor,
-                            start = Offset(paddingLeft, y),
-                            end = Offset(size.width - paddingRight, y),
-                            strokeWidth = 2f
-                        )
-                    }
-
-                    val path = Path()
-                    values.forEachIndexed { index, value ->
-                        val x = paddingLeft + chartWidth * index / (values.lastIndex.coerceAtLeast(1))
-                        val y = paddingTop + chartHeight - ((value - minValue) / span) * chartHeight
-                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                    }
-                    drawPath(
-                        path = path,
-                        color = metric.color,
-                        style = Stroke(width = 8f, cap = StrokeCap.Round)
-                    )
-
-                    val safeIndex = selectedIndex.coerceIn(0, values.lastIndex)
-                    val selectedX = paddingLeft + chartWidth * safeIndex / (values.lastIndex.coerceAtLeast(1))
-                    val selectedY = paddingTop + chartHeight - ((values[safeIndex] - minValue) / span) * chartHeight
-                    drawLine(
-                        color = Color.White.copy(alpha = 0.55f),
-                        start = Offset(selectedX, paddingTop),
-                        end = Offset(selectedX, size.height - paddingBottom),
-                        strokeWidth = 3f
-                    )
-                    drawCircle(color = metric.color, radius = 12f, center = Offset(selectedX, selectedY))
-                    drawCircle(color = Color.White, radius = 5f, center = Offset(selectedX, selectedY))
-                }
-            }
+                    .height(chartHeight),
+                landscapeMode = landscapeMode,
+                gridColor = gridColor,
+                axisPaint = axisPaint,
+                averagePaint = averagePaint
+            )
             Spacer(modifier = Modifier.height(12.dp))
             val selectedValue = values.getOrNull(selectedIndex)
+            val selectedSample = samples.getOrNull(selectedIndex)
             if (selectedValue != null) {
-                Text(
-                    "${metric.title} ${formatFloat(selectedValue)} ${metric.unit}",
-                    color = metric.color,
-                    fontWeight = FontWeight.Bold
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        "${metric.title} ${formatFloat(selectedValue)} ${metric.unit}",
+                        color = metric.color,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "平均 ${formatFloat(averageValue)} ${metric.unit} · 最高 ${formatFloat(values[peakIndex])} ${metric.unit}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    selectedSample?.let { sample ->
+                        Text(
+                            "采样时间 ${formatDuration(sample.elapsedMs)}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RideMetricPlot(
+    samples: List<RideMetricSample>,
+    metric: RideChartMetric,
+    selectedIndex: Int,
+    onSelectIndex: (Int) -> Unit,
+    modifier: Modifier,
+    landscapeMode: Boolean,
+    gridColor: Color,
+    axisPaint: Paint,
+    averagePaint: Paint
+) {
+    val values = remember(samples, metric) { samples.map { it.metricValue(metric) } }
+    val averageValue = remember(values) { values.takeIf { it.isNotEmpty() }?.average()?.toFloat() ?: 0f }
+    val peakIndex = remember(values) { values.indices.maxByOrNull { values[it] } ?: 0 }
+    val averageLabelBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+
+    Box(
+        modifier = modifier.pointerInput(values) {
+            detectDragGestures(
+                onDragStart = { offset ->
+                    if (values.isNotEmpty()) {
+                        val step = size.width / values.size.toFloat().coerceAtLeast(1f)
+                        onSelectIndex(((offset.x / step).toInt()).coerceIn(0, values.lastIndex))
+                    }
+                }
+            ) { change, _ ->
+                if (values.isNotEmpty()) {
+                    val step = size.width / values.size.toFloat().coerceAtLeast(1f)
+                    onSelectIndex(((change.position.x / step).toInt()).coerceIn(0, values.lastIndex))
+                }
+            }
+        }
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            if (values.isEmpty()) return@Canvas
+            val paddingLeft = if (landscapeMode) 42.dp.toPx() else 50.dp.toPx()
+            val paddingRight = if (landscapeMode) 28.dp.toPx() else 42.dp.toPx()
+            val paddingTop = if (landscapeMode) 28.dp.toPx() else 30.dp.toPx()
+            val paddingBottom = if (landscapeMode) 30.dp.toPx() else 34.dp.toPx()
+            val chartWidth = size.width - paddingLeft - paddingRight
+            val chartHeight = size.height - paddingTop - paddingBottom
+            val maxValue = values.maxOrNull() ?: 1f
+            val minValue = values.minOrNull() ?: 0f
+            val span = (maxValue - minValue).takeIf { it > 0.001f } ?: 1f
+            val tickValues = listOf(maxValue, maxValue - span / 2f, minValue)
+            val averageLabel = "均值 ${formatFloat(averageValue)} ${metric.unit}"
+            val averageLabelWidth = averagePaint.measureText(averageLabel) + 18.dp.toPx()
+            val averageLabelHeight = averagePaint.textSize + 12.dp.toPx()
+
+            drawLine(
+                color = gridColor.copy(alpha = 0.7f),
+                start = Offset(paddingLeft, paddingTop),
+                end = Offset(paddingLeft, size.height - paddingBottom),
+                strokeWidth = 2f
+            )
+            drawLine(
+                color = gridColor.copy(alpha = 0.7f),
+                start = Offset(paddingLeft, size.height - paddingBottom),
+                end = Offset(size.width - paddingRight, size.height - paddingBottom),
+                strokeWidth = 2f
+            )
+
+            tickValues.forEachIndexed { index, tickValue ->
+                val y = paddingTop + chartHeight * index / (tickValues.lastIndex.coerceAtLeast(1))
+                drawLine(
+                    color = gridColor,
+                    start = Offset(paddingLeft, y),
+                    end = Offset(size.width - paddingRight, y),
+                    strokeWidth = 2f
+                )
+                drawContext.canvas.nativeCanvas.drawText(
+                    formatFloat(tickValue),
+                    6.dp.toPx(),
+                    y + axisPaint.textSize / 3f,
+                    axisPaint
+                )
+            }
+
+            val path = Path()
+            values.forEachIndexed { index, value ->
+                val x = paddingLeft + chartWidth * index / (values.lastIndex.coerceAtLeast(1))
+                val y = paddingTop + chartHeight - ((value - minValue) / span) * chartHeight
+                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            val averageY = paddingTop + chartHeight - ((averageValue - minValue) / span) * chartHeight
+            val averageLabelTop = 6.dp.toPx()
+            val averageLabelLeft = (size.width - paddingRight - averageLabelWidth).coerceAtLeast(paddingLeft + 12.dp.toPx())
+            drawLine(
+                color = metric.color.copy(alpha = 0.55f),
+                start = Offset(paddingLeft, averageY),
+                end = Offset(size.width - paddingRight, averageY),
+                strokeWidth = 3f,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(16f, 10f))
+            )
+            drawRoundRect(
+                color = averageLabelBackground,
+                topLeft = Offset(averageLabelLeft, averageLabelTop),
+                size = androidx.compose.ui.geometry.Size(averageLabelWidth, averageLabelHeight),
+                cornerRadius = CornerRadius(14.dp.toPx(), 14.dp.toPx())
+            )
+            drawContext.canvas.nativeCanvas.drawText(
+                averageLabel,
+                averageLabelLeft + averageLabelWidth - 10.dp.toPx(),
+                averageLabelTop + averageLabelHeight - 8.dp.toPx(),
+                averagePaint
+            )
+            drawPath(
+                path = path,
+                color = metric.color,
+                style = Stroke(width = 8f, cap = StrokeCap.Round)
+            )
+
+            val safeIndex = selectedIndex.coerceIn(0, values.lastIndex)
+            val selectedX = paddingLeft + chartWidth * safeIndex / (values.lastIndex.coerceAtLeast(1))
+            val selectedY = paddingTop + chartHeight - ((values[safeIndex] - minValue) / span) * chartHeight
+            val peakX = paddingLeft + chartWidth * peakIndex / (values.lastIndex.coerceAtLeast(1))
+            val peakY = paddingTop + chartHeight - ((values[peakIndex] - minValue) / span) * chartHeight
+            drawLine(
+                color = Color.White.copy(alpha = 0.55f),
+                start = Offset(selectedX, paddingTop),
+                end = Offset(selectedX, size.height - paddingBottom),
+                strokeWidth = 3f
+            )
+            drawCircle(color = metric.color.copy(alpha = 0.32f), radius = 16f, center = Offset(peakX, peakY))
+            drawCircle(color = metric.color, radius = 10f, center = Offset(peakX, peakY))
+            drawCircle(color = metric.color, radius = 12f, center = Offset(selectedX, selectedY))
+            drawCircle(color = Color.White, radius = 5f, center = Offset(selectedX, selectedY))
+
+            val midIndex = values.lastIndex / 2
+            val xAxisLabels = listOf(
+                paddingLeft to formatAxisDuration(samples.firstOrNull()?.elapsedMs ?: 0L),
+                (paddingLeft + chartWidth * 0.5f) to formatAxisDuration(samples.getOrNull(midIndex)?.elapsedMs ?: 0L),
+                (paddingLeft + chartWidth) to formatAxisDuration(samples.lastOrNull()?.elapsedMs ?: 0L)
+            )
+            xAxisLabels.forEach { (x, label) ->
+                val width = axisPaint.measureText(label)
+                drawContext.canvas.nativeCanvas.drawText(
+                    label,
+                    (x - width / 2f).coerceIn(paddingLeft, size.width - paddingRight - width),
+                    size.height - 8.dp.toPx(),
+                    axisPaint
                 )
             }
         }
     }
 }
+
+@Composable
+private fun RideMetricFullscreenDialog(
+    title: String,
+    samples: List<RideMetricSample>,
+    metric: RideChartMetric,
+    onDismiss: () -> Unit
+) {
+    var selectedIndex by remember(metric, samples) { mutableIntStateOf((samples.lastIndex).coerceAtLeast(0)) }
+    var dismissDrag by remember(metric) { mutableFloatStateOf(0f) }
+    val values = remember(samples, metric) { samples.map { it.metricValue(metric) } }
+    val averageValue = remember(values) { values.takeIf { it.isNotEmpty() }?.average()?.toFloat() ?: 0f }
+    val peakValue = remember(values) { values.maxOrNull() ?: 0f }
+    val selectedValue = values.getOrNull(selectedIndex) ?: 0f
+    val selectedSample = samples.getOrNull(selectedIndex)
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        ApplyDialogWindowBlurEffect(blurRadius = 34.dp, fullscreen = true)
+        val statusBarInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            val motion = rememberPredictiveBackMotion(
+                width = maxWidth,
+                onBack = onDismiss,
+                maxHorizontalInset = 8.dp,
+                maxVerticalInset = 6.dp,
+                maxCorner = 20.dp,
+                maxScaleTravelFraction = 0.1f
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.54f))
+            )
+            val outerHorizontal = 4.dp + motion.insetHorizontal
+            val outerTop = statusBarInset + 10.dp + motion.insetVertical
+            val outerBottom = navigationBarInset + 10.dp + motion.insetVertical
+            val availableWidth = (maxWidth - outerHorizontal * 2).coerceAtLeast(240.dp)
+            val availableHeight = (maxHeight - outerTop - outerBottom).coerceAtLeast(360.dp)
+            val overlayDensity = LocalDensity.current
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = outerHorizontal, end = outerHorizontal, top = outerTop, bottom = outerBottom)
+                    .offset { IntOffset(motion.translationX.roundToInt(), dismissDrag.roundToInt()) }
+                    .graphicsLayer {
+                        val scale = 1f - (0.06f * motion.progress)
+                        scaleX = scale
+                        scaleY = scale
+                        alpha = motion.alpha
+                    }
+                    .pointerInput(metric) {
+                        detectVerticalDragGestures(
+                            onVerticalDrag = { _, dragAmount ->
+                                dismissDrag = (dismissDrag + dragAmount).coerceAtLeast(0f)
+                            },
+                            onDragEnd = {
+                                if (dismissDrag > 96.dp.toPx()) {
+                                    onDismiss()
+                                }
+                                dismissDrag = 0f
+                            },
+                            onDragCancel = {
+                                dismissDrag = 0f
+                            }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .requiredWidth(availableHeight)
+                        .requiredHeight(availableWidth)
+                        .graphicsLayer {
+                            rotationZ = 90f
+                        },
+                    shape = bezierRoundedShape(30.dp + motion.corner),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 18.dp, vertical = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .width(112.dp)
+                                .fillMaxHeight(),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, maxLines = 2)
+                            }
+                            Surface(
+                                shape = bezierRoundedShape(20.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text("当前", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("${formatFloat(selectedValue)} ${metric.unit}", style = MaterialTheme.typography.titleSmall, color = metric.color, fontWeight = FontWeight.Bold)
+                                    Text("均值 ${formatFloat(averageValue)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("最高 ${formatFloat(peakValue)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    selectedSample?.let { sample ->
+                                        Text("时间 ${formatAxisDuration(sample.elapsedMs)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                            OutlinedButton(onClick = onDismiss, shape = bezierPillShape()) {
+                                Text("关闭")
+                            }
+                        }
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            shape = bezierRoundedShape(26.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                RideMetricPlot(
+                                    samples = samples,
+                                    metric = metric,
+                                    selectedIndex = selectedIndex,
+                                    onSelectIndex = { selectedIndex = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    landscapeMode = true,
+                                    gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                                    axisPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                                        textAlign = Paint.Align.LEFT
+                                        textSize = with(overlayDensity) { 11.sp.toPx() }
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f).toArgb()
+                                    },
+                                    averagePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                                        textAlign = Paint.Align.RIGHT
+                                        textSize = with(overlayDensity) { 11.sp.toPx() }
+                                        color = metric.color.copy(alpha = 0.96f).toArgb()
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatAxisDuration(durationMs: Long): String {
+    val minutes = durationMs / 60000
+    val seconds = (durationMs % 60000) / 1000
+    return if (minutes > 0) "${minutes}m${seconds}s" else "${seconds}s"
+}
+
+private fun normalizeRideDetailSamples(record: RideHistoryRecord): List<RideMetricSample> {
+    val rawSamples = record.samples
+    if (rawSamples.isEmpty()) return rawSamples
+
+    val hasCumulativeEnergy = rawSamples.any { it.totalEnergyWh > 0.01f }
+    val hasAverageEfficiency = rawSamples.any { it.avgEfficiencyWhKm > 0.01f }
+    val hasRecoveredEnergy = rawSamples.any { it.recoveredEnergyWh > 0.01f }
+    val hasMaxControllerTemp = rawSamples.any { it.maxControllerTemp > 0.01f }
+    val finalDistanceMeters = rawSamples.lastOrNull()?.distanceMeters?.takeIf { it > 1f }
+        ?: record.distanceMeters.takeIf { it > 1f }
+        ?: 0f
+    val finalElapsedMs = rawSamples.lastOrNull()?.elapsedMs?.takeIf { it > 0L } ?: 0L
+    var runningMaxControllerTemp = 0f
+
+    return rawSamples.map { sample ->
+        val progress = when {
+            finalDistanceMeters > 1f && sample.distanceMeters > 0f ->
+                (sample.distanceMeters / finalDistanceMeters).coerceIn(0f, 1f)
+            finalElapsedMs > 0L ->
+                (sample.elapsedMs.toFloat() / finalElapsedMs.toFloat()).coerceIn(0f, 1f)
+            else -> 0f
+        }
+        val totalEnergyWh = when {
+            hasCumulativeEnergy -> sample.totalEnergyWh
+            record.totalEnergyWh > 0.01f -> record.totalEnergyWh * progress
+            else -> sample.totalEnergyWh
+        }
+        val avgEfficiencyWhKm = when {
+            sample.avgEfficiencyWhKm > 0.01f -> sample.avgEfficiencyWhKm
+            sample.distanceMeters > 10f && totalEnergyWh > 0.01f ->
+                totalEnergyWh / (sample.distanceMeters / 1000f)
+            record.avgEfficiencyWhKm > 0.1f -> record.avgEfficiencyWhKm
+            else -> sample.avgEfficiencyWhKm
+        }
+        val recoveredEnergyWh = when {
+            hasRecoveredEnergy -> sample.recoveredEnergyWh
+            else -> 0f
+        }
+        runningMaxControllerTemp = max(
+            runningMaxControllerTemp,
+            max(sample.controllerTemp, sample.maxControllerTemp)
+        )
+        val maxControllerTemp = when {
+            hasMaxControllerTemp && sample.maxControllerTemp > 0.01f -> sample.maxControllerTemp
+            else -> runningMaxControllerTemp
+        }
+        sample.copy(
+            totalEnergyWh = totalEnergyWh,
+            avgEfficiencyWhKm = avgEfficiencyWhKm,
+            recoveredEnergyWh = recoveredEnergyWh,
+            maxControllerTemp = maxControllerTemp
+        )
+    }
+}
+
+private data class RideOverviewCard(
+    val title: String,
+    val value: DisplayMetric,
+    val supporting: String,
+    val metric: RideChartMetric
+)
+
+@Composable
+private fun RideOverviewMetricCard(
+    card: RideOverviewCard,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.heightIn(min = 104.dp),
+        shape = bezierRoundedShape(22.dp),
+        color = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.68f)
+        } else {
+            MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+        },
+        onClick = onClick
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                card.title,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+            BaselineMetricValue(
+                value = card.value.value,
+                unit = card.value.unit,
+                valueColor = MaterialTheme.colorScheme.onSurface,
+                unitColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                valueFontSize = 24.sp,
+                unitFontSize = 11.sp,
+                singleLine = true
+            )
+            Text(
+                card.supporting,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2
+            )
+        }
+    }
+}
+
+private fun buildRideOverviewCards(
+    record: RideHistoryRecord,
+    samples: List<RideMetricSample>
+): List<RideOverviewCard> {
+    if (samples.isEmpty()) return emptyList()
+    val last = samples.last()
+    val avgPowerKw = samples.map { it.powerKw }.average().toFloat()
+    val avgVoltage = samples.map { it.voltage }.average().toFloat()
+    val minVoltage = samples.minOf { it.voltage }
+    val avgBusCurrent = samples.map { kotlin.math.abs(it.busCurrent) }.average().toFloat()
+    val peakBusCurrent = samples.maxOf { kotlin.math.abs(it.busCurrent) }
+    val avgPhaseCurrent = samples.map { it.phaseCurrent }.average().toFloat()
+    val peakPhaseCurrent = samples.maxOf { it.phaseCurrent }
+    val avgControllerTemp = samples.map { it.controllerTemp }.average().toFloat()
+    val peakControllerTemp = samples.maxOf { it.controllerTemp }
+    val peakInstantEfficiency = samples.maxOf { it.efficiencyWhKm }
+    val recoveredEnergyWh = samples.maxOf { it.recoveredEnergyWh }
+    val minRangeKm = samples.minOf { it.estimatedRangeKm }
+    return listOf(
+        RideOverviewCard(
+            title = "速度",
+            value = metricOf(record.avgSpeedKmh, "km/h"),
+            supporting = "最高 ${formatFloat(record.maxSpeedKmh)} km/h",
+            metric = RideChartMetric.SPEED
+        ),
+        RideOverviewCard(
+            title = "功率",
+            value = metricOf(avgPowerKw, "kW"),
+            supporting = "峰值 ${formatFloat(record.peakPowerKw)} kW",
+            metric = RideChartMetric.POWER
+        ),
+        RideOverviewCard(
+            title = "电压",
+            value = metricOf(avgVoltage, "V"),
+            supporting = "最低 ${formatFloat(minVoltage)} V",
+            metric = RideChartMetric.VOLTAGE
+        ),
+        RideOverviewCard(
+            title = "母线电流",
+            value = metricOf(avgBusCurrent, "A"),
+            supporting = "峰值 ${formatFloat(peakBusCurrent)} A",
+            metric = RideChartMetric.BUS_CURRENT
+        ),
+        RideOverviewCard(
+            title = "相电流",
+            value = metricOf(avgPhaseCurrent, "A"),
+            supporting = "峰值 ${formatFloat(peakPhaseCurrent)} A",
+            metric = RideChartMetric.PHASE_CURRENT
+        ),
+        RideOverviewCard(
+            title = "控制器温度",
+            value = metricOf(avgControllerTemp, "°C"),
+            supporting = "最高 ${formatFloat(peakControllerTemp)} °C",
+            metric = RideChartMetric.CONTROLLER_TEMP
+        ),
+        RideOverviewCard(
+            title = "平均能耗",
+            value = metricOf(record.avgEfficiencyWhKm, "Wh/km"),
+            supporting = "峰值 ${formatFloat(peakInstantEfficiency)} Wh/km",
+            metric = RideChartMetric.AVG_EFFICIENCY
+        ),
+        RideOverviewCard(
+            title = "总能耗",
+            value = metricOf(record.totalEnergyWh, "Wh"),
+            supporting = "回收 ${formatFloat(recoveredEnergyWh)} Wh",
+            metric = RideChartMetric.TOTAL_ENERGY
+        ),
+        RideOverviewCard(
+            title = "电量",
+            value = metricOf(last.soc, "%"),
+            supporting = "预计续航 ${formatFloat(last.estimatedRangeKm)} km",
+            metric = RideChartMetric.SOC
+        ),
+        RideOverviewCard(
+            title = "里程",
+            value = metricOf(record.distanceMeters / 1000f, "km"),
+            supporting = "最低续航 ${formatFloat(minRangeKm)} km",
+            metric = RideChartMetric.RANGE
+        )
+    )
+}
+
 
 @Composable
 private fun RoutePreview(points: List<RideTrackPoint>, modifier: Modifier = Modifier) {
@@ -906,25 +2020,19 @@ private fun RoutePreview(points: List<RideTrackPoint>, modifier: Modifier = Modi
             }
         } else {
             Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                val minLat = points.minOf { it.latitude }
-                val maxLat = points.maxOf { it.latitude }
-                val minLon = points.minOf { it.longitude }
-                val maxLon = points.maxOf { it.longitude }
-                val latSpan = (maxLat - minLat).takeIf { it > 0.000001 } ?: 0.000001
-                val lonSpan = (maxLon - minLon).takeIf { it > 0.000001 } ?: 0.000001
+                val projection = projectRoute(points, size.width, size.height)
+                if (projection == null) return@Canvas
                 val path = Path()
-                points.forEachIndexed { index, point ->
-                    val x = ((point.longitude - minLon) / lonSpan).toFloat() * size.width
-                    val y = size.height - ((point.latitude - minLat) / latSpan).toFloat() * size.height
+                projection.points.forEachIndexed { index, point ->
+                    val x = point.x
+                    val y = point.y
                     if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
                 }
                 drawPath(path, color = Color(0xFF9FC0FF), style = Stroke(width = 8f, cap = StrokeCap.Round))
-                val start = points.first()
-                val end = points.last()
-                val startX = ((start.longitude - minLon) / lonSpan).toFloat() * size.width
-                val startY = size.height - ((start.latitude - minLat) / latSpan).toFloat() * size.height
-                val endX = ((end.longitude - minLon) / lonSpan).toFloat() * size.width
-                val endY = size.height - ((end.latitude - minLat) / latSpan).toFloat() * size.height
+                val startX = projection.start.x
+                val startY = projection.start.y
+                val endX = projection.end.x
+                val endY = projection.end.y
                 drawCircle(color = Color(0xFF7DE38D), radius = 12f, center = Offset(startX, startY))
                 drawCircle(color = Color(0xFFFF9E9E), radius = 12f, center = Offset(endX, endY))
             }
@@ -940,10 +2048,8 @@ private fun StatChip(label: String, metric: DisplayMetric, modifier: Modifier = 
         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.42f)
     ) {
         BoxWithConstraints {
-            val compactUnit = metric.unit.length >= 4
-            val compactValue = metric.value.length >= 5
-            val compact = maxWidth < 112.dp || compactUnit || compactValue
-            Column(modifier = Modifier.padding(horizontal = if (compact) 10.dp else 12.dp, vertical = 10.dp)) {
+            val style = metricCompactStyle(maxWidth = maxWidth, metric = metric, statChip = true)
+            Column(modifier = Modifier.padding(horizontal = style.horizontalPadding, vertical = style.verticalPadding)) {
                 Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                 Spacer(modifier = Modifier.height(4.dp))
                 BaselineMetricValue(
@@ -951,9 +2057,9 @@ private fun StatChip(label: String, metric: DisplayMetric, modifier: Modifier = 
                     unit = metric.unit,
                     valueColor = MaterialTheme.colorScheme.onSurface,
                     unitColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    valueFontSize = if (compact) 20.sp else 22.sp,
-                    unitFontSize = if (compact) 10.sp else 11.sp,
-                    unitSpacing = if (compact) 2.dp else 4.dp,
+                    valueFontSize = style.valueFontSize,
+                    unitFontSize = style.unitFontSize,
+                    unitSpacing = style.unitSpacing,
                     singleLine = true
                 )
             }
@@ -1003,10 +2109,8 @@ private fun MetricStatCard(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f)
     ) {
         BoxWithConstraints {
-            val compactUnit = metric.unit.length >= 4
-            val compactValue = metric.value.length >= 5
-            val compact = maxWidth < 144.dp || compactUnit || compactValue
-            Column(modifier = Modifier.padding(if (compact) 14.dp else 16.dp)) {
+            val style = metricCompactStyle(maxWidth = maxWidth, metric = metric, statChip = false)
+            Column(modifier = Modifier.padding(horizontal = style.horizontalPadding, vertical = style.verticalPadding + 2.dp)) {
                 Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
                 Spacer(modifier = Modifier.height(10.dp))
                 BaselineMetricValue(
@@ -1014,14 +2118,102 @@ private fun MetricStatCard(
                     unit = metric.unit,
                     valueColor = MaterialTheme.colorScheme.onSurface,
                     unitColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    valueFontSize = if (compact) 22.sp else 24.sp,
-                    unitFontSize = if (compact) 11.sp else 12.sp,
-                    unitSpacing = if (compact) 2.dp else 4.dp,
+                    valueFontSize = style.valueFontSize,
+                    unitFontSize = style.unitFontSize,
+                    unitSpacing = style.unitSpacing,
                     singleLine = true
                 )
             }
         }
     }
+}
+
+private data class MetricCompactStyle(
+    val valueFontSize: androidx.compose.ui.unit.TextUnit,
+    val unitFontSize: androidx.compose.ui.unit.TextUnit,
+    val unitSpacing: androidx.compose.ui.unit.Dp,
+    val horizontalPadding: androidx.compose.ui.unit.Dp,
+    val verticalPadding: androidx.compose.ui.unit.Dp
+)
+
+private fun metricCompactStyle(
+    maxWidth: androidx.compose.ui.unit.Dp,
+    metric: DisplayMetric,
+    statChip: Boolean
+): MetricCompactStyle {
+    val longUnit = metric.unit.length >= 4
+    val longValue = metric.value.length >= 5
+    val veryTight = if (statChip) maxWidth < 108.dp else maxWidth < 132.dp
+    val compact = if (statChip) maxWidth < 118.dp else maxWidth < 150.dp
+    return when {
+        veryTight || (longUnit && longValue) -> MetricCompactStyle(
+            valueFontSize = if (statChip) 17.sp else 20.sp,
+            unitFontSize = if (statChip) 8.sp else 9.sp,
+            unitSpacing = 1.dp,
+            horizontalPadding = if (statChip) 8.dp else 12.dp,
+            verticalPadding = if (statChip) 9.dp else 12.dp
+        )
+        compact || longUnit || longValue -> MetricCompactStyle(
+            valueFontSize = if (statChip) 19.sp else 22.sp,
+            unitFontSize = if (statChip) 9.sp else 10.sp,
+            unitSpacing = 2.dp,
+            horizontalPadding = if (statChip) 10.dp else 14.dp,
+            verticalPadding = if (statChip) 10.dp else 14.dp
+        )
+        else -> MetricCompactStyle(
+            valueFontSize = if (statChip) 22.sp else 24.sp,
+            unitFontSize = if (statChip) 11.sp else 12.sp,
+            unitSpacing = 4.dp,
+            horizontalPadding = if (statChip) 12.dp else 16.dp,
+            verticalPadding = if (statChip) 10.dp else 16.dp
+        )
+    }
+}
+
+private data class RouteProjection(
+    val rect: androidx.compose.ui.geometry.Rect,
+    val points: List<Offset>,
+    val start: Offset,
+    val end: Offset
+)
+
+private fun projectRoute(
+    points: List<RideTrackPoint>,
+    width: Float,
+    height: Float
+): RouteProjection? {
+    if (points.size < 2 || width <= 0f || height <= 0f) return null
+    val minLat = points.minOf { it.latitude }
+    val maxLat = points.maxOf { it.latitude }
+    val minLon = points.minOf { it.longitude }
+    val maxLon = points.maxOf { it.longitude }
+    val latSpan = (maxLat - minLat).takeIf { it > 0.000001 } ?: 0.000001
+    val lonSpan = (maxLon - minLon).takeIf { it > 0.000001 } ?: 0.000001
+    val plotSize = minOf(width, height)
+    val left = (width - plotSize) / 2f
+    val top = (height - plotSize) / 2f
+    val inset = plotSize * 0.08f
+    val plotRect = androidx.compose.ui.geometry.Rect(
+        left + inset,
+        top + inset,
+        left + plotSize - inset,
+        top + plotSize - inset
+    )
+    val scale = minOf(plotRect.width / lonSpan.toFloat(), plotRect.height / latSpan.toFloat())
+    val xOffset = plotRect.left + (plotRect.width - lonSpan.toFloat() * scale) / 2f
+    val yOffset = plotRect.top + (plotRect.height - latSpan.toFloat() * scale) / 2f
+    val projected = points.map { point ->
+        Offset(
+            x = xOffset + ((point.longitude - minLon).toFloat() * scale),
+            y = yOffset + (latSpan.toFloat() * scale) - ((point.latitude - minLat).toFloat() * scale)
+        )
+    }
+    return RouteProjection(
+        rect = plotRect,
+        points = projected,
+        start = projected.first(),
+        end = projected.last()
+    )
 }
 
 @Composable
@@ -1053,10 +2245,17 @@ private fun RideMetricSample.metricValue(metric: RideChartMetric): Float {
         RideChartMetric.SPEED -> speedKmH
         RideChartMetric.POWER -> powerKw
         RideChartMetric.VOLTAGE -> voltage
+        RideChartMetric.VOLTAGE_SAG -> voltageSag
         RideChartMetric.BUS_CURRENT -> busCurrent
         RideChartMetric.PHASE_CURRENT -> phaseCurrent
+        RideChartMetric.MOTOR_TEMP -> motorTemp
         RideChartMetric.CONTROLLER_TEMP -> controllerTemp
         RideChartMetric.EFFICIENCY -> efficiencyWhKm
+        RideChartMetric.AVG_EFFICIENCY -> avgEfficiencyWhKm
+        RideChartMetric.RANGE -> estimatedRangeKm
+        RideChartMetric.TOTAL_ENERGY -> totalEnergyWh
+        RideChartMetric.RECOVERED_ENERGY -> recoveredEnergyWh
+        RideChartMetric.MAX_CONTROLLER_TEMP -> maxControllerTemp
         RideChartMetric.SOC -> soc
         RideChartMetric.RPM -> rpm
     }
@@ -1069,12 +2268,14 @@ private fun metricOf(value: String, unit: String = ""): DisplayMetric =
     DisplayMetric(value = value.trim(), unit = unit.trim())
 
 private fun formatDate(timestampMs: Long): String =
-    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(timestampMs))
+    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(timestampMs)).withDisplaySpacing()
+
+private fun formatRideTitle(title: String): String = title.withDisplaySpacing()
 
 private fun formatDuration(durationMs: Long): String {
     val minutes = durationMs / 60000
     val seconds = (durationMs % 60000) / 1000
-    return if (minutes > 0) "${minutes}分${seconds}秒" else "${seconds}秒"
+    return (if (minutes > 0) "${minutes}分${seconds}秒" else "${seconds}秒").withDisplaySpacing()
 }
 
 private fun formatSeconds(durationMs: Long): String =

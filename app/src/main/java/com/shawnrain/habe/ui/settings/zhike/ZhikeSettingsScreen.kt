@@ -1,34 +1,82 @@
 package com.shawnrain.habe.ui.settings.zhike
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DividerDefaults
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.shawnrain.habe.MainViewModel
+import com.shawnrain.habe.ble.protocols.ZhikeParamDefinition
+import com.shawnrain.habe.ble.protocols.ZhikeParamGroup
+import com.shawnrain.habe.ble.protocols.ZhikeParamKind
+import com.shawnrain.habe.ble.protocols.ZhikeParameterCatalog
 import com.shawnrain.habe.ble.protocols.ZhikeSettings
+import com.shawnrain.habe.ui.navigation.BlurredAlertDialog
 import com.shawnrain.habe.ui.theme.bezierPillShape
-import kotlinx.coroutines.flow.collect
+import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     var settings by remember { mutableStateOf(ZhikeSettings()) }
     var isDirty by remember { mutableStateOf(false) }
-    var showAuthDialog by remember { mutableStateOf(false) }
-    var password by remember { mutableStateOf("8888") }
+    var showWriteDialog by remember { mutableStateOf(false) }
+    var currentPassword by remember { mutableStateOf("8888") }
     var isSyncing by remember { mutableStateOf(false) }
     var authError by remember { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -40,7 +88,7 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             isDirty = false
             isSyncing = false
             if (it.loadedFromController) {
-                password = String.format(java.util.Locale.getDefault(), "%04d", it.bluetoothPassword)
+                currentPassword = String.format(Locale.getDefault(), "%04d", it.originalBluetoothPassword)
             }
         }
     }
@@ -52,15 +100,16 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
         }
     }
 
+    val visibleGroups = remember(settings.loadedFromController) {
+        ZhikeParameterCatalog.groups
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        "智科控制器调校",
-                        style = MaterialTheme.typography.headlineMedium
-                    )
+                    Text("智科控制器调参")
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -70,11 +119,11 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 actions = {
                     IconButton(onClick = {
                         authError = null
-                        viewModel.readZhikeSettings()
                         isSyncing = true
+                        viewModel.readZhikeSettings()
                     }) {
                         if (isSyncing) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(modifier = Modifier.width(24.dp), strokeWidth = 2.dp)
                         } else {
                             Icon(Icons.Default.Refresh, contentDescription = "刷新")
                         }
@@ -86,185 +135,402 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             if (isDirty) {
                 Surface(tonalElevation = 8.dp) {
                     Button(
-                        onClick = { showAuthDialog = true },
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        onClick = { showWriteDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
                         shape = bezierPillShape()
                     ) {
-                        Text("同步至控制器")
+                        Text("写入控制器")
                     }
                 }
             }
         }
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .padding(padding)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
         ) {
-            InfoCard()
-
-            // --- Power Section ---
-            SettingsSection("动力与电压") {
-                NumberSettingItem("母线电流限制 (A)", settings.busCurrent) { 
-                    settings = settings.copy(busCurrent = it); isDirty = true 
-                }
-                NumberSettingItem("相线电流限制 (A)", settings.phaseCurrent) { 
-                    settings = settings.copy(phaseCurrent = it); isDirty = true 
-                }
-                NumberSettingItem("欠压保护 (V)", settings.underVoltage) { 
-                    settings = settings.copy(underVoltage = it); isDirty = true 
-                }
-                NumberSettingItem("过压保护 (V)", settings.overVoltage) { 
-                    settings = settings.copy(overVoltage = it); isDirty = true 
-                }
+            item {
+                InfoCard()
             }
 
-            // --- Control Section ---
-            SettingsSection("控制参数") {
-                SwitchSettingItem("电机反向", settings.motorDirection) {
-                    settings = settings.copy(motorDirection = it); isDirty = true
-                }
-                NumberSettingItem("电机极对数", settings.polePairs) {
-                    settings = settings.copy(polePairs = it); isDirty = true
-                }
-                NumberSettingItem("相位偏移角 (°)", settings.phaseShiftAngle) {
-                    settings = settings.copy(phaseShiftAngle = it); isDirty = true
-                }
-            }
-
-            // --- Advanced Section ---
-            SettingsSection("高级优化") {
-                NumberSettingItem("弱磁补偿电流", settings.weakMagCurrent) {
-                    settings = settings.copy(weakMagCurrent = it); isDirty = true
-                }
-                NumberSettingItem("反峰制动电流", settings.regenCurrent) {
-                    settings = settings.copy(regenCurrent = it); isDirty = true
-                }
-            }
-
-            // --- Security Section ---
-            SettingsSection("安全设置") {
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = {
-                        password = it.filter(Char::isDigit).take(4)
-                        authError = null
+            items(visibleGroups, key = { it.id }) { group ->
+                ZhikeGroupCard(
+                    group = group,
+                    settings = settings,
+                    onApplyPreset = { presetId ->
+                        settings = ZhikeParameterCatalog.applyPreset(settings, presetId)
+                        isDirty = true
                     },
-                    label = { Text("蓝牙管理密码 (4位数字)") },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    singleLine = true,
-                    isError = authError != null,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    supportingText = {
-                        authError?.let { err -> Text(err) } ?: Text("读写参数必须输入正确的密码")
+                    onUpdateSetting = { updated ->
+                        settings = updated
+                        isDirty = true
                     }
                 )
             }
-            
-            Spacer(modifier = Modifier.height(80.dp))
+
+            item {
+                SecurityCard(
+                    currentPassword = currentPassword,
+                    onPasswordChange = {
+                        currentPassword = it.filter(Char::isDigit).take(4)
+                        authError = null
+                    },
+                    authError = authError
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(96.dp))
+            }
         }
     }
 
-    if (showAuthDialog) {
-        AlertDialog(
-            onDismissRequest = { showAuthDialog = false },
-            title = { Text("安全身份验证") },
+    if (showWriteDialog) {
+        BlurredAlertDialog(
+            onDismissRequest = { showWriteDialog = false },
+            title = { Text("写入确认") },
             text = {
-                Column {
-                    Text("写入参数将使用下方设定的 4 位数字密码进行身份验证。请确保密码准确无误。", modifier = Modifier.padding(bottom = 8.dp))
-                }
+                Text("将使用当前蓝牙密码校验后写入全部调参项。请确保车辆静止、断开 P 挡，并确认参数无误。")
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        val error = viewModel.writeZhikeSettings(settings, password)
+                        val error = viewModel.writeZhikeSettings(settings, currentPassword)
                         if (error != null) {
                             authError = error
                             return@Button
                         }
-
                         authError = null
-                        showAuthDialog = false
                         isSyncing = true
+                        showWriteDialog = false
                     },
                     shape = bezierPillShape()
                 ) {
-                    Text("确认并写入")
+                    Text("确认写入")
                 }
             },
             dismissButton = {
                 TextButton(
                     onClick = {
                         authError = null
-                        showAuthDialog = false
+                        showWriteDialog = false
                     },
                     shape = bezierPillShape()
-                ) { Text("取消") }
+                ) {
+                    Text("取消")
+                }
             }
         )
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun ZhikeGroupCard(
+    group: ZhikeParamGroup,
+    settings: ZhikeSettings,
+    onApplyPreset: (String) -> Unit,
+    onUpdateSetting: (ZhikeSettings) -> Unit
+) {
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            content()
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = group.title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            HorizontalDivider(color = DividerDefaults.color.copy(alpha = 0.55f))
+
+            group.parameters.forEach { definition ->
+                when (definition.kind) {
+                    ZhikeParamKind.BOOL -> {
+                        SelectionParameterRow(
+                            label = definition.label,
+                            valueLabel = definition.optionLabels.getOrElse(
+                                if (ZhikeParameterCatalog.readBool(settings, definition)) 1 else 0
+                            ) { "" },
+                            options = definition.optionLabels,
+                            onSelect = { selectedIndex ->
+                                onUpdateSetting(
+                                    ZhikeParameterCatalog.updateBool(
+                                        settings,
+                                        definition,
+                                        selectedIndex == 1
+                                    )
+                                )
+                            }
+                        )
+                    }
+                    ZhikeParamKind.LIST -> {
+                        SelectionParameterRow(
+                            label = definition.label,
+                            valueLabel = ZhikeParameterCatalog.optionLabel(settings, definition),
+                            options = definition.optionLabels,
+                            onSelect = { selectedIndex ->
+                                onUpdateSetting(
+                                    ZhikeParameterCatalog.updateList(settings, definition, selectedIndex)
+                                )
+                            }
+                        )
+                    }
+                    ZhikeParamKind.TEXT -> {
+                        ReadOnlyParameterRow(
+                            label = definition.label,
+                            value = ZhikeParameterCatalog.readText(settings, definition)
+                        )
+                    }
+                    else -> {
+                        NumericParameterRow(
+                            definition = definition,
+                            value = ZhikeParameterCatalog.readNumeric(settings, definition),
+                            onCommit = { parsedValue ->
+                                onUpdateSetting(
+                                    ZhikeParameterCatalog.updateNumeric(settings, definition, parsedValue)
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+
+            if (group.presets.isNotEmpty()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    group.presets.forEach { preset ->
+                        AssistChip(
+                            onClick = { onApplyPreset(preset.id) },
+                            label = { Text(preset.label) },
+                            colors = AssistChipDefaults.assistChipColors()
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-fun NumberSettingItem(label: String, value: Int, onValueChange: (Int) -> Unit) {
+private fun NumericParameterRow(
+    definition: ZhikeParamDefinition,
+    value: Double,
+    onCommit: (Double) -> Unit
+) {
+    val focusManager = LocalFocusManager.current
+    var text by remember(definition.key, value) {
+        mutableStateOf(ZhikeParameterCatalog.formatNumericValue(value, definition))
+    }
+
+    fun commitValue() {
+        val parsed = text.toDoubleOrNull() ?: value
+        val clamped = parsed.coerceIn(definition.min, definition.max)
+        text = ZhikeParameterCatalog.formatNumericValue(clamped, definition)
+        onCommit(clamped)
+    }
+
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(label, modifier = Modifier.weight(1f))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { if (value > 0) onValueChange(value - 1) }) {
-                Text("-", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-            }
-            Text(value.toString(), modifier = Modifier.padding(horizontal = 8.dp), fontWeight = FontWeight.Bold)
-            IconButton(onClick = { onValueChange(value + 1) }) {
-                Text("+", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Text(
+            text = definition.label,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium
+        )
+        OutlinedTextField(
+            value = text,
+            onValueChange = { input ->
+                text = input
+            },
+            modifier = Modifier
+                .width(164.dp)
+                .onFocusChanged { focusState ->
+                    if (!focusState.isFocused) {
+                        commitValue()
+                    }
+                },
+            suffix = {
+                if (definition.unit.isNotBlank()) {
+                    Text(definition.unit)
+                }
+            },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = if (definition.kind == ZhikeParamKind.FLOAT || definition.kind == ZhikeParamKind.INT) {
+                    KeyboardType.Decimal
+                } else {
+                    KeyboardType.Number
+                },
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = {
+                    commitValue()
+                    focusManager.clearFocus()
+                }
+            )
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelectionParameterRow(
+    label: String,
+    valueLabel: String,
+    options: List<String>,
+    onSelect: (Int) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium
+        )
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = !expanded }
+        ) {
+            OutlinedTextField(
+                value = valueLabel,
+                onValueChange = {},
+                readOnly = true,
+                modifier = Modifier
+                    .width(164.dp)
+                    .menuAnchor(),
+                trailingIcon = {
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                },
+                singleLine = true
+            )
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                options.forEachIndexed { index, option ->
+                    DropdownMenuItem(
+                        text = { Text(option) },
+                        onClick = {
+                            onSelect(index)
+                            expanded = false
+                        }
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-fun SwitchSettingItem(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun ReadOnlyParameterRow(label: String, value: String) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(label)
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Text(
+                text = value,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }
 
 @Composable
-fun InfoCard() {
+private fun SecurityCard(
+    currentPassword: String,
+    onPasswordChange: (String) -> Unit,
+    authError: String?
+) {
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "写入校验",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            HorizontalDivider(color = DividerDefaults.color.copy(alpha = 0.55f))
+            OutlinedTextField(
+                value = currentPassword,
+                onValueChange = onPasswordChange,
+                label = { Text("当前蓝牙密码") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                isError = authError != null,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.NumberPassword,
+                    imeAction = ImeAction.Done
+                ),
+                supportingText = {
+                    Text(authError ?: "读取参数后，写入时会先用这里的密码做校验。")
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun InfoCard() {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                "请在断开 P 挡且静止状态下修改，不正确的电流或相位角设置可能导致电机啸叫或损坏控制器。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onTertiaryContainer
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onTertiaryContainer
             )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "已按 GEKOO 原版参数表补齐分组和位域。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    "请在车辆静止、断开 P 挡时修改。电流、相位角、EBS 和 TCS 设置不当可能导致异响、误触发或驱动异常。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+            }
         }
     }
 }

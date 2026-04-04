@@ -20,6 +20,7 @@ data class ZhikeSettings(
     var weakMagCurrent: Int = 0,    // Word 21
     var regenCurrent: Int = 10,     // Word 23
     var bluetoothPassword: Int = 8888, // Word 60
+    var originalBluetoothPassword: Int = 8888,
     var speedCoefficient: Int = 0,
     var loadedFromController: Boolean = false,
     var rawWords: IntArray = IntArray(64) // Keep raw data for unmapped fields
@@ -125,40 +126,53 @@ class ZhikeProtocol : ControllerProtocol {
             }
         }
         settings.rawWords = words
-        settings.busCurrent = words[0]
-        settings.phaseCurrent = words[1]
-        settings.motorDirection = (words[2] and 0x01) != 0
-        settings.sensorType = words[30] and 0x03
-        settings.hallSequence = (words[31] and 0x01) != 0
-        settings.phaseShiftAngle = (words[32].toShort() / 182.0444).toInt()
-        settings.polePairs = words[34]
-        settings.underVoltage = words[9]
-        settings.overVoltage = words[10]
-        settings.weakMagCurrent = words[21]
-        settings.regenCurrent = words[23]
-        settings.bluetoothPassword = words[60]
+        settings.syncLegacyFieldsFromWords()
+        settings.originalBluetoothPassword = settings.bluetoothPassword
         settings.speedCoefficient = extractSpeedCoefficient(frame)
         settings.loadedFromController = true
-        
+
         return settings
     }
 
     fun encodeSettings(settings: ZhikeSettings): ByteArray {
         val words = settings.rawWords.copyOf()
-        // Update mapped fields back into words
-        words[0] = settings.busCurrent
-        words[1] = settings.phaseCurrent
-        words[2] = if (settings.motorDirection) 1 else 0
-        words[30] = (words[30] and 0xFFFC.inv()) or (settings.sensorType and 0x03)
-        words[31] = (words[31] and 0x01.inv()) or (if (settings.hallSequence) 1 else 0)
-        words[32] = (settings.phaseShiftAngle * 182.0444).toInt() and 0xFFFF
-        words[34] = settings.polePairs
-        words[9] = settings.underVoltage
-        words[10] = settings.overVoltage
-        words[21] = settings.weakMagCurrent
-        words[23] = settings.regenCurrent
-        words[60] = settings.bluetoothPassword
-        
+        ZhikeParameterCatalog.findDefinition("bus_current")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(settings.copy(rawWords = words), def, settings.busCurrent.toDouble()).rawWords.copyInto(words)
+        }
+        ZhikeParameterCatalog.findDefinition("phase_current")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(settings.copy(rawWords = words), def, settings.phaseCurrent.toDouble()).rawWords.copyInto(words)
+        }
+        ZhikeParameterCatalog.findDefinition("motor_direction")?.let { def ->
+            ZhikeParameterCatalog.updateBool(settings.copy(rawWords = words), def, settings.motorDirection).rawWords.copyInto(words)
+        }
+        ZhikeParameterCatalog.findDefinition("sensor_type")?.let { def ->
+            ZhikeParameterCatalog.updateList(settings.copy(rawWords = words), def, settings.sensorType).rawWords.copyInto(words)
+        }
+        ZhikeParameterCatalog.findDefinition("hall_sequence")?.let { def ->
+            ZhikeParameterCatalog.updateBool(settings.copy(rawWords = words), def, settings.hallSequence).rawWords.copyInto(words)
+        }
+        ZhikeParameterCatalog.findDefinition("phase_shift_angle")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(settings.copy(rawWords = words), def, settings.phaseShiftAngle.toDouble()).rawWords.copyInto(words)
+        }
+        ZhikeParameterCatalog.findDefinition("pole_pairs")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(settings.copy(rawWords = words), def, settings.polePairs.toDouble()).rawWords.copyInto(words)
+        }
+        ZhikeParameterCatalog.findDefinition("under_voltage")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(settings.copy(rawWords = words), def, settings.underVoltage.toDouble()).rawWords.copyInto(words)
+        }
+        ZhikeParameterCatalog.findDefinition("over_voltage")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(settings.copy(rawWords = words), def, settings.overVoltage.toDouble()).rawWords.copyInto(words)
+        }
+        ZhikeParameterCatalog.findDefinition("weak_magnet_current")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(settings.copy(rawWords = words), def, settings.weakMagCurrent.toDouble()).rawWords.copyInto(words)
+        }
+        ZhikeParameterCatalog.findDefinition("regen_current")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(settings.copy(rawWords = words), def, settings.regenCurrent.toDouble()).rawWords.copyInto(words)
+        }
+        ZhikeParameterCatalog.findDefinition("bluetooth_password")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(settings.copy(rawWords = words), def, settings.bluetoothPassword.toDouble()).rawWords.copyInto(words)
+        }
+
         // Calculate checksum
         var sum = 0
         for (i in 0 until 63) {
@@ -213,11 +227,12 @@ class ZhikeProtocol : ControllerProtocol {
 
                 val voltage = decodeWord(realtimeWords, 8, scale = 273.0666667f, digits = 1)
                 val busCurrent = decodeWord(realtimeWords, 9, signed = true, digits = 1)
-                val phaseCurrentRaw = decodeWord(realtimeWords, 17, scale = 146.0249554f, digits = 1)
+                // 智科实时帧的相电流是 0.1A 标度，直接按整数显示会出现 2000A 级别假值。
+                val phaseCurrentRaw = decodeWord(realtimeWords, 10, scale = 10f, digits = 1)
                 val rpmSigned = decodeWord(realtimeWords, 6, scale = 5.46f, signed = true, digits = 1)
                 val speedRaw = decodeWord(realtimeWords, 6, scale = 10f, signed = true, digits = 1)
                 val controllerTemp = decodeWord(realtimeWords, 18, scale = 100f, signed = true, digits = 1)
-                val motorTemp = decodeWord(realtimeWords, 25, scale = 100f, signed = true, digits = 1)
+                val motorTemp = decodeWord(realtimeWords, 12, scale = 100f, signed = true, digits = 1)
                 val ioStatus = realtimeWords.getOrElse(21) { 0 }
                 val faultCode = realtimeWords.getOrElse(22) { 0 }
 
@@ -345,11 +360,11 @@ class ZhikeProtocol : ControllerProtocol {
         busCurrent: Float,
         rpm: Float
     ): Float {
-        return if (abs(busCurrent) < 1.5f && rpm < 30f && candidatePhaseCurrent in 0f..20f) {
-            0f
-        } else {
-            candidatePhaseCurrent
-        }
+        val absBusCurrent = abs(busCurrent)
+        if (candidatePhaseCurrent < 0.5f) return 0f
+        if (absBusCurrent < 5f && candidatePhaseCurrent < 60f) return 0f
+        if (absBusCurrent < 1.5f && rpm < 30f && candidatePhaseCurrent in 0f..20f) return 0f
+        return candidatePhaseCurrent
     }
 
     private fun hasValidRealtimeChecksum(data: ByteArray, expectedLen: Int): Boolean {

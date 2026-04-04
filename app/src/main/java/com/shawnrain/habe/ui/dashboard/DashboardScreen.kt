@@ -54,13 +54,18 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.core.view.WindowCompat
 import com.shawnrain.habe.MainViewModel
+import com.shawnrain.habe.ble.ConnectionState
 import com.shawnrain.habe.ble.VehicleMetrics
 import com.shawnrain.habe.data.MetricType
 import com.shawnrain.habe.debug.AppLogger
+import com.shawnrain.habe.ui.connect.ConnectionQuickSheet
+import com.shawnrain.habe.ui.navigation.BlurredModalBottomSheet
+import com.shawnrain.habe.ui.navigation.PredictiveBackPopupTransform
 import com.shawnrain.habe.ui.theme.bezierPillShape
 import com.shawnrain.habe.ui.theme.bezierRoundedShape
 import androidx.compose.ui.zIndex
 import kotlin.math.abs
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 private const val DRAG_LOG_TAG = "DashboardDrag"
@@ -93,10 +98,15 @@ fun formatMetricValue(type: MetricType, metrics: VehicleMetrics): String {
         MetricType.PHASE_CURRENT -> String.format("%.1f", metrics.phaseCurrent)
         MetricType.POWER -> String.format("%.1f", metrics.totalPowerW / 1000)
         MetricType.TEMP -> String.format("%.1f", metrics.controllerTemp)
+        MetricType.MAX_CONTROLLER_TEMP -> String.format("%.1f", metrics.maxControllerTemp)
         MetricType.SOC -> String.format("%.0f", metrics.soc)
+        MetricType.RANGE -> String.format("%.1f", metrics.estimatedRangeKm)
         MetricType.RPM -> String.format("%.0f", metrics.rpm)
         MetricType.EFFICIENCY -> String.format("%.1f", metrics.efficiencyWhKm)
         MetricType.TRIP_DISTANCE -> String.format("%.2f", metrics.tripDistance)
+        MetricType.TOTAL_ENERGY -> String.format("%.1f", metrics.totalEnergyWh)
+        MetricType.PEAK_REGEN_POWER -> String.format("%.1f", metrics.peakRegenPowerKw)
+        MetricType.RECOVERED_ENERGY -> String.format("%.1f", metrics.recoveredEnergyWh)
     }
 }
 
@@ -107,6 +117,8 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val config = LocalConfiguration.current
     val isLandscape = config.orientation == Configuration.ORIENTATION_LANDSCAPE
     val dashboardItems by viewModel.dashboardItems.collectAsState()
+    val activeProtocol by viewModel.activeProtocolLabel.collectAsState()
+    val connectionState by viewModel.connectionState.collectAsState()
     val haptic = LocalHapticFeedback.current
     val view = LocalView.current
     val context = LocalContext.current
@@ -114,6 +126,7 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
 
     var isEditMode by remember { mutableStateOf(false) }
     var showAddPicker by remember { mutableStateOf(false) }
+    var showConnectionSheet by remember { mutableStateOf(false) }
     var draggingItem by remember { mutableStateOf<MetricType?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var dragStartBounds by remember { mutableStateOf<Rect?>(null) }
@@ -130,6 +143,12 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
 
     val isRegen = metrics.busCurrent < 0
     val ringColor = if (isRegen) Color(0xFF10B981) else MaterialTheme.colorScheme.primary
+    val isControllerConnected = connectionState is ConnectionState.Connected
+    val connectionStatusLabel = when (connectionState) {
+        ConnectionState.Connecting -> "连接中"
+        is ConnectionState.Connected -> activeProtocol
+        ConnectionState.Disconnected -> "未连接"
+    }
 
     // Auto-calibration / auto-config snackbar
     val snackbarHostState = remember { SnackbarHostState() }
@@ -192,77 +211,92 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             .background(MaterialTheme.colorScheme.background)
     ) {
         if (!isLandscape) {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp)
+                    .padding(horizontal = 16.dp)
             ) {
-                // Header
-                item(span = { GridItemSpan(2) }) {
-                    val activeProtocol by viewModel.activeProtocolLabel.collectAsState()
-                    val isRideActive by viewModel.isRideActive.collectAsState()
-                    val rideDirectionLabel by viewModel.rideDirectionLabel.collectAsState()
-                    DashboardTopSection(
-                        isEditMode = isEditMode,
-                        activeProtocol = activeProtocol,
-                        isRideActive = isRideActive,
-                        rideDirectionLabel = rideDirectionLabel,
-                        onEditModeToggle = { isEditMode = it },
-                        onAddClick = { showAddPicker = true },
-                        onRideToggle = { viewModel.toggleRideTracking() }
+                val isRideActive by viewModel.isRideActive.collectAsState()
+                val rideDirectionLabel by viewModel.rideDirectionLabel.collectAsState()
+
+                DashboardTopSection(
+                    isEditMode = isEditMode,
+                    isRideActive = isRideActive,
+                    rideDirectionLabel = rideDirectionLabel,
+                    onEditModeToggle = { isEditMode = it },
+                    onAddClick = { showAddPicker = true },
+                    onRideToggle = { viewModel.toggleRideTracking() }
+                )
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    DashboardStatusStrip(
+                        metrics = metrics,
+                        connectionStatusLabel = connectionStatusLabel,
+                        isControllerConnected = isControllerConnected,
+                        onConnectionClick = { showConnectionSheet = true }
                     )
-                }
-                
-                // Speed Indicator
-                item(span = { GridItemSpan(2) }) {
-                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                        SquareSpeedIndicator(metrics = metrics, color = ringColor)
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        SquareSpeedIndicator(
+                            metrics = metrics,
+                            color = ringColor
+                        )
                     }
                 }
 
-                dashboardItemsGridContent(
-                    items = displayedDashboardItems,
-                    metrics = metrics,
-                    isEditMode = isEditMode,
-                    draggingItem = draggingItem,
-                    shakeAngle = angle,
-                    onMove = { from, to -> 
-                        val moved = displayedDashboardItems.removeAt(from)
-                        displayedDashboardItems.add(to, moved)
-                        viewModel.moveDashboardItem(from, to)
-                        val now = SystemClock.elapsedRealtime()
-                        if (now - lastReorderHapticAt >= 110L) {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            lastReorderHapticAt = now
-                        }
-                    },
-                    onRemove = { idx ->
-                        displayedDashboardItems.removeAt(idx)
-                        viewModel.removeDashboardItem(idx)
-                    },
-                    onEnterEditMode = {
-                        if (!isEditMode) {
-                            isEditMode = true
-                        }
-                    },
-                    onDragStart = { type -> 
-                        draggingItem = type
-                        dragOffset = Offset.Zero
-                        dragStartBounds = itemBounds[type]
-                        lastReorderHapticAt = 0L
-                    },
-                    onDrag = { offset -> dragOffset += offset },
-                    onDragEnd = {
-                        draggingItem = null
-                        dragOffset = Offset.Zero
-                        dragStartBounds = null
-                    },
-                    itemBounds = itemBounds
-                )
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 48.dp)
+                ) {
+                    dashboardItemsGridContent(
+                        items = displayedDashboardItems,
+                        metrics = metrics,
+                        isEditMode = isEditMode,
+                        draggingItem = draggingItem,
+                        shakeAngle = angle,
+                        onMove = { from, to ->
+                            val moved = displayedDashboardItems.removeAt(from)
+                            displayedDashboardItems.add(to, moved)
+                            viewModel.moveDashboardItem(from, to)
+                            val now = SystemClock.elapsedRealtime()
+                            if (now - lastReorderHapticAt >= 110L) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                lastReorderHapticAt = now
+                            }
+                        },
+                        onRemove = { idx ->
+                            displayedDashboardItems.removeAt(idx)
+                            viewModel.removeDashboardItem(idx)
+                        },
+                        onEnterEditMode = {
+                            if (!isEditMode) {
+                                isEditMode = true
+                            }
+                        },
+                        onDragStart = { type ->
+                            draggingItem = type
+                            dragOffset = Offset.Zero
+                            dragStartBounds = itemBounds[type]
+                            lastReorderHapticAt = 0L
+                        },
+                        onDrag = { offset -> dragOffset += offset },
+                        onDragEnd = {
+                            draggingItem = null
+                            dragOffset = Offset.Zero
+                            dragStartBounds = null
+                        },
+                        itemBounds = itemBounds
+                    )
+                }
             }
         } else {
             LandscapeDashboardFocus(
@@ -272,27 +306,52 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             )
         }
 
+        if (showConnectionSheet) {
+            ConnectionQuickSheet(
+                viewModel = viewModel,
+                onDismiss = { showConnectionSheet = false }
+            )
+        }
+
         if (showAddPicker) {
-            ModalBottomSheet(onDismissRequest = { showAddPicker = false }) {
-                Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
-                    Text("添加数据模块", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 16.dp))
-                    val available = MetricType.entries.filter { it !in displayedDashboardItems }
-                    if (available.isEmpty()) {
-                        Text("所有支持的数据模块均已添加", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
-                    } else {
-                        available.forEach { type ->
-                            ListItem(
-                                headlineContent = { Text(type.title) },
-                                modifier = Modifier.clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    displayedDashboardItems.add(type)
-                                    viewModel.addDashboardItem(type)
-                                    showAddPicker = false
+            BlurredModalBottomSheet(onDismissRequest = { showAddPicker = false }) {
+                PredictiveBackPopupTransform(
+                    onBack = { showAddPicker = false },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
+                        Text("添加数据模块", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 16.dp))
+                        val available = MetricType.entries.filter { it !in displayedDashboardItems }
+                        if (available.isEmpty()) {
+                            Text("所有支持的数据模块均已添加", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+                        } else {
+                            available.forEach { type ->
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 10.dp),
+                                    shape = bezierRoundedShape(20.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        displayedDashboardItems.add(type)
+                                        viewModel.addDashboardItem(type)
+                                        showAddPicker = false
+                                    }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(type.title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                                    }
                                 }
-                            )
+                            }
                         }
+                        Spacer(modifier = Modifier.height(32.dp))
                     }
-                    Spacer(modifier = Modifier.height(32.dp))
                 }
             }
         }
@@ -355,7 +414,6 @@ private fun LandscapeDashboardFocus(
 @Composable
 private fun DashboardTopSection(
     isEditMode: Boolean,
-    activeProtocol: String,
     isRideActive: Boolean,
     rideDirectionLabel: String,
     onEditModeToggle: (Boolean) -> Unit,
@@ -371,18 +429,6 @@ private fun DashboardTopSection(
             onAddClick = onAddClick,
             onRideToggle = onRideToggle
         )
-        Surface(
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-            shape = bezierRoundedShape(12.dp),
-            modifier = Modifier.padding(top = 8.dp)
-        ) {
-            Text(
-                text = activeProtocol,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-            )
-        }
     }
 }
 
@@ -647,7 +693,49 @@ fun StatCardWrap(
 }
 
 @Composable
-fun SquareSpeedIndicator(metrics: VehicleMetrics, color: Color) {
+private fun DashboardStatusStrip(
+    metrics: VehicleMetrics,
+    connectionStatusLabel: String,
+    isControllerConnected: Boolean,
+    onConnectionClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            CompactTelemetryBadge(
+                label = "SOC",
+                value = String.format("%.0f%%", metrics.soc)
+            )
+        }
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            ConnectionStatusBadge(
+                label = connectionStatusLabel,
+                isConnected = isControllerConnected,
+                onClick = onConnectionClick
+            )
+        }
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+            CompactTelemetryBadge(
+                label = "续航",
+                value = if (metrics.estimatedRangeKm > 0.1f) {
+                    String.format("%.1f km", metrics.estimatedRangeKm)
+                } else {
+                    "--"
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun SquareSpeedIndicator(
+    metrics: VehicleMetrics,
+    color: Color
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -734,12 +822,76 @@ fun SquareSpeedIndicator(metrics: VehicleMetrics, color: Color) {
 }
 
 @Composable
+private fun CompactTelemetryBadge(label: String, value: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
+        shape = bezierPillShape()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConnectionStatusBadge(label: String, isConnected: Boolean, onClick: () -> Unit) {
+    Surface(
+        color = if (isConnected) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        shape = bezierPillShape(),
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isConnected) Color(0xFF16A34A) else MaterialTheme.colorScheme.outline
+                    )
+            )
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isConnected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        }
+    }
+}
+
+@Composable
 private fun PowerBalanceBar(
     powerKw: Float,
     modifier: Modifier = Modifier
 ) {
     var positivePeakKw by remember { mutableFloatStateOf(3.5f) }
-    var regenPeakKw by remember { mutableFloatStateOf(1.2f) }
+    var regenPeakKw by remember { mutableFloatStateOf(0.8f) }
 
     LaunchedEffect(powerKw) {
         positivePeakKw = when {
@@ -747,8 +899,8 @@ private fun PowerBalanceBar(
             else -> maxOf(positivePeakKw * 0.992f, 3.5f)
         }
         regenPeakKw = when {
-            powerKw < 0f -> maxOf(regenPeakKw * 0.985f, 1.2f, abs(powerKw) * 1.18f)
-            else -> maxOf(regenPeakKw * 0.992f, 1.2f)
+            powerKw < 0f -> maxOf(regenPeakKw * 0.978f, 0.8f, abs(powerKw) * 1.12f)
+            else -> maxOf(regenPeakKw * 0.99f, 0.8f)
         }
     }
 
@@ -757,8 +909,15 @@ private fun PowerBalanceBar(
         powerKw < 0f -> (abs(powerKw) / regenPeakKw).coerceIn(0f, 1f)
         else -> 0f
     }
+    val visualTargetFraction = remember(targetFraction, powerKw) {
+        visualPowerFraction(
+            normalizedFraction = targetFraction,
+            isOutput = powerKw >= 0f,
+            hasActivePower = abs(powerKw) >= 0.08f
+        )
+    }
     val animatedFraction by animateFloatAsState(
-        targetValue = targetFraction,
+        targetValue = visualTargetFraction,
         animationSpec = tween(durationMillis = 180),
         label = "power_balance_fraction"
     )
@@ -779,7 +938,7 @@ private fun PowerBalanceBar(
         )
         if (hasActivePower) {
             val activeColor = powerBarColor(
-                normalizedFraction = animatedFraction,
+                normalizedFraction = targetFraction,
                 isOutput = isOutput
             )
             Box(
@@ -792,6 +951,20 @@ private fun PowerBalanceBar(
             )
         }
     }
+}
+
+private fun visualPowerFraction(
+    normalizedFraction: Float,
+    isOutput: Boolean,
+    hasActivePower: Boolean
+): Float {
+    if (!hasActivePower) return 0f
+    val raw = normalizedFraction.coerceIn(0f, 1f)
+    return if (isOutput) {
+        maxOf(0.06f, raw.pow(0.82f))
+    } else {
+        maxOf(0.16f, raw.pow(0.56f))
+    }.coerceIn(0f, 1f)
 }
 
 @Composable
@@ -870,8 +1043,9 @@ private fun powerBarColor(normalizedFraction: Float, isOutput: Boolean): Color {
         }
     } else {
         when {
-            fraction < 0.5f -> blendColor(Color(0xFF7EA68E), Color(0xFF9DAA73), fraction / 0.5f)
-            else -> blendColor(Color(0xFF9DAA73), Color(0xFFC1A06A), (fraction - 0.5f) / 0.5f)
+            fraction < 0.25f -> blendColor(Color(0xFFD1A56A), Color(0xFFC7BD78), fraction / 0.25f)
+            fraction < 0.6f -> blendColor(Color(0xFFC7BD78), Color(0xFF8BD39A), (fraction - 0.25f) / 0.35f)
+            else -> blendColor(Color(0xFF8BD39A), Color(0xFF16C784), (fraction - 0.6f) / 0.4f)
         }
     }
 }
@@ -929,6 +1103,7 @@ fun ImmersiveDrivingView(
             MetricType.TEMP,
             MetricType.TRIP_DISTANCE,
             MetricType.SOC,
+            MetricType.RANGE,
             MetricType.EFFICIENCY,
             MetricType.RPM
         )

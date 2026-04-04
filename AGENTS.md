@@ -55,6 +55,7 @@ Release 签名约定：
 > **⚠️ 重要强约束 (AI Agent 必读)**
 > 当用户要求“输出/编译一个 APK 给我测试”或“提供最新安装包”时，**必须**调用 `.agents/scripts/build-release.sh` 生成 Release 签名包！
 > 绝对不要默认通过 `build-debug.sh` 输出给用户，因为用户的物理真机已安装了 Release 签名版本，使用 Debug 签名会导致覆盖安装失败或需要清除数据！
+> 当用户明确要求“装到手机上”“安装到手机”“adb 安装”或语义等价的真机安装诉求时，**默认直接执行安装流程，不要再次征求确认**；除非用户明确要求“先别装”或“只出包不安装”。
 >
 > `devRelease` 仅用于本地高频联调提速：
 > - `.agents/scripts/build-dev-release.sh`
@@ -81,9 +82,10 @@ Release 签名约定：
 - `app/src/main/java/com/shawnrain/habe/MainViewModel.kt`: 应用级状态、BLE 数据汇总、设置与调参动作
 - `app/src/main/java/com/shawnrain/habe/ble/`: BLE 引擎、协议路由、控制器解析
 - `app/src/main/java/com/shawnrain/habe/data/`: DataStore、GPS、校准、骑行会话
+- `app/src/main/java/com/shawnrain/habe/ui/navigation/PredictiveBackMotion.kt`: 预测性返回动画公共 helper
+- `app/src/main/java/com/shawnrain/habe/ui/navigation/DialogWindowEffects.kt`: Dialog / sheet / overlay 窗口模糊与透明系统栏 helper
 - `app/src/main/java/com/shawnrain/habe/ui/`: 仪表、连接、设置、BMS、测速界面
 - `app/src/main/java/com/shawnrain/habe/debug/`: 应用内日志系统
-- `app/src/main/java/com/shawnrain/habe/overlay/`: 后台悬浮仪表
 - `.agents/scripts/`: 可执行脚本
 - `.agents/workflows/`: 可复用流程说明
 
@@ -98,6 +100,8 @@ Release 签名约定：
 - 仪表首页已支持速度、功率、平均能耗、电压、母线电流、相电流、温度、里程、电量等基础显示
 - 支持拖拽重排仪表卡片
 - 顶层底部 Tab 已恢复轻量级切页动画，不再硬切
+- 顶部状态带现包含 `SoC / 连接状态 / 估计续航`，中间连接状态固定居中，不再受左右文案长度影响
+- 底部导航已移除单独的“连接”Tab，改为点击仪表页顶部“连接状态”弹出连接浮窗
 - 横屏模式切换为专注布局，仅显示顶部 3 个核心指标：
   - 速度
   - 功率
@@ -153,12 +157,21 @@ Release 签名约定：
 
 ### 4.4 GPS 与速度校准
 - 已实现基于手机 GPS 的轮径校准会话
+- GPS 轮径校准入口保留在设置一级页面
+- 校准建议在保存时会直接应用到当前活跃车辆档案
 - 校准时持续比较：
   - GPS 速度 / 距离
   - 控制器 RPM 推算速度 / 距离
 - 可输出推荐轮径周长并一键应用
 
-### 4.5 日志与后台浮窗
+### 4.5 行程记录与图表
+- 行程详情“统计概览”已改为整段行程统计值，不再把单个采样点误当作概览
+- 概览参数卡片可直接切换对应图表
+- 行程图表已支持平均值参考线与最高点指示
+- 行程 CSV 已补齐电机温度、估计续航、累计平均能耗、总能耗、回收能量、控制器最高温等字段
+- 仪表页平均能耗、续航估算、行程记录与导出 CSV 已统一到同一套累计能量 / 里程口径
+
+### 4.6 日志与后台画中画
 - 已实现应用内日志系统 `AppLogger`
 - 设置页可配置日志级别：
   - `VERBOSE`
@@ -167,21 +180,20 @@ Release 签名约定：
   - `WARN`
   - `ERROR`
 - 设置页可导出 / 分享日志
-- 已实现后台自动悬浮仪表
-- 悬浮窗内容固定为顶部 3 个指标：
+- 已将后台小窗能力切换为 Android 原生 `PiP`
+- `PiP` 内容固定为顶部 3 个指标：
   - 速度
   - 功率
   - 平均能耗
-- 悬浮窗当前支持：
-  - 点击返回 app 仪表页
-  - 拖动位置
-  - 更早随回桌面出现
-  - 首次显示短暂触摸保护，避免 Home 手势尾巴误触
-  - 速度主值显示为整数，单位 `km/h` 与数字右侧底部对齐
-- app 切后台时可自动打开；回前台时自动关闭
+- app 切后台时可自动进入；回前台时自动退出
+- 不再依赖全局悬浮权限或独立前台服务
 
-### 4.6 返回与导航
+### 4.7 自动连接与返回导航
+- 已加入轻量守护扫描：断开连接后会按短扫描窗口寻找记忆控制器，发现目标信号后自动连接
+- 手动断开后会进入自动重连抑制窗口，避免用户主动断开后被立刻抢连
 - `BMS` 与 `智科设置` 二级页面已接入 Compose `PredictiveBackHandler`
+- 自定义 Dialog、全屏 overlay、页面内自绘详情层已开始统一复用预测性返回动画 helper
+- `AlertDialog`、`ModalBottomSheet`、自定义 `Dialog` 默认都要通过公共窗口 helper 铺设背景模糊
 - 返回手势过程中支持页面跟手缩放 / 位移预览
 - 顶层 Tab 切换与二级页返回动画分离：
   - 顶层 Tab 使用轻量级切页动效
@@ -195,7 +207,7 @@ Release 签名约定：
 - [x] 智科参数读取 / 基础写入 / 密码校验
 - [x] GPS 轮径校准
 - [x] 应用内日志与分享
-- [x] 后台悬浮三指标 HUD
+- [x] 后台 `PiP` 三指标 HUD
 - [ ] 智科调参项与小程序完全对齐
 - [ ] 智科实车联调闭环验证完全稳定
 - [ ] BMS 多品牌迁移完成
@@ -206,7 +218,7 @@ Release 签名约定：
 - 智科“可连接但数据全 0”问题仍需依赖真机日志继续定位
 - 智科调参页目前只是基础子集，尚未达到小程序同等级别的丰富参数矩阵
 - 当前仓库本地单元测试仍为 `NO-SOURCE`
-- 后台悬浮窗依赖系统悬浮权限与前台服务通知
+- 后台小窗已改为原生 `PiP`，仅在支持 `Picture-in-Picture` 的系统路径下生效
 - `devRelease` 首次构建或 Gradle 脚本变更后，configuration cache 需要重建，首包时间会明显高于后续热构建
 - 当前 AGP 8.5.0 在 `devRelease` / `release` 上偶发 dex 中间产物重复问题；清理对应 `project_dex_archive/<variant>` 后可恢复
 - `LocalLifecycleOwner` 目前使用 Compose 旧导入，会给出弃用警告，但不影响构建
@@ -279,6 +291,7 @@ Release 签名约定：
 - `.agents/workflows/build-debug.md`
 - `.agents/workflows/build-dev-release.md`
 - `.agents/workflows/build-fast-dev-release.md`
+- `.agents/workflows/predictive-back.md`
 - `.agents/workflows/test-debug.md`
 - `.agents/workflows/install-debug.md`
 - `.agents/workflows/install-dev-release.md`
@@ -305,12 +318,14 @@ Release 签名约定：
 1. 始终跑 `.agents/scripts/build-release.sh` 确保签名能够无缝覆盖安装
 2. 跑 `.agents/scripts/test-debug.sh` 执行单元测试拦截回归问题
 3. 将生成的 Release `.apk` 路径（位于 `.agents/artifacts/habe-release-xxxx.apk`）指引给用户
+4. 若用户同时明确要求安装到手机，继续直接执行 adb 安装，不要停下来等待二次确认
 
 ### 9.4 本地真机高频联调
 1. 优先跑 `.agents/scripts/install-dev-release.sh`
 2. `devRelease` 继续使用 release 签名，可直接覆盖手机上的当前安装
 3. 首次构建或刚改过 `build.gradle.kts` / `gradle.properties` 时，首包会较慢；第二次开始会明显变快
 4. 只有在对外交付 APK、归档版本或最终验收时，再切回 `.agents/scripts/build-release.sh`
+5. 用户只要明确表达“装到手机上”，就把安装视为默认动作，不要再额外确认
 
 ### 9.5 本地个人极速迭代
 1. 需要最快的真机覆盖安装时，优先跑 `.agents/scripts/install-fast-dev-release.sh`
@@ -347,4 +362,7 @@ Release 签名约定：
 ## 11. 维护建议
 - 后续若继续迁移智科调参项，优先扩展 `ZhikeSettings.rawWords` 的映射表，而不是新增零散硬编码
 - 若继续增强日志，应优先往 `AppLogger` 聚合，不要散落成不可导出的 `Log.d`
-- 若继续增强后台悬浮窗，保持只读与轻量，避免在 Service 中重复业务计算
+- 若继续增强后台 `PiP` 仪表，保持只读与轻量，优先在 `MainActivity` 内复用现有遥测状态
+- 后续新增二级页面、自定义 Dialog、全屏 overlay、页面内自绘 sheet 时，默认必须适配 `PredictiveBackHandler`，优先复用 `app/src/main/java/com/shawnrain/habe/ui/navigation/PredictiveBackMotion.kt`
+- 若使用 `ModalBottomSheet` 等平台组件且系统默认预测性返回动画不足，应补充应用内跟手缩放 / 位移预览，而不是回退为无预测性返回
+- 后续新增任何弹窗、sheet、overlay 时，默认必须复用 `app/src/main/java/com/shawnrain/habe/ui/navigation/DialogWindowEffects.kt`，为窗口背后铺设模糊并保持透明系统栏

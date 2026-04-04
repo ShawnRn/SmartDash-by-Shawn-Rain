@@ -33,9 +33,14 @@ data class RideMetricSample(
     val motorTemp: Float,
     val controllerTemp: Float,
     val soc: Float,
+    val estimatedRangeKm: Float = 0f,
     val rpm: Float,
     val efficiencyWhKm: Float,
+    val avgEfficiencyWhKm: Float = 0f,
     val distanceMeters: Float,
+    val totalEnergyWh: Float = 0f,
+    val recoveredEnergyWh: Float = 0f,
+    val maxControllerTemp: Float = 0f,
     val latitude: Double? = null,
     val longitude: Double? = null
 ) {
@@ -51,9 +56,14 @@ data class RideMetricSample(
         .put("motorTemp", motorTemp.toDouble())
         .put("controllerTemp", controllerTemp.toDouble())
         .put("soc", soc.toDouble())
+        .put("estimatedRangeKm", estimatedRangeKm.toDouble())
         .put("rpm", rpm.toDouble())
         .put("efficiencyWhKm", efficiencyWhKm.toDouble())
+        .put("avgEfficiencyWhKm", avgEfficiencyWhKm.toDouble())
         .put("distanceMeters", distanceMeters.toDouble())
+        .put("totalEnergyWh", totalEnergyWh.toDouble())
+        .put("recoveredEnergyWh", recoveredEnergyWh.toDouble())
+        .put("maxControllerTemp", maxControllerTemp.toDouble())
         .put("latitude", latitude)
         .put("longitude", longitude)
 
@@ -71,9 +81,14 @@ data class RideMetricSample(
                 motorTemp = json.optDouble("motorTemp", 0.0).toFloat(),
                 controllerTemp = json.optDouble("controllerTemp", 0.0).toFloat(),
                 soc = json.optDouble("soc", 0.0).toFloat(),
+                estimatedRangeKm = json.optDouble("estimatedRangeKm", 0.0).toFloat(),
                 rpm = json.optDouble("rpm", 0.0).toFloat(),
                 efficiencyWhKm = json.optDouble("efficiencyWhKm", 0.0).toFloat(),
+                avgEfficiencyWhKm = json.optDouble("avgEfficiencyWhKm", 0.0).toFloat(),
                 distanceMeters = json.optDouble("distanceMeters", 0.0).toFloat(),
+                totalEnergyWh = json.optDouble("totalEnergyWh", 0.0).toFloat(),
+                recoveredEnergyWh = json.optDouble("recoveredEnergyWh", 0.0).toFloat(),
+                maxControllerTemp = json.optDouble("maxControllerTemp", 0.0).toFloat(),
                 latitude = json.opt("latitude")?.toString()?.toDoubleOrNull(),
                 longitude = json.opt("longitude")?.toString()?.toDoubleOrNull()
             )

@@ -2,9 +2,13 @@ package com.shawnrain.habe
 
 import android.annotation.SuppressLint
 import android.app.Application
+import android.content.ContentValues
 import android.content.Intent
 import android.location.Location
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -22,26 +26,29 @@ import com.shawnrain.habe.data.SpeedSource
 import com.shawnrain.habe.data.DataSource
 import com.shawnrain.habe.data.AutoCalibrator
 import com.shawnrain.habe.data.GpsCalibrationState
+import com.shawnrain.habe.data.RideEnergyEstimator
 import com.shawnrain.habe.data.SettingsRepository
 import com.shawnrain.habe.data.RideSession
+import com.shawnrain.habe.data.VehicleProfile
 import com.shawnrain.habe.data.history.RideHistoryRecord
 import com.shawnrain.habe.data.history.RideMetricSample
 import com.shawnrain.habe.data.history.RideTrackPoint
 import com.shawnrain.habe.debug.AppLogLevel
 import com.shawnrain.habe.debug.AppLogger
-import com.shawnrain.habe.overlay.OverlayHudController
-import com.shawnrain.habe.overlay.OverlayHudState
-import com.shawnrain.habe.overlay.OverlayHudStore
 import com.shawnrain.habe.data.speedtest.SpeedTestRecord
 import com.shawnrain.habe.data.speedtest.SpeedTestSessionUiState
 import com.shawnrain.habe.data.speedtest.SpeedTestTrackPoint
 import com.shawnrain.habe.ui.poster.PosterRenderer
+import com.shawnrain.habe.ui.text.withDisplaySpacing
 import java.io.File
 import java.io.FileOutputStream
+import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import kotlin.math.ceil
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -59,10 +66,41 @@ import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+data class PendingRideStopUiState(
+    val title: String,
+    val message: String,
+    val remainingSeconds: Int,
+    val isDisconnect: Boolean
+)
+
+private data class PendingRideStopSnapshot(
+    val tripDistanceMeters: Double,
+    val lastRideLocation: Location?,
+    val maxSpeed: Float,
+    val totalSpeedSum: Float,
+    val speedSamples: Int,
+    val totalEnergyUsedWh: Double,
+    val lastEnergyUpdateTime: Long,
+    val ridePeakPowerKw: Float,
+    val ridePeakRegenKw: Float,
+    val rideEnergyWh: Float,
+    val rideRecoveredEnergyWh: Float,
+    val rideMaxControllerTemp: Float,
+    val rideLastEnergyUpdateAtMs: Long,
+    val rideLastSampleAtMs: Long,
+    val trackPointCount: Int,
+    val sampleCount: Int
+)
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private enum class RideStartMode {
         MANUAL,
         AUTO
+    }
+
+    private enum class RideStopReason {
+        PARKED,
+        DISCONNECTED
     }
 
     companion object {
@@ -70,9 +108,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val AUTO_RIDE_START_SPEED_KMH = 4f
         private const val AUTO_RIDE_STOP_SPEED_KMH = 1.2f
         private const val AUTO_RIDE_STOP_DELAY_MS = 20000L
+        private const val AUTO_RIDE_STOP_COUNTDOWN_MS = 10000L
+        private const val AUTO_DISCONNECT_STOP_COUNTDOWN_MS = 4000L
         private const val RIDE_SAMPLE_INTERVAL_MS = 1000L
         private const val SPEED_TEST_SAMPLE_INTERVAL_MS = 120L
         private const val HISTORY_LIMIT = 30
+        private const val AUTO_RECONNECT_SCAN_WINDOW_MS = 5000L
+        private const val AUTO_RECONNECT_SCAN_COOLDOWN_MS = 12000L
+        private const val AUTO_RECONNECT_SUPPRESS_MS = 180000L
     }
 
     private val bleManager = BleManager(application)
@@ -84,9 +127,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentRpm = MutableStateFlow(0f)
     private val _controllerReportedSpeed = MutableStateFlow(0f)
     private val _latestZhikeSettings = MutableStateFlow<ZhikeSettings?>(null)
-    private var overlayPreferenceLoaded = false
-    private var cachedOverlayEnabled = false
     private var autoReconnectAttemptedAddress: String? = null
+    private var autoReconnectSuppressedUntilMs = 0L
+    private var autoReconnectScanActive = false
+    private var autoReconnectWatchdogJob: Job? = null
     private var _tripDistanceMeters = 0.0
     private var _restingVoltageBaseline = 0f
     private var _lastRideLocation: Location? = null
@@ -94,11 +138,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var _rideLastSampleAtMs = 0L
     private var _rideStartedAtMs = 0L
     private var _ridePeakPowerKw = 0f
+    private var _ridePeakRegenKw = 0f
     private var _rideEnergyWh = 0f
+    private var _rideRecoveredEnergyWh = 0f
+    private var _rideMaxControllerTemp = 0f
     private var _rideLastEnergyUpdateAtMs = 0L
     private val rideTrackPoints = mutableListOf<RideTrackPoint>()
     private val rideSamples = mutableListOf<RideMetricSample>()
     private var rideStartMode: RideStartMode? = null
+    private var pendingRideStopReason: RideStopReason? = null
+    private var pendingRideStopCutoffAtMs = 0L
+    private var pendingRideStopSnapshot: PendingRideStopSnapshot? = null
+    private var pendingRideStopJob: Job? = null
     private var _speedTestLastLocation: Location? = null
     private var _speedTestStartedAtMs = 0L
     private var _speedTestLastSampleAtMs = 0L
@@ -113,12 +164,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isRideActive = MutableStateFlow(false)
     val isRideActive: StateFlow<Boolean> = _isRideActive.asStateFlow()
+    private val _pendingRideStop = MutableStateFlow<PendingRideStopUiState?>(null)
+    val pendingRideStop: StateFlow<PendingRideStopUiState?> = _pendingRideStop.asStateFlow()
     private var _maxSpeed = 0f
     private var _totalSpeedSum = 0f
     private var _speedSamples = 0
     private var _sessionStartTime = 0L
     private var _lastEnergyUpdateTime = 0L
     private var _totalEnergyUsedWh = 0.0
+    private var rideStartVehicleMileageKm = 0f
+    private var lastVehicleSnapshotAtMs = 0L
+    private var lastVehicleSnapshotTripDistanceKm = 0f
+    private var estimatorVehicleId: String? = null
+    private val rideEnergyEstimator = RideEnergyEstimator()
 
     val speedSource = settingsRepository.speedSource.stateIn(viewModelScope, SharingStarted.Lazily, SpeedSource.CONTROLLER)
     val battDataSource = settingsRepository.battDataSource.stateIn(viewModelScope, SharingStarted.Lazily, DataSource.CONTROLLER)
@@ -127,6 +185,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val controllerBrand = settingsRepository.controllerBrand.stateIn(viewModelScope, SharingStarted.Lazily, "auto")
     val logLevel = settingsRepository.logLevel.stateIn(viewModelScope, SharingStarted.Lazily, AppLogLevel.INFO)
     val overlayEnabled = settingsRepository.overlayEnabled.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val vehicleProfiles = settingsRepository.vehicleProfiles.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        listOf(VehicleProfile.default())
+    )
+    val currentVehicle = settingsRepository.currentVehicleProfile.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        VehicleProfile.default()
+    )
     val lastControllerDeviceAddress = settingsRepository.lastControllerDeviceAddress.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
@@ -246,6 +314,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val speed = if (sSource == SpeedSource.GPS) gpsSpeed else controllerSpeed
         val powerW = volt * curr
         val efficiency = if (speed > 5f) powerW / speed else 0f
+        val currentVehicleProfile = currentVehicle.value
         val voltageSag = calculateVoltageSag(
             voltage = volt,
             busCurrent = curr,
@@ -254,25 +323,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Energy Tracking
         val now = System.currentTimeMillis()
-        if (rideActive && _lastEnergyUpdateTime > 0) {
+        val ridePausedForStop = isRidePausedForStop()
+        if (rideActive && !ridePausedForStop && _lastEnergyUpdateTime > 0) {
             val deltaH = (now - _lastEnergyUpdateTime) / 3600000.0
-            _totalEnergyUsedWh += powerW * deltaH
+            if (powerW >= 0f) {
+                _totalEnergyUsedWh += powerW * deltaH
+            } else {
+                _rideRecoveredEnergyWh += (-powerW * deltaH).toFloat()
+                _ridePeakRegenKw = maxOf(_ridePeakRegenKw, -powerW / 1000f)
+            }
         }
         _lastEnergyUpdateTime = now
+        if (rideActive && !ridePausedForStop) {
+            _rideMaxControllerTemp = maxOf(_rideMaxControllerTemp, bleMetrics.controllerTemp)
+        }
 
         val distanceKm = _tripDistanceMeters / 1000.0
-        val avgEff = if (distanceKm > 0.02) (_totalEnergyUsedWh / distanceKm).toFloat() else 0f
+        val fallbackSoc = if (bSource == DataSource.BMS) {
+            bmsMetrics.soc.takeIf { it in 1f..100f }
+        } else {
+            bleMetrics.soc.takeIf { it in 1f..100f } ?: estimateControllerSoc(volt).takeIf { it > 0f }
+        }
+        val rideEstimate = rideEnergyEstimator.estimate(
+            rawVoltage = volt,
+            rawCurrent = curr,
+            distanceKm = distanceKm,
+            batterySeries = currentVehicleProfile.batterySeries,
+            batteryCapacityAh = currentVehicleProfile.batteryCapacityAh,
+            fallbackSocPercent = fallbackSoc,
+            nowMs = now
+        )
+        val currentTripEnergyWh = maxOf(_rideEnergyWh, _totalEnergyUsedWh.toFloat())
+        val tripAverageEfficiencyWhKm = when {
+            distanceKm > 0.02 && currentTripEnergyWh > 0.5f -> (currentTripEnergyWh / distanceKm).toFloat()
+            else -> 0f
+        }
+        val avgEff = when {
+            tripAverageEfficiencyWhKm > 0.1f -> tripAverageEfficiencyWhKm
+            rideEstimate.averageWindowEfficiencyWhKm > 0.1f -> rideEstimate.averageWindowEfficiencyWhKm
+            else -> 0f
+        }
+        val rangeBasisEfficiencyWhKm = when {
+            tripAverageEfficiencyWhKm > 8f && distanceKm >= 0.6 -> tripAverageEfficiencyWhKm
+            rideEstimate.averageWindowEfficiencyWhKm > 8f -> rideEstimate.averageWindowEfficiencyWhKm
+            else -> avgEff
+        }
+        val estimatedRangeKm = if (rangeBasisEfficiencyWhKm > 0.1f) {
+            (rideEstimate.remainingEnergyWh / rangeBasisEfficiencyWhKm).coerceAtLeast(0f)
+        } else {
+            0f
+        }
 
         if (rideActive && speed > 2f) {
             if (speed > _maxSpeed) _maxSpeed = speed
             _totalSpeedSum += speed
             _speedSamples++
-        }
-
-        val estimatedControllerSoc = if (bSource == DataSource.BMS) {
-            bmsMetrics.soc
-        } else {
-            bleMetrics.soc.takeIf { it in 1f..100f } ?: estimateControllerSoc(volt)
         }
 
         return bleMetrics.copy(
@@ -283,8 +388,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             speedKmH = speed,
             efficiencyWhKm = efficiency,
             tripDistance = distanceKm,
-            soc = estimatedControllerSoc,
-            avgEfficiencyWhKm = avgEff
+            soc = rideEstimate.displaySocPercent,
+            estimatedRangeKm = estimatedRangeKm,
+            avgEfficiencyWhKm = avgEff,
+            totalEnergyWh = if (rideActive || _tripDistanceMeters > 0.0) currentTripEnergyWh else 0f,
+            recoveredEnergyWh = if (rideActive) _rideRecoveredEnergyWh else 0f,
+            peakRegenPowerKw = if (rideActive) _ridePeakRegenKw else 0f,
+            maxControllerTemp = if (rideActive) _rideMaxControllerTemp else bleMetrics.controllerTemp
         )
     }
 
@@ -296,13 +406,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun calculateZhikeControllerSpeed(
         rpm: Float,
-        wheelCircumferenceMm: Float,
-        zhikeSettings: ZhikeSettings?
+        wheelCircumferenceMm: Float
     ): Float {
         if (rpm <= 0f || wheelCircumferenceMm <= 0f) return 0f
-        val coefficient = zhikeSettings?.speedCoefficient?.takeIf { it in 500..15_000 }
-        val rpmScale = (coefficient?.div(100f) ?: 1f).coerceIn(0.1f, 20f)
-        return ((rpm * wheelCircumferenceMm * 60f) / 1_000_000f * rpmScale).coerceIn(0f, 160f)
+        return ((rpm * wheelCircumferenceMm * 60f) / 1_000_000f).coerceIn(0f, 160f)
     }
 
     private fun resolveControllerSpeed(
@@ -316,14 +423,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "zhike" -> {
                 val rpmSpeed = calculateZhikeControllerSpeed(
                     rpm = bleMetrics.rpm,
-                    wheelCircumferenceMm = wheelCircumferenceMm,
-                    zhikeSettings = zhikeSettings
+                    wheelCircumferenceMm = wheelCircumferenceMm
                 )
-                when {
-                    rpmSpeed > 0.5f -> rpmSpeed
-                    bleMetrics.speedKmH > 0f -> bleMetrics.speedKmH.coerceAtLeast(0f)
-                    else -> 0f
-                }
+                rpmSpeed.takeIf { it > 0.2f } ?: 0f
             }
             else -> {
                 if (bleMetrics.speedKmH > 0f) {
@@ -395,11 +497,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             AppLogger.setMinLevel(level)
         }.launchIn(viewModelScope)
 
-        settingsRepository.overlayEnabled.onEach { enabled ->
-            overlayPreferenceLoaded = true
-            cachedOverlayEnabled = enabled
-        }.launchIn(viewModelScope)
-
         settingsRepository.speedTestHistory.onEach { history ->
             _speedTestHistory.value = history
         }.launchIn(viewModelScope)
@@ -408,18 +505,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _rideHistory.value = history
         }.launchIn(viewModelScope)
 
-        bleManager.rawData.onEach { ProtocolParser.parse(it) }.launchIn(viewModelScope)
-        bmsBleManager.rawData.onEach { BmsParser.parse(it) }.launchIn(viewModelScope)
-        metrics.onEach { metrics ->
-            OverlayHudStore.update(
-                OverlayHudState(
-                    speedKmh = metrics.speedKmH,
-                    powerKw = metrics.totalPowerW / 1000f,
-                    avgEfficiencyWhKm = metrics.avgEfficiencyWhKm
-                )
-            )
+        currentVehicle.onEach { profile ->
+            if (estimatorVehicleId != profile.id) {
+                estimatorVehicleId = profile.id
+                rideEnergyEstimator.reset(profile.learnedInternalResistanceOhm)
+                _restingVoltageBaseline = 0f
+            }
         }.launchIn(viewModelScope)
 
+        bleManager.rawData.onEach { ProtocolParser.parse(it) }.launchIn(viewModelScope)
+        bmsBleManager.rawData.onEach { BmsParser.parse(it) }.launchIn(viewModelScope)
         ProtocolParser.zhikeSettings.onEach { _latestZhikeSettings.value = it }.launchIn(viewModelScope)
         ProtocolParser.metrics.onEach {
             _currentRpm.value = it.rpm
@@ -462,6 +557,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bleManager.connectionState.onEach { state ->
             if (state is ConnectionState.Connected) {
                 autoReconnectAttemptedAddress = state.device.address
+                stopAutoReconnectWatchdog()
+                if (pendingRideStopReason == RideStopReason.DISCONNECTED) {
+                    cancelPendingRideStop("控制器已恢复连接，继续记录本次行程")
+                }
                 viewModelScope.launch {
                     settingsRepository.saveLastControllerProfile(
                         address = state.device.address,
@@ -471,8 +570,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             if (state is ConnectionState.Disconnected && _isRideActive.value) {
-                stopRide(forceSave = true)
-                _calibrationMessage.value = "检测到控制器断开，已自动结束并保存本次行程"
+                beginPendingRideStop(
+                    reason = RideStopReason.DISCONNECTED,
+                    cutoffAtMs = System.currentTimeMillis()
+                )
+            }
+            if (state is ConnectionState.Disconnected) {
+                lastControllerDeviceAddress.value?.let { address ->
+                    startAutoReconnectWatchdog(address, reason = "disconnect")
+                }
             }
         }.launchIn(viewModelScope)
 
@@ -491,7 +597,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         settingsRepository.lastControllerDeviceAddress.onEach { address ->
             if (!address.isNullOrBlank()) {
                 tryAutoReconnect(address, reason = "startup")
+                startAutoReconnectWatchdog(address, reason = "startup")
             }
+        }.launchIn(viewModelScope)
+
+        bleManager.scannedDevices.onEach { devices ->
+            val address = lastControllerDeviceAddress.value ?: return@onEach
+            if (!isAutoReconnectAllowed(address)) return@onEach
+            val target = devices.firstOrNull { it.address == address } ?: return@onEach
+            AppLogger.i(TAG, "守护扫描发现记忆控制器，准备自动连接 address=$address")
+            stopAutoReconnectWatchdog()
+            autoReconnectAttemptedAddress = address
+            bleManager.connect(target)
         }.launchIn(viewModelScope)
 
         gpsTracker.location.onEach { location ->
@@ -524,7 +641,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val lastRideSummary: StateFlow<RideSession?> = _lastRideSummary.asStateFlow()
 
     private fun handleLocationUpdate(location: Location) {
-        if (_isRideActive.value) {
+        if (_isRideActive.value && !isRidePausedForStop()) {
             val lastRideLocation = _lastRideLocation
             if (lastRideLocation != null) {
                 _tripDistanceMeters += lastRideLocation.distanceTo(location).toDouble()
@@ -570,12 +687,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun updateRideSession(metrics: VehicleMetrics, now: Long) {
         val speed = metrics.speedKmH
+        if (_pendingRideStop.value != null) {
+            if (speed >= AUTO_RIDE_START_SPEED_KMH) {
+                _rideStopCandidateAtMs = null
+                cancelPendingRideStop("车辆恢复移动，继续记录本次行程")
+            } else {
+                return
+            }
+        }
+
+        if (speed <= AUTO_RIDE_STOP_SPEED_KMH) {
+            val stopCandidate = _rideStopCandidateAtMs
+            if (stopCandidate == null) {
+                _rideStopCandidateAtMs = now
+            } else if (now - stopCandidate >= AUTO_RIDE_STOP_DELAY_MS) {
+                beginPendingRideStop(
+                    reason = RideStopReason.PARKED,
+                    cutoffAtMs = now
+                )
+            }
+        } else {
+            _rideStopCandidateAtMs = null
+        }
+
         if (_rideLastEnergyUpdateAtMs > 0L) {
             val deltaHours = (now - _rideLastEnergyUpdateAtMs) / 3_600_000f
-            _rideEnergyWh += (metrics.totalPowerW * deltaHours)
+            if (metrics.totalPowerW >= 0f) {
+                _rideEnergyWh += (metrics.totalPowerW * deltaHours)
+            } else {
+                _rideRecoveredEnergyWh += (-metrics.totalPowerW * deltaHours)
+                _ridePeakRegenKw = maxOf(_ridePeakRegenKw, -metrics.totalPowerW / 1000f)
+            }
         }
         _rideLastEnergyUpdateAtMs = now
         _ridePeakPowerKw = maxOf(_ridePeakPowerKw, metrics.totalPowerW / 1000f)
+        _rideMaxControllerTemp = maxOf(_rideMaxControllerTemp, metrics.controllerTemp)
 
         if (now - _rideLastSampleAtMs >= RIDE_SAMPLE_INTERVAL_MS) {
             rideSamples.add(
@@ -591,9 +737,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     motorTemp = metrics.motorTemp,
                     controllerTemp = metrics.controllerTemp,
                     soc = metrics.soc,
+                    estimatedRangeKm = metrics.estimatedRangeKm,
                     rpm = metrics.rpm,
                     efficiencyWhKm = metrics.efficiencyWhKm,
+                    avgEfficiencyWhKm = metrics.avgEfficiencyWhKm,
                     distanceMeters = _tripDistanceMeters.toFloat(),
+                    totalEnergyWh = metrics.totalEnergyWh,
+                    recoveredEnergyWh = metrics.recoveredEnergyWh,
+                    maxControllerTemp = metrics.maxControllerTemp,
                     latitude = _lastRideLocation?.latitude,
                     longitude = _lastRideLocation?.longitude
                 )
@@ -601,16 +752,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _rideLastSampleAtMs = now
         }
 
-        if (speed <= AUTO_RIDE_STOP_SPEED_KMH) {
-            val stopCandidate = _rideStopCandidateAtMs
-            if (stopCandidate == null) {
-                _rideStopCandidateAtMs = now
-            } else if (now - stopCandidate >= AUTO_RIDE_STOP_DELAY_MS) {
-                stopRide()
-            }
-        } else {
-            _rideStopCandidateAtMs = null
-        }
+        maybePersistVehicleSnapshot(now)
     }
 
     private fun updateSpeedTestSession(metrics: VehicleMetrics, now: Long) {
@@ -695,16 +837,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _lastEnergyUpdateTime = System.currentTimeMillis()
         _sessionStartTime = System.currentTimeMillis()
         _rideStartedAtMs = _sessionStartTime
+        rideStartVehicleMileageKm = currentVehicle.value.totalMileageKm
+        lastVehicleSnapshotAtMs = _sessionStartTime
+        lastVehicleSnapshotTripDistanceKm = 0f
         _ridePeakPowerKw = 0f
+        _ridePeakRegenKw = 0f
         _rideEnergyWh = 0f
+        _rideRecoveredEnergyWh = 0f
+        _rideMaxControllerTemp = 0f
         _rideLastEnergyUpdateAtMs = _sessionStartTime
         _rideLastSampleAtMs = 0L
         _rideStopCandidateAtMs = null
+        clearPendingRideStopState()
         _lastRideLocation = null
         rideTrackPoints.clear()
         rideSamples.clear()
         rideStartMode = mode
         _autoRideSuppressedUntilStop.value = false
+        rideEnergyEstimator.reset(currentVehicle.value.learnedInternalResistanceOhm)
         _isRideActive.value = true
     }
 
@@ -712,11 +862,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         startRideInternal(RideStartMode.MANUAL)
     }
 
-    fun stopRide(forceSave: Boolean = false) {
+    fun stopRide(forceSave: Boolean = false, stopAtMs: Long = System.currentTimeMillis()) {
         if (!_isRideActive.value) return
+        clearPendingRideStopState()
         _isRideActive.value = false
-        val durationMs = System.currentTimeMillis() - _sessionStartTime
+        val endedAtMs = stopAtMs.coerceAtLeast(_sessionStartTime)
+        val durationMs = endedAtMs - _sessionStartTime
         val avgSpeed = if (_speedSamples > 0) _totalSpeedSum / _speedSamples else 0f
+        val finalEnergyWh = maxOf(_rideEnergyWh, _totalEnergyUsedWh.toFloat())
+        val finalAvgEfficiencyWhKm = if (_tripDistanceMeters > 20.0) {
+            (finalEnergyWh / (_tripDistanceMeters / 1000.0)).toFloat()
+        } else {
+            0f
+        }
         val dateText = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
         _lastRideSummary.value = RideSession(
             date = dateText,
@@ -724,21 +882,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             durationMin = (durationMs / 60000).toInt(),
             maxSpeed = _maxSpeed,
             avgSpeed = avgSpeed,
-            totalWh = _rideEnergyWh,
-            avgEfficiency = if (_tripDistanceMeters > 20.0) (_rideEnergyWh / (_tripDistanceMeters / 1000.0)).toFloat() else 0f
+            totalWh = finalEnergyWh,
+            avgEfficiency = finalAvgEfficiencyWhKm
         )
         val historyRecord = RideHistoryRecord(
             id = UUID.randomUUID().toString(),
             title = buildRideTitle(_sessionStartTime),
             startedAtMs = _sessionStartTime,
-            endedAtMs = System.currentTimeMillis(),
+            endedAtMs = endedAtMs,
             durationMs = durationMs,
             distanceMeters = _tripDistanceMeters.toFloat(),
             maxSpeedKmh = _maxSpeed,
             avgSpeedKmh = avgSpeed,
             peakPowerKw = _ridePeakPowerKw,
-            totalEnergyWh = _rideEnergyWh,
-            avgEfficiencyWhKm = if (_tripDistanceMeters > 20.0) (_rideEnergyWh / (_tripDistanceMeters / 1000.0)).toFloat() else 0f,
+            totalEnergyWh = finalEnergyWh,
+            avgEfficiencyWhKm = finalAvgEfficiencyWhKm,
             trackPoints = rideTrackPoints.toList(),
             samples = rideSamples.toList()
         )
@@ -747,14 +905,115 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _rideHistory.value = updated.take(HISTORY_LIMIT)
             viewModelScope.launch {
                 settingsRepository.saveRideHistory(_rideHistory.value)
+                persistVehicleSnapshot()
             }
         }
         _lastRideLocation = null
         _rideStopCandidateAtMs = null
+        lastVehicleSnapshotTripDistanceKm = 0f
         if (rideStartMode == RideStartMode.MANUAL && metrics.value.speedKmH > AUTO_RIDE_STOP_SPEED_KMH) {
             _autoRideSuppressedUntilStop.value = true
         }
         rideStartMode = null
+    }
+
+    private fun maybePersistVehicleSnapshot(now: Long) {
+        if (!_isRideActive.value) return
+        val tripDistanceKm = (_tripDistanceMeters / 1000.0).toFloat()
+        val dueByTime = now - lastVehicleSnapshotAtMs >= 3 * 60 * 1000L
+        val dueByDistance = tripDistanceKm - lastVehicleSnapshotTripDistanceKm >= 1f
+        if (!dueByTime && !dueByDistance) return
+
+        lastVehicleSnapshotAtMs = now
+        lastVehicleSnapshotTripDistanceKm = tripDistanceKm
+        viewModelScope.launch {
+            persistVehicleSnapshot()
+        }
+    }
+
+    private suspend fun persistVehicleSnapshot() {
+        val tripDistanceKm = (_tripDistanceMeters / 1000.0).toFloat()
+        val absoluteMileageKm = rideStartVehicleMileageKm + tripDistanceKm
+        val learnedResistance = rideEnergyEstimator.currentLearnedInternalResistanceOhm()
+        settingsRepository.updateCurrentVehicle { profile ->
+            profile.copy(
+                totalMileageKm = absoluteMileageKm.coerceAtLeast(profile.totalMileageKm),
+                learnedInternalResistanceOhm = if (learnedResistance > 0f) {
+                    learnedResistance
+                } else {
+                    profile.learnedInternalResistanceOhm
+                }
+            )
+        }
+    }
+
+    private fun isRidePausedForStop(): Boolean {
+        return _pendingRideStop.value != null
+    }
+
+    private fun beginPendingRideStop(reason: RideStopReason, cutoffAtMs: Long) {
+        if (!_isRideActive.value) return
+        if (_pendingRideStop.value != null && pendingRideStopReason == reason) return
+
+        clearPendingRideStopState()
+        pendingRideStopReason = reason
+        pendingRideStopCutoffAtMs = cutoffAtMs
+        pendingRideStopJob = viewModelScope.launch {
+            val countdownMs = if (reason == RideStopReason.DISCONNECTED) {
+                AUTO_DISCONNECT_STOP_COUNTDOWN_MS
+            } else {
+                AUTO_RIDE_STOP_COUNTDOWN_MS
+            }
+            val deadlineAtMs = System.currentTimeMillis() + countdownMs
+            while (true) {
+                val remainingMs = deadlineAtMs - System.currentTimeMillis()
+                val remainingSeconds = ceil(remainingMs.coerceAtLeast(0L) / 1000.0).toInt()
+                _pendingRideStop.value = PendingRideStopUiState(
+                    title = if (reason == RideStopReason.PARKED) "检测到车辆已停稳" else "控制器连接已断开",
+                    message = if (reason == RideStopReason.PARKED) {
+                        "将在 ${remainingSeconds} 秒后自动结束并保存本次行程"
+                    } else {
+                        "若 ${remainingSeconds} 秒内未恢复连接，将自动结束并保存本次行程"
+                    },
+                    remainingSeconds = remainingSeconds,
+                    isDisconnect = reason == RideStopReason.DISCONNECTED
+                )
+                if (remainingMs <= 0L) break
+                delay(250)
+            }
+            val finishAtMs = pendingRideStopCutoffAtMs.takeIf { it > 0L } ?: System.currentTimeMillis()
+            stopRide(forceSave = true, stopAtMs = finishAtMs)
+            _calibrationMessage.value = if (reason == RideStopReason.PARKED) {
+                "车辆已停稳，已自动结束并保存本次行程"
+            } else {
+                "控制器连接已断开，已自动结束并保存本次行程"
+            }
+        }
+    }
+
+    private fun cancelPendingRideStop(message: String? = null) {
+        clearPendingRideStopState()
+        message?.let { _calibrationMessage.value = it }
+    }
+
+    private fun clearPendingRideStopState() {
+        pendingRideStopJob?.cancel()
+        pendingRideStopJob = null
+        pendingRideStopReason = null
+        pendingRideStopCutoffAtMs = 0L
+        _pendingRideStop.value = null
+    }
+
+    fun cancelRideStopCountdown() {
+        _rideStopCandidateAtMs = null
+        cancelPendingRideStop("已继续记录本次行程")
+    }
+
+    fun confirmRideStopCountdownNow() {
+        val finishAtMs = pendingRideStopCutoffAtMs.takeIf { it > 0L } ?: System.currentTimeMillis()
+        clearPendingRideStopState()
+        stopRide(forceSave = true, stopAtMs = finishAtMs)
+        _calibrationMessage.value = "已结束并保存本次行程"
     }
 
     fun toggleRideTracking() {
@@ -815,6 +1074,84 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun mergeRideHistoryRecords(ids: Set<String>): RideHistoryRecord? {
+        val selected = _rideHistory.value
+            .filter { it.id in ids }
+            .sortedBy { it.startedAtMs }
+        if (selected.size < 2) return null
+
+        var elapsedOffsetMs = 0L
+        var distanceOffsetMeters = 0f
+        val mergedSamples = buildList {
+            selected.forEach { record ->
+                record.samples.forEach { sample ->
+                    add(
+                        sample.copy(
+                            elapsedMs = elapsedOffsetMs + sample.elapsedMs,
+                            distanceMeters = distanceOffsetMeters + sample.distanceMeters
+                        )
+                    )
+                }
+                elapsedOffsetMs += record.durationMs
+                distanceOffsetMeters += record.distanceMeters
+            }
+        }
+
+        val mergedTrackPoints = buildList {
+            var lastPoint: RideTrackPoint? = null
+            selected.forEach { record ->
+                record.trackPoints.forEach { point ->
+                    if (lastPoint != point) {
+                        add(point)
+                        lastPoint = point
+                    }
+                }
+            }
+        }
+
+        val startedAtMs = selected.first().startedAtMs
+        val endedAtMs = selected.last().endedAtMs
+        val durationMs = selected.sumOf { it.durationMs }
+        val distanceMeters = selected.sumOf { it.distanceMeters.toDouble() }.toFloat()
+        val totalEnergyWh = selected.sumOf { it.totalEnergyWh.toDouble() }.toFloat()
+        val maxSpeedKmh = selected.maxOf { it.maxSpeedKmh }
+        val peakPowerKw = selected.maxOf { it.peakPowerKw }
+        val avgSpeedKmh = when {
+            mergedSamples.isNotEmpty() -> mergedSamples.map { it.speedKmH.toDouble() }.average().toFloat()
+            durationMs > 0L -> ((distanceMeters / 1000f) / (durationMs / 3600000f)).coerceAtLeast(0f)
+            else -> 0f
+        }
+        val avgEfficiencyWhKm = if (distanceMeters > 20f) {
+            totalEnergyWh / (distanceMeters / 1000f)
+        } else {
+            0f
+        }
+
+        val mergedRecord = RideHistoryRecord(
+            id = UUID.randomUUID().toString(),
+            title = buildRideTitle(startedAtMs),
+            startedAtMs = startedAtMs,
+            endedAtMs = endedAtMs,
+            durationMs = durationMs,
+            distanceMeters = distanceMeters,
+            maxSpeedKmh = maxSpeedKmh,
+            avgSpeedKmh = avgSpeedKmh,
+            peakPowerKw = peakPowerKw,
+            totalEnergyWh = totalEnergyWh,
+            avgEfficiencyWhKm = avgEfficiencyWhKm,
+            trackPoints = mergedTrackPoints,
+            samples = mergedSamples
+        )
+
+        val updated = listOf(mergedRecord) + _rideHistory.value.filterNot { it.id in ids }
+        _rideHistory.value = updated.take(HISTORY_LIMIT)
+        viewModelScope.launch {
+            settingsRepository.saveRideHistory(_rideHistory.value)
+        }
+        _calibrationMessage.value = "已合并 ${selected.size} 条行程记录"
+        return mergedRecord
+    }
+
     fun createSpeedTestShareIntent(record: SpeedTestRecord): Intent {
         val bitmap = PosterRenderer(getApplication()).renderSpeedTest(record)
         val uri = exportBitmap(bitmap, "speedtest-${record.id}.png")
@@ -841,6 +1178,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return Intent.createChooser(shareIntent, "分享行程记录")
     }
 
+    fun saveRidePosterToGallery(record: RideHistoryRecord): String {
+        val bitmap = PosterRenderer(getApplication()).renderRideHistory(record)
+        val fileName = "habe-ride-${record.id}.png"
+        saveBitmapToGallery(bitmap, fileName)
+        return fileName
+    }
+
+    fun createRideCsvShareIntent(record: RideHistoryRecord): Intent {
+        val csvUri = exportText(buildRideCsv(record), "ride-${record.id}.csv")
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/csv"
+            putExtra(Intent.EXTRA_STREAM, csvUri)
+            putExtra(Intent.EXTRA_SUBJECT, "Habe ${record.title} 原始数据")
+            putExtra(Intent.EXTRA_TEXT, "Habe 行程原始数据：${record.title}")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        return Intent.createChooser(shareIntent, "导出行程原始数据")
+    }
+
     private fun exportBitmap(bitmap: android.graphics.Bitmap, fileName: String): Uri {
         val exportDir = File(getApplication<Application>().cacheDir, "exports").apply { mkdirs() }
         val file = File(exportDir, fileName)
@@ -854,9 +1210,108 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    private fun saveBitmapToGallery(bitmap: android.graphics.Bitmap, fileName: String): Uri {
+        val app = getApplication<Application>()
+        val resolver = app.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Habe")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: error("无法创建相册文件")
+        runCatching {
+            resolver.openOutputStream(uri)?.use { output ->
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output)
+            } ?: error("无法写入相册文件")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                values.clear()
+                values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+            }
+        }.getOrElse { throwable ->
+            resolver.delete(uri, null, null)
+            throw throwable
+        }
+        return uri
+    }
+
+    private fun exportText(content: String, fileName: String): Uri {
+        val exportDir = File(getApplication<Application>().cacheDir, "exports").apply { mkdirs() }
+        val file = File(exportDir, fileName)
+        file.writeText(content)
+        return FileProvider.getUriForFile(
+            getApplication(),
+            "${getApplication<Application>().packageName}.fileprovider",
+            file
+        )
+    }
+
+    private fun buildRideCsv(record: RideHistoryRecord): String {
+        val header = listOf(
+            "elapsed_ms",
+            "timestamp_ms",
+            "speed_kmh",
+            "power_kw",
+            "voltage_v",
+            "voltage_sag_v",
+            "bus_current_a",
+            "phase_current_a",
+            "motor_temp_c",
+            "controller_temp_c",
+            "soc_percent",
+            "estimated_range_km",
+            "rpm",
+            "efficiency_wh_km",
+            "avg_efficiency_wh_km",
+            "distance_m",
+            "total_energy_wh",
+            "recovered_energy_wh",
+            "max_controller_temp_c",
+            "latitude",
+            "longitude"
+        ).joinToString(",")
+        val rows = buildList {
+            add(header)
+            record.samples.forEach { sample ->
+                add(
+                    listOf(
+                        sample.elapsedMs.toString(),
+                        sample.timestampMs.toString(),
+                        csvFloat(sample.speedKmH),
+                        csvFloat(sample.powerKw),
+                        csvFloat(sample.voltage),
+                        csvFloat(sample.voltageSag),
+                        csvFloat(sample.busCurrent),
+                        csvFloat(sample.phaseCurrent),
+                        csvFloat(sample.motorTemp),
+                        csvFloat(sample.controllerTemp),
+                        csvFloat(sample.soc),
+                        csvFloat(sample.estimatedRangeKm),
+                        csvFloat(sample.rpm),
+                        csvFloat(sample.efficiencyWhKm),
+                        csvFloat(sample.avgEfficiencyWhKm),
+                        csvFloat(sample.distanceMeters),
+                        csvFloat(sample.totalEnergyWh),
+                        csvFloat(sample.recoveredEnergyWh),
+                        csvFloat(sample.maxControllerTemp),
+                        sample.latitude?.toString().orEmpty(),
+                        sample.longitude?.toString().orEmpty()
+                    ).joinToString(",")
+                )
+            }
+        }
+        return rows.joinToString("\n")
+    }
+
+    private fun csvFloat(value: Float): String = String.format(Locale.US, "%.3f", value)
+
     private fun buildRideTitle(startedAtMs: Long): String {
         val date = Date(startedAtMs)
-        return SimpleDateFormat("M月d日 HH:mm", Locale.getDefault()).format(date)
+        return SimpleDateFormat("M月d日 HH:mm", Locale.getDefault()).format(date).withDisplaySpacing()
     }
 
     private fun formatDuration(durationMs: Long): String {
@@ -895,9 +1350,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveWheelCircumference(value: Float): kotlinx.coroutines.Job = viewModelScope.launch { settingsRepository.saveWheelCircumference(value) }
     fun savePolePairs(value: Int): kotlinx.coroutines.Job = viewModelScope.launch { settingsRepository.savePolePairs(value) }
+    fun saveCurrentVehicleWheelArchive(rimSize: String? = null, tireSpecLabel: String? = null): kotlinx.coroutines.Job = viewModelScope.launch {
+        settingsRepository.saveCurrentVehicleWheelArchive(rimSize = rimSize, tireSpecLabel = tireSpecLabel)
+    }
     fun saveControllerBrand(value: String): kotlinx.coroutines.Job = viewModelScope.launch { settingsRepository.saveControllerBrand(value) }
     fun saveSpeedSource(source: SpeedSource): kotlinx.coroutines.Job = viewModelScope.launch { settingsRepository.saveSpeedSource(source) }
     fun saveBattDataSource(source: DataSource): kotlinx.coroutines.Job = viewModelScope.launch { settingsRepository.saveBattDataSource(source) }
+    fun selectVehicle(id: String): kotlinx.coroutines.Job = viewModelScope.launch {
+        autoReconnectAttemptedAddress = null
+        settingsRepository.saveCurrentVehicleId(id)
+        val vehicle = vehicleProfiles.value.firstOrNull { it.id == id } ?: return@launch
+        _calibrationMessage.value = "已切换到 ${vehicle.name}"
+    }
+    fun saveVehicleProfile(profile: VehicleProfile): kotlinx.coroutines.Job = viewModelScope.launch {
+        val existing = vehicleProfiles.value.any { it.id == profile.id }
+        settingsRepository.upsertVehicleProfile(profile)
+        _calibrationMessage.value = if (existing) {
+            "已更新车辆档案：${profile.name}"
+        } else {
+            "已新增车辆档案：${profile.name}"
+        }
+    }
+    fun deleteVehicleProfile(id: String): kotlinx.coroutines.Job = viewModelScope.launch {
+        val target = vehicleProfiles.value.firstOrNull { it.id == id } ?: return@launch
+        autoReconnectAttemptedAddress = null
+        settingsRepository.deleteVehicleProfile(id)
+        _calibrationMessage.value = "已删除车辆档案：${target.name}"
+    }
     fun saveLogLevel(level: AppLogLevel): kotlinx.coroutines.Job = viewModelScope.launch {
         settingsRepository.saveLogLevel(level)
         _calibrationMessage.value = "日志级别已切换为 ${level.name}"
@@ -905,10 +1384,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun saveOverlayEnabled(enabled: Boolean): kotlinx.coroutines.Job = viewModelScope.launch {
         settingsRepository.saveOverlayEnabled(enabled)
         _calibrationMessage.value = if (enabled) {
-            "后台悬浮仪表已开启"
+            "后台画中画仪表已开启"
         } else {
-            OverlayHudController.stop(getApplication())
-            "后台悬浮仪表已关闭"
+            "后台画中画仪表已关闭"
         }
     }
     fun clearLogs() {
@@ -926,29 +1404,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun handleAppVisibilityChanged(isForeground: Boolean) {
         if (isForeground) {
-            OverlayHudController.stop(getApplication())
             lastControllerDeviceAddress.value?.let { address ->
                 tryAutoReconnect(address, reason = "app-foreground")
-            }
-            return
-        }
-
-        if (overlayPreferenceLoaded) {
-            if (cachedOverlayEnabled) {
-                OverlayHudController.start(getApplication())
-            }
-            return
-        }
-
-        viewModelScope.launch {
-            if (settingsRepository.isOverlayEnabled()) {
-                OverlayHudController.start(getApplication())
             }
         }
     }
 
     private fun tryAutoReconnect(address: String, reason: String) {
         if (address.isBlank()) return
+        if (!isAutoReconnectAllowed(address)) return
         if (autoReconnectAttemptedAddress == address) return
         if (bleManager.connectionState.value !is ConnectionState.Disconnected) return
         val rememberedName = lastControllerDeviceName.value?.takeIf { it.isNotBlank() }
@@ -995,6 +1459,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bleManager.stopScan()
     }
     fun connect(device: android.bluetooth.BluetoothDevice) {
+        autoReconnectSuppressedUntilMs = 0L
+        stopAutoReconnectWatchdog()
         viewModelScope.launch {
             settingsRepository.saveLastControllerProfile(
                 address = device.address,
@@ -1007,6 +1473,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun connectRememberedController() {
         val address = lastControllerDeviceAddress.value ?: return
+        autoReconnectSuppressedUntilMs = 0L
+        stopAutoReconnectWatchdog()
         autoReconnectAttemptedAddress = address
         bleManager.connect(
             address = address,
@@ -1016,6 +1484,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun forgetRememberedController() {
         val rememberedAddress = lastControllerDeviceAddress.value
+        suppressAutoReconnect()
+        stopAutoReconnectWatchdog()
         viewModelScope.launch {
             settingsRepository.clearLastControllerDevice()
             if (connectionState.value is ConnectionState.Connected &&
@@ -1026,14 +1496,66 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     fun connectBms(device: android.bluetooth.BluetoothDevice): Unit = bmsBleManager.connect(device)
-    fun disconnect(): Unit = bleManager.disconnect()
+    fun disconnect(): Unit {
+        suppressAutoReconnect()
+        stopAutoReconnectWatchdog()
+        bleManager.disconnect()
+    }
     fun disconnectBms(): Unit = bmsBleManager.disconnect()
+
+    private fun suppressAutoReconnect(durationMs: Long = AUTO_RECONNECT_SUPPRESS_MS) {
+        autoReconnectSuppressedUntilMs = System.currentTimeMillis() + durationMs
+    }
+
+    private fun isAutoReconnectAllowed(address: String): Boolean {
+        if (address.isBlank()) return false
+        if (System.currentTimeMillis() < autoReconnectSuppressedUntilMs) return false
+        return bleManager.connectionState.value is ConnectionState.Disconnected
+    }
+
+    private fun startAutoReconnectWatchdog(address: String, reason: String) {
+        if (!isAutoReconnectAllowed(address)) return
+        if (autoReconnectWatchdogJob?.isActive == true) return
+        autoReconnectWatchdogJob = viewModelScope.launch {
+            AppLogger.i(TAG, "自动连接守护已启动 reason=$reason address=$address")
+            while (isAutoReconnectAllowed(address)) {
+                if (!autoReconnectScanActive) {
+                    autoReconnectScanActive = true
+                    startScan()
+                    AppLogger.d(TAG, "自动连接守护开启扫描窗口 address=$address")
+                }
+                delay(AUTO_RECONNECT_SCAN_WINDOW_MS)
+                if (autoReconnectScanActive) {
+                    autoReconnectScanActive = false
+                    stopScan()
+                }
+                delay(AUTO_RECONNECT_SCAN_COOLDOWN_MS)
+            }
+            autoReconnectScanActive = false
+        }
+    }
+
+    private fun stopAutoReconnectWatchdog() {
+        autoReconnectWatchdogJob?.cancel()
+        autoReconnectWatchdogJob = null
+        if (autoReconnectScanActive) {
+            autoReconnectScanActive = false
+            stopScan()
+        }
+    }
 
     // --- Zhike Settings Actions ---
     val zhikeSettings: kotlinx.coroutines.flow.SharedFlow<ZhikeSettings> = ProtocolParser.zhikeSettings
+    val latestZhikeSettings: StateFlow<ZhikeSettings?> = _latestZhikeSettings.asStateFlow()
     
     fun readZhikeSettings() {
-        bleManager.sendZhikeMainCommand("AA110001")
+        viewModelScope.launch {
+            bleManager.handshakeZhike()
+            delay(180)
+            bleManager.sendZhikeAuxCommand("0102")
+            delay(220)
+            bleManager.sendZhikeMainCommand("AA110001")
+        }
     }
 
     fun writeZhikeSettings(settings: ZhikeSettings, password: String): String? {
@@ -1053,7 +1575,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return "请先刷新并读取控制器参数"
         }
 
-        if (settings.bluetoothPassword != parsedPassword) {
+        if (settings.originalBluetoothPassword != parsedPassword) {
             return "蓝牙密码错误"
         }
 

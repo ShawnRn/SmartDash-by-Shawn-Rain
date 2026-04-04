@@ -41,26 +41,34 @@ class AutoCalibrator(
 ) {
     companion object {
         private const val MIN_SPEED_KMH = 15f
-        private const val STABLE_WINDOW_SAMPLES = 6
-        private const val MAX_JITTER_RATIO = 0.05f
+        private const val SAMPLE_INTERVAL_MS = 800L
+        private const val STABLE_WINDOW_SAMPLES = 8
+        private const val MAX_JITTER_RATIO = 0.12f
+        private const val MAX_STEP_DELTA_KMH = 3.5f
+        private const val MAX_LAG_SAMPLES = 3
         private const val MIN_READY_DISTANCE_METERS = 200f
         private const val MAX_READY_DISTANCE_METERS = 500f
         private const val MIN_STABLE_WINDOWS = 2
     }
 
+    private data class TimedSpeedSample(
+        val timestampMs: Long,
+        val gpsSpeedKmh: Float,
+        val controllerSpeedKmh: Float
+    )
+
     private data class Session(
         val startTs: Long,
         var lastUpdateTs: Long,
         var lastLocation: Location?,
+        var lastRecordedSampleTs: Long = 0L,
         var gpsDistanceMeters: Float = 0f,
         var controllerDistanceMeters: Float = 0f,
         var stableSamples: Int = 0,
         var totalSamples: Int = 0,
-        val suggestions: MutableList<Float> = mutableListOf()
+        val suggestions: MutableList<Float> = mutableListOf(),
+        val speedSamples: MutableList<TimedSpeedSample> = mutableListOf()
     )
-
-    private val gpsHistory = ArrayDeque<Float>(STABLE_WINDOW_SAMPLES)
-    private val controllerSpeedHistory = ArrayDeque<Float>(STABLE_WINDOW_SAMPLES)
     private var observingStarted = false
     private var session: Session? = null
 
@@ -92,8 +100,6 @@ class AutoCalibrator(
 
     fun startSession() {
         val now = System.currentTimeMillis()
-        gpsHistory.clear()
-        controllerSpeedHistory.clear()
         session = Session(
             startTs = now,
             lastUpdateTs = now,
@@ -104,8 +110,6 @@ class AutoCalibrator(
 
     fun stopSession() {
         val currentState = _state.value
-        gpsHistory.clear()
-        controllerSpeedHistory.clear()
         session = null
         _state.value = currentState.copy(
             isRunning = false,
@@ -137,10 +141,14 @@ class AutoCalibrator(
 
         updateGpsDistance(activeSession, inputs.location)
         activeSession.totalSamples += 1
+        maybeRecordSpeedSample(
+            activeSession = activeSession,
+            now = now,
+            gpsSpeed = inputs.gpsSpeedKmh,
+            controllerSpeed = controllerSpeed
+        )
 
         val suggestedCircumference = updateStableSuggestion(
-            gpsSpeed = inputs.gpsSpeedKmh,
-            controllerSpeed = controllerSpeed,
             currentCircumferenceMm = inputs.currentCircumferenceMm,
             activeSession = activeSession
         )
@@ -191,53 +199,97 @@ class AutoCalibrator(
     }
 
     private fun updateStableSuggestion(
-        gpsSpeed: Float,
-        controllerSpeed: Float,
         currentCircumferenceMm: Float,
         activeSession: Session
     ): Float? {
-        if (gpsSpeed < MIN_SPEED_KMH || controllerSpeed <= 0f || currentCircumferenceMm <= 0f) {
-            gpsHistory.clear()
-            controllerSpeedHistory.clear()
-            return averageSuggestion(activeSession.suggestions)
+        if (currentCircumferenceMm <= 0f) {
+            return robustSuggestion(activeSession.suggestions)
         }
-
-        gpsHistory.addLast(gpsSpeed)
-        controllerSpeedHistory.addLast(controllerSpeed)
-        if (gpsHistory.size > STABLE_WINDOW_SAMPLES) gpsHistory.removeFirst()
-        if (controllerSpeedHistory.size > STABLE_WINDOW_SAMPLES) controllerSpeedHistory.removeFirst()
-
-        if (gpsHistory.size < STABLE_WINDOW_SAMPLES || controllerSpeedHistory.size < STABLE_WINDOW_SAMPLES) {
-            return averageSuggestion(activeSession.suggestions)
-        }
-
-        val gpsAvg = gpsHistory.average().toFloat()
-        val controllerAvg = controllerSpeedHistory.average().toFloat()
-        if (gpsAvg <= 0f || controllerAvg <= 0f) return averageSuggestion(activeSession.suggestions)
-
-        val gpsJitter = ((gpsHistory.maxOrNull() ?: gpsAvg) - (gpsHistory.minOrNull() ?: gpsAvg)) / gpsAvg
-        val controllerJitter =
-            ((controllerSpeedHistory.maxOrNull() ?: controllerAvg) - (controllerSpeedHistory.minOrNull() ?: controllerAvg)) /
-                controllerAvg
-        if (gpsJitter >= MAX_JITTER_RATIO || controllerJitter >= MAX_JITTER_RATIO) {
-            return averageSuggestion(activeSession.suggestions)
-        }
-
-        val derivedCircumference = currentCircumferenceMm * (gpsAvg / controllerAvg)
+        val alignedWindow = bestAlignedWindow(activeSession.speedSamples)
+            ?: return robustSuggestion(activeSession.suggestions)
+        val derivedCircumference = currentCircumferenceMm * alignedWindow.speedRatio
         if (derivedCircumference !in 500f..5000f) {
-            return averageSuggestion(activeSession.suggestions)
+            return robustSuggestion(activeSession.suggestions)
         }
 
-        val lastSuggestion = activeSession.suggestions.lastOrNull()
-        if (lastSuggestion == null || abs(derivedCircumference - lastSuggestion) / lastSuggestion <= 0.08f) {
+        val referenceSuggestion = robustSuggestion(activeSession.suggestions)
+        if (referenceSuggestion == null || abs(derivedCircumference - referenceSuggestion) / referenceSuggestion <= 0.08f) {
             activeSession.stableSamples += 1
             activeSession.suggestions += derivedCircumference
-            if (activeSession.suggestions.size > 8) {
+            if (activeSession.suggestions.size > 12) {
                 activeSession.suggestions.removeFirst()
             }
         }
 
-        return averageSuggestion(activeSession.suggestions)
+        return robustSuggestion(activeSession.suggestions)
+    }
+
+    private fun maybeRecordSpeedSample(
+        activeSession: Session,
+        now: Long,
+        gpsSpeed: Float,
+        controllerSpeed: Float
+    ) {
+        if (now - activeSession.lastRecordedSampleTs < SAMPLE_INTERVAL_MS) return
+        activeSession.lastRecordedSampleTs = now
+        activeSession.speedSamples += TimedSpeedSample(
+            timestampMs = now,
+            gpsSpeedKmh = gpsSpeed.coerceAtLeast(0f),
+            controllerSpeedKmh = controllerSpeed.coerceAtLeast(0f)
+        )
+        if (activeSession.speedSamples.size > 36) {
+            activeSession.speedSamples.removeAt(0)
+        }
+    }
+
+    private data class StableWindow(val speedRatio: Float)
+
+    private fun bestAlignedWindow(samples: List<TimedSpeedSample>): StableWindow? {
+        if (samples.size < STABLE_WINDOW_SAMPLES + MAX_LAG_SAMPLES) return null
+        var bestWindow: StableWindow? = null
+        var bestScore = Float.MAX_VALUE
+
+        for (lag in 0..MAX_LAG_SAMPLES) {
+            val gpsWindow = samples.dropLast(lag).takeLast(STABLE_WINDOW_SAMPLES)
+            val controllerWindow = samples.takeLast(STABLE_WINDOW_SAMPLES)
+            if (gpsWindow.size < STABLE_WINDOW_SAMPLES || controllerWindow.size < STABLE_WINDOW_SAMPLES) continue
+
+            val gpsValues = gpsWindow.map { it.gpsSpeedKmh }
+            val controllerValues = controllerWindow.map { it.controllerSpeedKmh }
+            val gpsAvg = gpsValues.average().toFloat()
+            val controllerAvg = controllerValues.average().toFloat()
+            if (gpsAvg < MIN_SPEED_KMH || controllerAvg < MIN_SPEED_KMH) continue
+
+            val gpsJitter = normalizedJitter(gpsValues, gpsAvg)
+            val controllerJitter = normalizedJitter(controllerValues, controllerAvg)
+            val gpsStepDelta = maxStepDelta(gpsValues)
+            val controllerStepDelta = maxStepDelta(controllerValues)
+            if (
+                gpsJitter > MAX_JITTER_RATIO ||
+                controllerJitter > MAX_JITTER_RATIO ||
+                gpsStepDelta > MAX_STEP_DELTA_KMH ||
+                controllerStepDelta > MAX_STEP_DELTA_KMH
+            ) {
+                continue
+            }
+
+            val ratio = (gpsAvg / controllerAvg).takeIf { it.isFinite() && it in 0.4f..2.2f } ?: continue
+            val score = gpsJitter + controllerJitter + (gpsStepDelta + controllerStepDelta) / 10f + lag * 0.015f
+            if (score < bestScore) {
+                bestScore = score
+                bestWindow = StableWindow(speedRatio = ratio)
+            }
+        }
+        return bestWindow
+    }
+
+    private fun normalizedJitter(values: List<Float>, average: Float): Float {
+        if (values.isEmpty() || average <= 0f) return Float.MAX_VALUE
+        return ((values.maxOrNull() ?: average) - (values.minOrNull() ?: average)) / average
+    }
+
+    private fun maxStepDelta(values: List<Float>): Float {
+        return values.zipWithNext { a, b -> abs(a - b) }.maxOrNull() ?: 0f
     }
 
     private fun buildHint(
@@ -267,9 +319,15 @@ class AutoCalibrator(
         return (wheelRpm * wheelCircumferenceMm * 60f) / 1_000_000f
     }
 
-    private fun averageSuggestion(values: List<Float>): Float? {
+    private fun robustSuggestion(values: List<Float>): Float? {
         if (values.isEmpty()) return null
-        return values.sum() / values.size
+        val sorted = values.sorted()
+        val middle = sorted.size / 2
+        return if (sorted.size % 2 == 0) {
+            (sorted[middle - 1] + sorted[middle]) / 2f
+        } else {
+            sorted[middle]
+        }
     }
 
     private data class CalibrationInputs(

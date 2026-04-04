@@ -1,70 +1,105 @@
 package com.shawnrain.habe
 
+import android.app.PictureInPictureParams
+import android.content.pm.ActivityInfo
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
-import android.os.SystemClock
+import android.graphics.Typeface
+import android.os.Build
 import android.os.Bundle
-import androidx.activity.BackEventCompat
+import android.os.SystemClock
+import android.util.Rational
+import android.app.Application
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.BatteryChargingFull
-import androidx.compose.material.icons.filled.RocketLaunch
-import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.compose.*
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import com.shawnrain.habe.debug.AppLogger
 import com.shawnrain.habe.ui.bms.BmsScreen
 import com.shawnrain.habe.ui.connect.ConnectScreen
+import com.shawnrain.habe.ui.dashboard.BaselineMetricValue
 import com.shawnrain.habe.ui.dashboard.DashboardScreen
+import com.shawnrain.habe.ui.navigation.PredictiveBackPage
 import com.shawnrain.habe.ui.settings.SettingsScreen
 import com.shawnrain.habe.ui.speedtest.SpeedtestScreen
 import com.shawnrain.habe.ui.theme.HabeTheme
-
-import com.shawnrain.habe.debug.AppLogger
-import java.util.concurrent.CancellationException
+import kotlin.math.min
 import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
 class MainActivity : ComponentActivity() {
+    private val isInPipModeState = mutableStateOf(false)
+    private var currentRoute: String? = null
+    private var pipEnabled = false
+    private var pendingTelemetryPip = false
+
     companion object {
         private const val EXTRA_TARGET_ROUTE = "target_route"
+        private val TELEMETRY_PIP_ASPECT_RATIO = Rational(25, 14)
+        private val TELEMETRY_PIP_EXPANDED_ASPECT_RATIO = Rational(8, 5)
 
         fun createLaunchIntent(
             context: Context,
@@ -81,11 +116,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private val appViewModel: MainViewModel by lazy(LazyThreadSafetyMode.NONE) {
-        val application = application as HabeApplication
-        ViewModelProvider(application, application.appViewModelFactory)[MainViewModel::class.java]
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -98,7 +128,20 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             HabeTheme {
-                MainScreen()
+                MainScreen(
+                    isInPictureInPictureMode = isInPipModeState.value,
+                    onRouteChanged = { route ->
+                        currentRoute = route
+                        updateOrientationForRoute(route)
+                        if (pendingTelemetryPip && route == Screen.Dashboard.route) {
+                            pendingTelemetryPip = false
+                            enterTelemetryPictureInPicture()
+                        }
+                    },
+                    onPipPreferenceChanged = { enabled ->
+                        pipEnabled = enabled
+                    }
+                )
             }
         }
     }
@@ -109,11 +152,68 @@ class MainActivity : ComponentActivity() {
         dispatchLaunchIntent(intent)
     }
 
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        requestTelemetryPictureInPicture()
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        isInPipModeState.value = isInPictureInPictureMode
+        if (!isInPictureInPictureMode) {
+            pendingTelemetryPip = false
+        }
+    }
+
     private fun dispatchLaunchIntent(intent: Intent?) {
         intent
             ?.getStringExtra(EXTRA_TARGET_ROUTE)
             ?.takeIf { it.isNotBlank() }
             ?.let(MainActivityRouteRequests::emit)
+    }
+
+    private fun requestTelemetryPictureInPicture() {
+        if (!pipEnabled || Build.VERSION.SDK_INT < Build.VERSION_CODES.O || isInPictureInPictureMode) {
+            return
+        }
+        if (currentRoute == Screen.Dashboard.route) {
+            enterTelemetryPictureInPicture()
+        } else {
+            pendingTelemetryPip = false
+            AppLogger.d("MainActivity", "Skip PiP because current route is $currentRoute")
+        }
+    }
+
+    private fun enterTelemetryPictureInPicture() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || isInPictureInPictureMode) {
+            return
+        }
+        val builder = PictureInPictureParams.Builder()
+            .setAspectRatio(TELEMETRY_PIP_ASPECT_RATIO)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setSeamlessResizeEnabled(false)
+            // Android 12+ supports system double-tap to toggle between normal and expanded PiP.
+            // Keep the expanded state only slightly larger so it stays compact on bike use.
+            builder.setExpandedAspectRatio(TELEMETRY_PIP_EXPANDED_ASPECT_RATIO)
+        }
+        val params = builder.build()
+        runCatching {
+            enterPictureInPictureMode(params)
+        }
+    }
+
+    private fun updateOrientationForRoute(route: String?) {
+        val targetOrientation = if (route == Screen.Dashboard.route) {
+            ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+        if (requestedOrientation != targetOrientation) {
+            requestedOrientation = targetOrientation
+        }
     }
 }
 
@@ -131,23 +231,29 @@ private object MainActivityRouteRequests {
     val current = _current.asSharedFlow()
 
     fun emit(route: String) {
-        _current.tryEmit(RouteRequest(
-            id = SystemClock.elapsedRealtimeNanos(),
-            route = route
-        ))
+        _current.tryEmit(
+            RouteRequest(
+                id = SystemClock.elapsedRealtimeNanos(),
+                route = route
+            )
+        )
     }
 }
 
 @Composable
-fun MainScreen() {
+fun MainScreen(
+    isInPictureInPictureMode: Boolean,
+    onRouteChanged: (String?) -> Unit,
+    onPipPreferenceChanged: (Boolean) -> Unit
+) {
     val navController = rememberNavController()
     val context = LocalContext.current
-    val application = remember(context) { context.applicationContext as HabeApplication }
+    val application = remember(context) { context.applicationContext as Application }
     val viewModel: MainViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
-        viewModelStoreOwner = application,
-        factory = application.appViewModelFactory
+        factory = ViewModelProvider.AndroidViewModelFactory.getInstance(application)
     )
     val configuration = LocalConfiguration.current
+    val pipEnabled by viewModel.overlayEnabled.collectAsState()
 
     DisposableEffect(viewModel) {
         val lifecycle = ProcessLifecycleOwner.get().lifecycle
@@ -163,9 +269,12 @@ fun MainScreen() {
             lifecycle.removeObserver(observer)
         }
     }
-    
+
+    LaunchedEffect(pipEnabled) {
+        onPipPreferenceChanged(pipEnabled)
+    }
+
     val items = listOf(
-        Screen.Connect,
         Screen.Dashboard,
         Screen.Speedtest,
         Screen.Settings
@@ -176,6 +285,9 @@ fun MainScreen() {
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
+    LaunchedEffect(currentDestination?.route) {
+        onRouteChanged(currentDestination?.route)
+    }
     val isDashboardLandscape =
         currentDestination?.hierarchy?.any { it.route == Screen.Dashboard.route } == true &&
             configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -192,17 +304,24 @@ fun MainScreen() {
         }
     }
 
+    if (isInPictureInPictureMode) {
+        TelemetryPipScreen(viewModel = viewModel)
+        return
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             if (!isDashboardLandscape) {
                 Surface(
-                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.88f),
                     tonalElevation = 3.dp
                 ) {
                     NavigationBar(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
                         containerColor = Color.Transparent,
                         tonalElevation = 0.dp
                     ) {
@@ -274,31 +393,46 @@ fun MainScreen() {
                 fadeOut(animationSpec = tween(120))
             }
         ) {
-            composable(Screen.Connect.route) { 
-                ConnectScreen(viewModel = viewModel, onNavigateToDashboard = {
-                    navController.navigate(Screen.Dashboard.route) {
-                        popUpTo(navController.graph.findStartDestination().id) { saveState = false }
-                        launchSingleTop = true
-                        restoreState = false
+            composable(Screen.Connect.route) {
+                ConnectScreen(
+                    viewModel = viewModel,
+                    onNavigateToDashboard = {
+                        navController.navigate(Screen.Dashboard.route) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                            launchSingleTop = true
+                            restoreState = false
+                        }
                     }
-                })
+                )
             }
             composable(Screen.Dashboard.route) { DashboardScreen(viewModel = viewModel) }
-            composable(Screen.Bms.route) {
-                PredictiveBackRoute(onBack = { navController.popBackStack() }) {
+            composable(
+                route = Screen.Bms.route,
+                enterTransition = { EnterTransition.None },
+                exitTransition = { ExitTransition.None },
+                popEnterTransition = { EnterTransition.None },
+                popExitTransition = { ExitTransition.None }
+            ) {
+                PredictiveBackPage(onBack = { navController.popBackStack() }) {
                     BmsScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
                 }
             }
             composable(Screen.Speedtest.route) { SpeedtestScreen(viewModel = viewModel) }
-            composable(Screen.Settings.route) { 
+            composable(Screen.Settings.route) {
                 SettingsScreen(
-                    viewModel = viewModel, 
+                    viewModel = viewModel,
                     onNavigateToBms = { navController.navigate(Screen.Bms.route) },
                     onNavigateToZhikeSettings = { navController.navigate(Screen.ZhikeSettings.route) }
-                ) 
+                )
             }
-            composable(Screen.ZhikeSettings.route) {
-                PredictiveBackRoute(onBack = { navController.popBackStack() }) {
+            composable(
+                route = Screen.ZhikeSettings.route,
+                enterTransition = { EnterTransition.None },
+                exitTransition = { ExitTransition.None },
+                popEnterTransition = { EnterTransition.None },
+                popExitTransition = { ExitTransition.None }
+            ) {
+                PredictiveBackPage(onBack = { navController.popBackStack() }) {
                     com.shawnrain.habe.ui.settings.zhike.ZhikeSettingsScreen(
                         viewModel = viewModel,
                         onBack = { navController.popBackStack() }
@@ -310,53 +444,86 @@ fun MainScreen() {
 }
 
 @Composable
-private fun PredictiveBackRoute(
-    onBack: () -> Unit,
-    content: @Composable () -> Unit
+private fun TelemetryPipScreen(
+    viewModel: MainViewModel
 ) {
-    val progress = remember { Animatable(0f) }
-    var swipeEdge by remember { mutableIntStateOf(BackEventCompat.EDGE_LEFT) }
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val density = LocalDensity.current
-        val widthPx = remember(maxWidth, density) { with(density) { maxWidth.toPx() } }
+    val metrics by viewModel.metrics.collectAsState()
+    val speedText = metrics.speedKmH.toInt().coerceAtLeast(0).toString()
+    val baseWidth = 300.dp
+    val baseHeight = 168.dp
 
-        PredictiveBackHandler(enabled = true) { backEvents ->
-            try {
-                progress.snapTo(0f)
-                backEvents.collect { event ->
-                    swipeEdge = event.swipeEdge
-                    progress.snapTo(event.progress)
-                }
-                onBack()
-            } catch (_: CancellationException) {
-                progress.animateTo(0f, animationSpec = tween(180))
-            }
-        }
-
-        val direction = if (swipeEdge == BackEventCompat.EDGE_RIGHT) -1f else 1f
-        val animatedProgress = progress.value
-        val scale = 1f - (0.06f * animatedProgress)
-        val translationX = direction * widthPx * 0.1f * animatedProgress
-        val alpha = 1f - (0.06f * animatedProgress)
-        val transformOrigin = if (direction > 0f) {
-            TransformOrigin(0f, 0.5f)
-        } else {
-            TransformOrigin(1f, 0.5f)
-        }
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f)),
+        contentAlignment = Alignment.Center
+    ) {
+        val scale = min(maxWidth / baseWidth, maxHeight / baseHeight)
+        val scaledWidth = baseWidth * scale
+        val scaledHeight = baseHeight * scale
 
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    this.translationX = translationX
-                    this.alpha = alpha
-                    this.transformOrigin = transformOrigin
-                },
+                .width(scaledWidth)
+                .height(scaledHeight),
             contentAlignment = Alignment.Center
         ) {
-            content()
+            Column(
+                modifier = Modifier
+                    .requiredSize(baseWidth, baseHeight)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                    }
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Row(
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    BaselineMetricValue(
+                        value = speedText,
+                        unit = "km/h",
+                        valueColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        unitColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+                        valueFontSize = 64.sp,
+                        unitFontSize = 26.sp,
+                        valueLineHeight = 64.sp,
+                        unitSpacing = 6.dp,
+                        singleLine = true,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    BaselineMetricValue(
+                        value = String.format("%.2f", metrics.totalPowerW / 1000f),
+                        unit = "kW",
+                        valueColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        unitColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+                        valueFontSize = 28.sp,
+                        unitFontSize = 18.sp,
+                        unitSpacing = 4.dp,
+                        singleLine = true
+                    )
+                    BaselineMetricValue(
+                        value = String.format("%.1f", metrics.avgEfficiencyWhKm),
+                        unit = "Wh/km",
+                        valueColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        unitColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+                        valueFontSize = 28.sp,
+                        unitFontSize = 18.sp,
+                        unitSpacing = 4.dp,
+                        singleLine = true
+                    )
+                }
+            }
         }
     }
 }
@@ -381,11 +548,15 @@ private fun topLevelOffset(
     return (fullWidth / 24) * direction
 }
 
-sealed class Screen(val route: String, val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    object Connect : Screen("connect", "连接", Icons.Filled.Bluetooth)
-    object Dashboard : Screen("dashboard", "仪表", Icons.Filled.Speed)
-    object Speedtest : Screen("speedtest", "加速", Icons.Filled.RocketLaunch)
-    object Settings : Screen("settings", "设置", Icons.Filled.Settings)
-    object Bms : Screen("bms", "电池", Icons.Filled.BatteryChargingFull)
-    object ZhikeSettings : Screen("zhike_settings", "智科设置", Icons.Filled.Settings)
+sealed class Screen(
+    val route: String,
+    val title: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+) {
+    data object Connect : Screen("connect", "连接", Icons.Filled.Bluetooth)
+    data object Dashboard : Screen("dashboard", "仪表", Icons.Filled.Speed)
+    data object Speedtest : Screen("speedtest", "加速", Icons.Filled.RocketLaunch)
+    data object Settings : Screen("settings", "设置", Icons.Filled.Settings)
+    data object Bms : Screen("bms", "电池", Icons.Filled.BatteryChargingFull)
+    data object ZhikeSettings : Screen("zhike_settings", "智科设置", Icons.Filled.Settings)
 }

@@ -34,6 +34,9 @@ import com.google.accompanist.permissions.MultiplePermissionsState
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.shawnrain.habe.ble.ConnectionState
 import com.shawnrain.habe.MainViewModel
+import com.shawnrain.habe.ui.navigation.BlurredAlertDialog
+import com.shawnrain.habe.ui.navigation.BlurredModalBottomSheet
+import com.shawnrain.habe.ui.navigation.PredictiveBackPopupTransform
 import com.shawnrain.habe.ui.theme.bezierPillShape
 import com.shawnrain.habe.ui.theme.bezierRoundedShape
 
@@ -44,6 +47,51 @@ private data class ConnectListItem(
     val isRemembered: Boolean,
     val isConnected: Boolean
 )
+
+private fun buildConnectItems(
+    scannedDevices: List<BluetoothDevice>,
+    rememberedAddress: String?,
+    rememberedName: String?,
+    connectedDevice: BluetoothDevice?
+): List<ConnectListItem> {
+    return buildList {
+        val merged = linkedMapOf<String, ConnectListItem>()
+
+        connectedDevice?.let { device ->
+            merged[device.address] = ConnectListItem(
+                name = device.name ?: rememberedName ?: "已连接设备",
+                address = device.address,
+                device = device,
+                isRemembered = device.address == rememberedAddress,
+                isConnected = true
+            )
+        }
+
+        rememberedAddress?.let { address ->
+            val existing = merged[address]
+            merged[address] = ConnectListItem(
+                name = rememberedName ?: existing?.name ?: "已保存设备",
+                address = address,
+                device = existing?.device ?: scannedDevices.firstOrNull { it.address == address },
+                isRemembered = true,
+                isConnected = existing?.isConnected == true
+            )
+        }
+
+        scannedDevices.forEach { device ->
+            val existing = merged[device.address]
+            merged[device.address] = ConnectListItem(
+                name = device.name ?: existing?.name ?: "未知设备",
+                address = device.address,
+                device = device,
+                isRemembered = existing?.isRemembered == true,
+                isConnected = existing?.isConnected == true
+            )
+        }
+
+        addAll(merged.values)
+    }
+}
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -57,43 +105,7 @@ fun ConnectScreen(viewModel: MainViewModel, onNavigateToDashboard: () -> Unit, m
     var deviceToConnect by remember { mutableStateOf<BluetoothDevice?>(null) }
     val connectedDevice = (connectionState as? ConnectionState.Connected)?.device
     val deviceItems = remember(scannedDevices, rememberedAddress, rememberedName, connectedDevice) {
-        buildList {
-            val merged = linkedMapOf<String, ConnectListItem>()
-
-            connectedDevice?.let { device ->
-                merged[device.address] = ConnectListItem(
-                    name = device.name ?: rememberedName ?: "已连接设备",
-                    address = device.address,
-                    device = device,
-                    isRemembered = device.address == rememberedAddress,
-                    isConnected = true
-                )
-            }
-
-            rememberedAddress?.let { address ->
-                val existing = merged[address]
-                merged[address] = ConnectListItem(
-                    name = rememberedName ?: existing?.name ?: "已保存设备",
-                    address = address,
-                    device = existing?.device ?: scannedDevices.firstOrNull { it.address == address },
-                    isRemembered = true,
-                    isConnected = existing?.isConnected == true
-                )
-            }
-
-            scannedDevices.forEach { device ->
-                val existing = merged[device.address]
-                merged[device.address] = ConnectListItem(
-                    name = device.name ?: existing?.name ?: "未知设备",
-                    address = device.address,
-                    device = device,
-                    isRemembered = existing?.isRemembered == true,
-                    isConnected = existing?.isConnected == true
-                )
-            }
-
-            addAll(merged.values)
-        }
+        buildConnectItems(scannedDevices, rememberedAddress, rememberedName, connectedDevice)
     }
     val shouldShowDeviceList = hasSearched || deviceItems.isNotEmpty()
 
@@ -117,7 +129,7 @@ fun ConnectScreen(viewModel: MainViewModel, onNavigateToDashboard: () -> Unit, m
     )
 
     if (deviceToConnect != null) {
-        AlertDialog(
+        BlurredAlertDialog(
             onDismissRequest = { deviceToConnect = null },
             title = { Text("选择连接方式") },
             text = { Text("将这个设备连接为主控制器，还是作为独立 BMS 使用？") },
@@ -300,6 +312,183 @@ fun ConnectScreen(viewModel: MainViewModel, onNavigateToDashboard: () -> Unit, m
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
+@Composable
+fun ConnectionQuickSheet(
+    viewModel: MainViewModel,
+    onDismiss: () -> Unit
+) {
+    val scannedDevices by viewModel.filteredDevices.collectAsState()
+    val isScanning by viewModel.isScanning.collectAsState()
+    val connectionState by viewModel.connectionState.collectAsState()
+    val rememberedAddress by viewModel.lastControllerDeviceAddress.collectAsState()
+    val rememberedName by viewModel.lastControllerDeviceName.collectAsState()
+    val connectedDevice = (connectionState as? ConnectionState.Connected)?.device
+    val deviceItems = remember(scannedDevices, rememberedAddress, rememberedName, connectedDevice) {
+        buildConnectItems(scannedDevices, rememberedAddress, rememberedName, connectedDevice)
+    }
+    val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        listOf(
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.BLUETOOTH_CONNECT,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        )
+    } else {
+        listOf(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+    val permissionState = rememberMultiplePermissionsState(permissions = permissions)
+
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.stopScan()
+        }
+    }
+
+    BlurredModalBottomSheet(onDismissRequest = onDismiss) {
+        PredictiveBackPopupTransform(
+            onBack = onDismiss,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("连接控制器", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                Button(
+                    onClick = {
+                        if (permissionState.allPermissionsGranted) {
+                            if (isScanning) viewModel.stopScan() else viewModel.startScan()
+                        } else {
+                            permissionState.launchMultiplePermissionRequest()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = bezierPillShape()
+                ) {
+                    Text(if (isScanning) "停止扫描" else "扫描附近设备")
+                }
+                rememberedAddress?.let { address ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = bezierRoundedShape(22.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    rememberedName ?: "上次连接的控制器",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (connectedDevice?.address == address) {
+                                OutlinedButton(onClick = { viewModel.disconnect() }, shape = bezierPillShape()) {
+                                    Text("断开")
+                                }
+                            } else {
+                                FilledTonalButton(onClick = { viewModel.connectRememberedController() }, shape = bezierPillShape()) {
+                                    Text("连接")
+                                }
+                            }
+                        }
+                    }
+                }
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 180.dp, max = 420.dp),
+                    shape = bezierRoundedShape(24.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
+                ) {
+                    if (deviceItems.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = if (isScanning) "正在扫描附近设备..." else "暂无可连接设备",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(deviceItems, key = { it.address }) { item ->
+                                DeviceCard(
+                                    item = item,
+                                    onClick = {
+                                        item.device?.let { device ->
+                                            viewModel.stopScan()
+                                            viewModel.connect(device)
+                                            onDismiss()
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeviceCard(
+    item: ConnectListItem,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = bezierRoundedShape(22.dp),
+        color = MaterialTheme.colorScheme.surface,
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold
+                )
+                if (item.isRemembered) {
+                    Text(
+                        text = if (item.isConnected) "已连接设备" else "已保存设备",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Text(
+                    text = item.address,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            FilledTonalButton(
+                onClick = onClick,
+                shape = bezierPillShape()
+            ) {
+                Text(if (item.isConnected) "已连接" else "连接")
             }
         }
     }

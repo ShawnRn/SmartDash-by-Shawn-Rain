@@ -81,7 +81,7 @@ class PosterRenderer(private val context: Context) {
                 title = "冲刺轨迹",
                 subtitle = if (record.trackPoints.size >= 2) "共记录 ${record.trackPoints.size} 个轨迹点" else "本次未记录到足够轨迹点",
                 top = 1370f,
-                height = 360f,
+                height = 430f,
                 route = record.trackPoints.map { RideTrackPoint(it.latitude, it.longitude) }
             )
             drawFooter(canvas, width, height)
@@ -114,7 +114,7 @@ class PosterRenderer(private val context: Context) {
                 title = "路线轨迹",
                 subtitle = if (record.trackPoints.size >= 2) "共记录 ${record.trackPoints.size} 个轨迹点" else "路线轨迹不足，可能未开启 GPS",
                 top = 1370f,
-                height = 360f,
+                height = 430f,
                 route = record.trackPoints
             )
             drawFooter(canvas, width, height)
@@ -268,7 +268,12 @@ class PosterRenderer(private val context: Context) {
         }
         canvas.drawText(title, card.left + 34f, card.top + 58f, titlePaint)
         canvas.drawText(subtitle, card.left + 34f, card.top + 100f, subtitlePaint)
-        val routeRect = RectF(card.left + 28f, card.top + 130f, card.right - 28f, card.bottom - 28f)
+        val innerTop = card.top + 130f
+        val innerBottom = card.bottom - 28f
+        val innerHeight = innerBottom - innerTop
+        val squareSize = minOf(card.width() - 56f, innerHeight)
+        val squareLeft = card.left + (card.width() - squareSize) / 2f
+        val routeRect = RectF(squareLeft, innerTop, squareLeft + squareSize, innerTop + squareSize)
         drawRoute(canvas, routeRect, route)
     }
 
@@ -293,10 +298,24 @@ class PosterRenderer(private val context: Context) {
         val latSpan = (maxLat - minLat).takeIf { it > 0.000001 } ?: 0.000001
         val lonSpan = (maxLon - minLon).takeIf { it > 0.000001 } ?: 0.000001
 
+        val scale = minOf(
+            rect.width() / lonSpan.toFloat(),
+            rect.height() / latSpan.toFloat()
+        )
+        val offsetX = rect.left + (rect.width() - lonSpan.toFloat() * scale) / 2f
+        val offsetY = rect.top + (rect.height() - latSpan.toFloat() * scale) / 2f
+
+        val projectedPoints = route.map { point ->
+            android.graphics.PointF(
+                offsetX + ((point.longitude - minLon).toFloat() * scale),
+                offsetY + (latSpan.toFloat() * scale) - ((point.latitude - minLat).toFloat() * scale)
+            )
+        }
+
         val path = Path()
-        route.forEachIndexed { index, point ->
-            val x = rect.left + ((point.longitude - minLon) / lonSpan).toFloat() * rect.width()
-            val y = rect.bottom - ((point.latitude - minLat) / latSpan).toFloat() * rect.height()
+        projectedPoints.forEachIndexed { index, point ->
+            val x = point.x
+            val y = point.y
             if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
 
@@ -312,12 +331,12 @@ class PosterRenderer(private val context: Context) {
         val pointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
         }
-        val start = route.first()
-        val end = route.last()
-        val startX = rect.left + ((start.longitude - minLon) / lonSpan).toFloat() * rect.width()
-        val startY = rect.bottom - ((start.latitude - minLat) / latSpan).toFloat() * rect.height()
-        val endX = rect.left + ((end.longitude - minLon) / lonSpan).toFloat() * rect.width()
-        val endY = rect.bottom - ((end.latitude - minLat) / latSpan).toFloat() * rect.height()
+        val start = projectedPoints.first()
+        val end = projectedPoints.last()
+        val startX = start.x
+        val startY = start.y
+        val endX = end.x
+        val endY = end.y
         pointPaint.color = Color.parseColor("#7EE787")
         canvas.drawCircle(startX, startY, 12f, pointPaint)
         pointPaint.color = Color.parseColor("#FFB3B3")

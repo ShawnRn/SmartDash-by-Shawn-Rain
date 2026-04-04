@@ -10,6 +10,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.shawnrain.habe.data.history.RideHistoryRecord
 import com.shawnrain.habe.data.speedtest.SpeedTestRecord
 import com.shawnrain.habe.debug.AppLogLevel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
@@ -24,10 +25,15 @@ enum class MetricType(val title: String, val unit: String) {
     PHASE_CURRENT("相电流", "A"),
     POWER("实时功率", "kW"),
     TEMP("控制器温度", "°C"),
-    SOC("电量(预估)", "%"),
+    MAX_CONTROLLER_TEMP("控制器最高温度", "°C"),
+    SOC("电量 (预估)", "%"),
+    RANGE("剩余续航", "km"),
     RPM("转速", "rpm"),
     EFFICIENCY("实时能效", "Wh/km"),
-    TRIP_DISTANCE("本次里程", "km")
+    TRIP_DISTANCE("本次里程", "km"),
+    TOTAL_ENERGY("总能耗", "Wh"),
+    PEAK_REGEN_POWER("最大回收功率", "kW"),
+    RECOVERED_ENERGY("总回收能量", "Wh")
 }
 
 enum class SpeedSource(val title: String) {
@@ -60,20 +66,57 @@ class SettingsRepository(private val context: Context) {
         const val K_DASH_ITEMS = "dash_items"
         const val K_SPEEDTEST_HISTORY = "speedtest_history"
         const val K_RIDE_HISTORY = "ride_history"
+        const val K_LAST_CONTROLLER_DEVICE_ADDRESS = "last_controller_device_address"
+        const val K_LAST_CONTROLLER_DEVICE_NAME = "last_controller_device_name"
+        const val K_LAST_CONTROLLER_PROTOCOL_ID = "last_controller_protocol_id"
         val LOG_LEVEL = stringPreferencesKey("log_level")
         val OVERLAY_ENABLED = booleanPreferencesKey("overlay_enabled")
     }
 
-    val currentVehicleId: Flow<String> = context.dataStore.data.map { it[CURRENT_VEHICLE_ID] ?: "default" }
+    private fun loadVehicleProfiles(raw: String?): List<VehicleProfile> {
+        return VehicleProfile.listFromJson(raw)
+            .distinctBy { it.id }
+            .ifEmpty { listOf(VehicleProfile.default()) }
+    }
+
+    val vehicleProfiles: Flow<List<VehicleProfile>> = context.dataStore.data.map { pref ->
+        loadVehicleProfiles(pref[VEHICLE_LIST])
+    }
+
+    val currentVehicleId: Flow<String> = context.dataStore.data.map { pref ->
+        val profiles = loadVehicleProfiles(pref[VEHICLE_LIST])
+        val storedId = pref[CURRENT_VEHICLE_ID]
+        profiles.firstOrNull { it.id == storedId }?.id ?: profiles.first().id
+    }
+
+    val currentVehicleProfile: Flow<VehicleProfile> = combine(
+        vehicleProfiles,
+        currentVehicleId
+    ) { profiles, currentId ->
+        profiles.firstOrNull { it.id == currentId } ?: profiles.first()
+    }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val wheelCircumference: Flow<Float> = currentVehicleId.flatMapLatest { id ->
-        context.dataStore.data.map { it[vKeyF(id, K_WHEEL)] ?: 1800f }
+        context.dataStore.data.map { pref ->
+            val currentProfile = loadVehicleProfiles(pref[VEHICLE_LIST])
+                .firstOrNull { it.id == id }
+                ?: VehicleProfile.default()
+            currentProfile.wheelCircumferenceMm
+                .takeIf { it in 500f..5000f }
+                ?: pref[vKeyF(id, K_WHEEL)]
+                ?: 1800f
+        }
     }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val polePairs: Flow<Int> = currentVehicleId.flatMapLatest { id ->
-        context.dataStore.data.map { it[vKeyI(id, K_POLE)] ?: 50 }
+        context.dataStore.data.map { pref ->
+            val currentProfile = loadVehicleProfiles(pref[VEHICLE_LIST])
+                .firstOrNull { it.id == id }
+                ?: VehicleProfile.default()
+            currentProfile.polePairs.takeIf { it > 0 } ?: pref[vKeyI(id, K_POLE)] ?: 50
+        }
     }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -102,7 +145,7 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.data.map { pref ->
             val raw = pref[vKey(id, K_DASH_ITEMS)]
             if (raw.isNullOrEmpty()) {
-                listOf(MetricType.VOLTAGE, MetricType.BUS_CURRENT, MetricType.POWER, MetricType.EFFICIENCY)
+                listOf(MetricType.SOC, MetricType.RANGE, MetricType.POWER, MetricType.EFFICIENCY)
             } else {
                 raw.split(",").mapNotNull { try { MetricType.valueOf(it) } catch (e: Exception) { null } }
             }
@@ -132,27 +175,134 @@ class SettingsRepository(private val context: Context) {
     }
 
     val lastControllerDeviceAddress: Flow<String?> = context.dataStore.data.map { pref ->
-        pref[LAST_CONTROLLER_DEVICE_ADDRESS]?.takeIf { it.isNotBlank() }
+        val profiles = loadVehicleProfiles(pref[VEHICLE_LIST])
+        val currentId = profiles.firstOrNull { it.id == pref[CURRENT_VEHICLE_ID] }?.id ?: profiles.first().id
+        pref[vKey(currentId, K_LAST_CONTROLLER_DEVICE_ADDRESS)]
+            ?.takeIf { it.isNotBlank() }
+            ?: pref[LAST_CONTROLLER_DEVICE_ADDRESS]?.takeIf { it.isNotBlank() }
     }
 
     val lastControllerDeviceName: Flow<String?> = context.dataStore.data.map { pref ->
-        pref[LAST_CONTROLLER_DEVICE_NAME]?.takeIf { it.isNotBlank() }
+        val profiles = loadVehicleProfiles(pref[VEHICLE_LIST])
+        val currentId = profiles.firstOrNull { it.id == pref[CURRENT_VEHICLE_ID] }?.id ?: profiles.first().id
+        pref[vKey(currentId, K_LAST_CONTROLLER_DEVICE_NAME)]
+            ?.takeIf { it.isNotBlank() }
+            ?: pref[LAST_CONTROLLER_DEVICE_NAME]?.takeIf { it.isNotBlank() }
     }
 
     val lastControllerProtocolId: Flow<String?> = context.dataStore.data.map { pref ->
-        pref[LAST_CONTROLLER_PROTOCOL_ID]?.takeIf { it.isNotBlank() }
+        val profiles = loadVehicleProfiles(pref[VEHICLE_LIST])
+        val currentId = profiles.firstOrNull { it.id == pref[CURRENT_VEHICLE_ID] }?.id ?: profiles.first().id
+        pref[vKey(currentId, K_LAST_CONTROLLER_PROTOCOL_ID)]
+            ?.takeIf { it.isNotBlank() }
+            ?: pref[LAST_CONTROLLER_PROTOCOL_ID]?.takeIf { it.isNotBlank() }
     }
 
-    suspend fun saveCurrentVehicleId(id: String) = context.dataStore.edit { it[CURRENT_VEHICLE_ID] = id }
+    suspend fun saveCurrentVehicleId(id: String) = context.dataStore.edit { pref ->
+        val profiles = loadVehicleProfiles(pref[VEHICLE_LIST])
+        pref[CURRENT_VEHICLE_ID] = profiles.firstOrNull { it.id == id }?.id ?: profiles.first().id
+    }
+
+    suspend fun saveVehicleProfiles(profiles: List<VehicleProfile>) {
+        val sanitized = profiles
+            .map { profile ->
+                profile.copy(
+                    name = profile.name.trim().ifBlank { "未命名车辆" },
+                    macAddress = profile.macAddress.trim(),
+                    batterySeries = profile.batterySeries.coerceAtLeast(1),
+                    batteryCapacityAh = profile.batteryCapacityAh.coerceAtLeast(1f),
+                    wheelCircumferenceMm = profile.wheelCircumferenceMm.coerceIn(500f, 5000f),
+                    wheelRimSize = profile.wheelRimSize.trim().ifBlank { "10寸" },
+                    tireSpecLabel = profile.tireSpecLabel.trim(),
+                    polePairs = profile.polePairs.coerceAtLeast(1),
+                    totalMileageKm = profile.totalMileageKm.coerceAtLeast(0f),
+                    learnedInternalResistanceOhm = profile.learnedInternalResistanceOhm.coerceAtLeast(0f)
+                )
+            }
+            .distinctBy { it.id }
+            .ifEmpty { listOf(VehicleProfile.default()) }
+        context.dataStore.edit { pref ->
+            pref[VEHICLE_LIST] = VehicleProfile.listToJson(sanitized)
+            val currentId = pref[CURRENT_VEHICLE_ID]
+            pref[CURRENT_VEHICLE_ID] = sanitized.firstOrNull { it.id == currentId }?.id ?: sanitized.first().id
+        }
+    }
+
+    suspend fun upsertVehicleProfile(profile: VehicleProfile) {
+        val current = vehicleProfiles.first().toMutableList()
+        val normalized = profile.copy(
+            name = profile.name.trim().ifBlank { "未命名车辆" },
+            macAddress = profile.macAddress.trim(),
+            batterySeries = profile.batterySeries.coerceAtLeast(1),
+            batteryCapacityAh = profile.batteryCapacityAh.coerceAtLeast(1f),
+            wheelCircumferenceMm = profile.wheelCircumferenceMm.coerceIn(500f, 5000f),
+            wheelRimSize = profile.wheelRimSize.trim().ifBlank { "10寸" },
+            tireSpecLabel = profile.tireSpecLabel.trim(),
+            polePairs = profile.polePairs.coerceAtLeast(1),
+            totalMileageKm = profile.totalMileageKm.coerceAtLeast(0f),
+            learnedInternalResistanceOhm = profile.learnedInternalResistanceOhm.coerceAtLeast(0f)
+        )
+        val existingIndex = current.indexOfFirst { it.id == normalized.id }
+        if (existingIndex >= 0) {
+            current[existingIndex] = normalized
+        } else {
+            current.add(0, normalized)
+        }
+        saveVehicleProfiles(current)
+        saveCurrentVehicleId(normalized.id)
+    }
+
+    suspend fun deleteVehicleProfile(id: String) {
+        val updated = vehicleProfiles.first().filterNot { it.id == id }
+        saveVehicleProfiles(updated)
+    }
+
+    suspend fun updateCurrentVehicle(transform: (VehicleProfile) -> VehicleProfile) {
+        val currentId = currentVehicleId.first()
+        val profiles = vehicleProfiles.first().toMutableList()
+        val currentIndex = profiles.indexOfFirst { it.id == currentId }.takeIf { it >= 0 } ?: 0
+        profiles[currentIndex] = transform(profiles[currentIndex])
+        saveVehicleProfiles(profiles)
+    }
+
+    suspend fun incrementCurrentVehicleMileage(distanceKm: Float) {
+        if (distanceKm <= 0f) return
+        updateCurrentVehicle { profile ->
+            profile.copy(totalMileageKm = profile.totalMileageKm + distanceKm)
+        }
+    }
+
+    suspend fun saveCurrentVehicleLearnedInternalResistance(valueOhm: Float) {
+        updateCurrentVehicle { profile ->
+            profile.copy(learnedInternalResistanceOhm = valueOhm.coerceAtLeast(0f))
+        }
+    }
 
     suspend fun saveWheelCircumference(value: Float) {
         val id = currentVehicleId.first()
-        context.dataStore.edit { it[vKeyF(id, K_WHEEL)] = value }
+        val normalized = value.coerceIn(500f, 5000f)
+        context.dataStore.edit { it[vKeyF(id, K_WHEEL)] = normalized }
+        updateCurrentVehicle { profile ->
+            profile.copy(wheelCircumferenceMm = normalized)
+        }
     }
 
     suspend fun savePolePairs(value: Int) {
         val id = currentVehicleId.first()
-        context.dataStore.edit { it[vKeyI(id, K_POLE)] = value }
+        val normalized = value.coerceAtLeast(1)
+        context.dataStore.edit { it[vKeyI(id, K_POLE)] = normalized }
+        updateCurrentVehicle { profile ->
+            profile.copy(polePairs = normalized)
+        }
+    }
+
+    suspend fun saveCurrentVehicleWheelArchive(rimSize: String? = null, tireSpecLabel: String? = null) {
+        updateCurrentVehicle { profile ->
+            profile.copy(
+                wheelRimSize = rimSize?.trim()?.ifBlank { profile.wheelRimSize } ?: profile.wheelRimSize,
+                tireSpecLabel = tireSpecLabel?.trim() ?: profile.tireSpecLabel
+            )
+        }
     }
 
     suspend fun saveControllerBrand(value: String) {
@@ -202,19 +352,28 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun saveLastControllerProfile(address: String, name: String?, protocolId: String?) {
+        val id = currentVehicleId.first()
         context.dataStore.edit {
+            it[vKey(id, K_LAST_CONTROLLER_DEVICE_ADDRESS)] = address
             it[LAST_CONTROLLER_DEVICE_ADDRESS] = address
+            updateVehicleMacAddressLocked(it, id, address)
             if (!name.isNullOrBlank()) {
+                it[vKey(id, K_LAST_CONTROLLER_DEVICE_NAME)] = name
                 it[LAST_CONTROLLER_DEVICE_NAME] = name
             }
             if (!protocolId.isNullOrBlank()) {
+                it[vKey(id, K_LAST_CONTROLLER_PROTOCOL_ID)] = protocolId
                 it[LAST_CONTROLLER_PROTOCOL_ID] = protocolId
             }
         }
     }
 
     suspend fun clearLastControllerDevice() {
+        val id = currentVehicleId.first()
         context.dataStore.edit {
+            it.remove(vKey(id, K_LAST_CONTROLLER_DEVICE_ADDRESS))
+            it.remove(vKey(id, K_LAST_CONTROLLER_DEVICE_NAME))
+            it.remove(vKey(id, K_LAST_CONTROLLER_PROTOCOL_ID))
             it.remove(LAST_CONTROLLER_DEVICE_ADDRESS)
             it.remove(LAST_CONTROLLER_DEVICE_NAME)
             it.remove(LAST_CONTROLLER_PROTOCOL_ID)
@@ -222,6 +381,23 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun getLastControllerDeviceAddress(): String? {
-        return context.dataStore.data.first()[LAST_CONTROLLER_DEVICE_ADDRESS]?.takeIf { it.isNotBlank() }
+        val currentId = currentVehicleId.first()
+        val pref = context.dataStore.data.first()
+        return pref[vKey(currentId, K_LAST_CONTROLLER_DEVICE_ADDRESS)]?.takeIf { it.isNotBlank() }
+            ?: pref[LAST_CONTROLLER_DEVICE_ADDRESS]?.takeIf { it.isNotBlank() }
+    }
+
+    private fun updateVehicleMacAddressLocked(
+        pref: androidx.datastore.preferences.core.MutablePreferences,
+        vehicleId: String,
+        address: String
+    ) {
+        val profiles = loadVehicleProfiles(pref[VEHICLE_LIST]).toMutableList()
+        val index = profiles.indexOfFirst { it.id == vehicleId }
+        if (index < 0) return
+        val existing = profiles[index]
+        if (existing.macAddress == address) return
+        profiles[index] = existing.copy(macAddress = address)
+        pref[VEHICLE_LIST] = VehicleProfile.listToJson(profiles)
     }
 }

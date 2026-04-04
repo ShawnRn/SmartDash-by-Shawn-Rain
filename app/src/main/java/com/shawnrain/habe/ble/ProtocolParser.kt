@@ -27,10 +27,15 @@ data class VehicleMetrics(
     val mosfetTemp: Float = 0f,
     val controllerTemp: Float = 0f,
     val soc: Float = 0f,
+    val estimatedRangeKm: Float = 0f,
     val rpm: Float = 0f,
     val tripDistance: Double = 0.0,
     val efficiencyWhKm: Float = 0f,
     val avgEfficiencyWhKm: Float = 0f,
+    val totalEnergyWh: Float = 0f,
+    val recoveredEnergyWh: Float = 0f,
+    val peakRegenPowerKw: Float = 0f,
+    val maxControllerTemp: Float = 0f,
     val faultCode: Int = 0,
     val isBraking: Boolean = false,
     val isCruise: Boolean = false,
@@ -58,7 +63,7 @@ object ProtocolParser {
     private val _autoConfigUpdates = MutableSharedFlow<Pair<String, Int>>(extraBufferCapacity = 10)
     val autoConfigUpdates: SharedFlow<Pair<String, Int>> = _autoConfigUpdates.asSharedFlow()
 
-    private val _zhikeSettings = MutableSharedFlow<ZhikeSettings>(extraBufferCapacity = 1)
+    private val _zhikeSettings = MutableSharedFlow<ZhikeSettings>(replay = 1, extraBufferCapacity = 1)
     val zhikeSettings: SharedFlow<ZhikeSettings> = _zhikeSettings.asSharedFlow()
 
     private val _activeProtocolLabel = MutableStateFlow("未识别")

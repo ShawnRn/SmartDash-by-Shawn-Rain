@@ -366,3 +366,5 @@ Release 签名约定：
 - 后续新增二级页面、自定义 Dialog、全屏 overlay、页面内自绘 sheet 时，默认必须适配 `PredictiveBackHandler`，优先复用 `app/src/main/java/com/shawnrain/habe/ui/navigation/PredictiveBackMotion.kt`
 - 若使用 `ModalBottomSheet` 等平台组件且系统默认预测性返回动画不足，应补充应用内跟手缩放 / 位移预览，而不是回退为无预测性返回
 - 后续新增任何弹窗、sheet、overlay 时，默认必须复用 `app/src/main/java/com/shawnrain/habe/ui/navigation/DialogWindowEffects.kt`，为窗口背后铺设模糊并保持透明系统栏
+- 行程详情页点击参数卡片进入横屏全屏图表时，必须提供非线性进入/退出动画（建议 `FastOutSlowIn` 进入 + `FastOutLinearIn` 退出），并保证所有关闭路径（返回手势/遮罩点击/按钮/下拉）走同一条“从哪来回哪去”的回收动画
+- 行程详情页概览卡片编辑交互约定为：长按任一卡片直接进入编辑并开始拖拽；正常态不显示“编辑卡片”按钮，仅在编辑态显示“完成/添加卡片”

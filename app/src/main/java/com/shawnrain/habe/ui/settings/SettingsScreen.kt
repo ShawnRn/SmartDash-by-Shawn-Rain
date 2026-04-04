@@ -1,6 +1,10 @@
 package com.shawnrain.habe.ui.settings
 
 import android.content.Intent
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -17,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -30,11 +35,13 @@ import com.shawnrain.habe.data.WheelPresets
 import com.shawnrain.habe.debug.AppLogLevel
 import com.shawnrain.habe.ui.navigation.ApplyDialogWindowBlurEffect
 import com.shawnrain.habe.ui.navigation.BlurredAlertDialog
+import com.shawnrain.habe.ui.navigation.PopupBackdropBlurLayer
 import com.shawnrain.habe.ui.navigation.rememberPredictiveBackMotion
 import com.shawnrain.habe.ui.theme.bezierPillShape
 import com.shawnrain.habe.ui.theme.bezierRoundedShape
 import androidx.compose.runtime.saveable.rememberSaveable
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -562,9 +569,47 @@ private fun VehicleEditorDialog(
         parsedPolePairs != null &&
         rimSizeInput.isNotBlank()
     val formScrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val enterDurationMs = 300
+    val exitDurationMs = 220
+    var isDialogVisible by remember(vehicleKey) { mutableStateOf(false) }
+    var dismissInFlight by remember(vehicleKey) { mutableStateOf(false) }
+    val entryProgress by animateFloatAsState(
+        targetValue = if (isDialogVisible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (isDialogVisible) enterDurationMs else exitDurationMs,
+            easing = if (isDialogVisible) FastOutSlowInEasing else FastOutLinearInEasing
+        ),
+        label = "VehicleEditorEntry"
+    )
+
+    fun requestDismiss() {
+        if (dismissInFlight) return
+        dismissInFlight = true
+        isDialogVisible = false
+        scope.launch {
+            kotlinx.coroutines.delay(exitDurationMs.toLong())
+            onDismiss()
+        }
+    }
+
+    fun requestConfirm(profile: VehicleProfile) {
+        if (dismissInFlight) return
+        dismissInFlight = true
+        isDialogVisible = false
+        scope.launch {
+            kotlinx.coroutines.delay(exitDurationMs.toLong())
+            onConfirm(profile)
+        }
+    }
+
+    LaunchedEffect(vehicleKey) {
+        dismissInFlight = false
+        isDialogVisible = true
+    }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::requestDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         ApplyDialogWindowBlurEffect(blurRadius = 28.dp)
@@ -572,9 +617,15 @@ private fun VehicleEditorDialog(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
+            PopupBackdropBlurLayer(
+                blurRadius = 28.dp,
+                scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.24f * entryProgress),
+                onDismissRequest = ::requestDismiss
+            )
+            val density = LocalDensity.current
             val motion = rememberPredictiveBackMotion(
                 width = maxWidth,
-                onBack = onDismiss,
+                onBack = ::requestDismiss,
                 maxHorizontalInset = 10.dp,
                 maxVerticalInset = 8.dp,
                 maxCorner = 16.dp,
@@ -589,9 +640,10 @@ private fun VehicleEditorDialog(
                     .padding(horizontal = motion.insetHorizontal, vertical = motion.insetVertical)
                     .graphicsLayer {
                         translationX = motion.translationX
-                        scaleX = scale
-                        scaleY = scale
-                        alpha = motion.alpha
+                        translationY = with(density) { (1f - entryProgress) * 28.dp.toPx() } + motion.insetVertical.toPx()
+                        scaleX = scale * (0.95f + 0.05f * entryProgress)
+                        scaleY = scale * (0.95f + 0.05f * entryProgress)
+                        alpha = motion.alpha * entryProgress
                     },
                 shape = bezierRoundedShape(28.dp + motion.corner),
                 color = MaterialTheme.colorScheme.surface
@@ -752,7 +804,7 @@ private fun VehicleEditorDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        TextButton(onClick = onDismiss) {
+                        TextButton(onClick = ::requestDismiss) {
                             Text("取消")
                         }
                         TextButton(
@@ -776,7 +828,7 @@ private fun VehicleEditorDialog(
                                     tireSpecLabel = selectedTirePreset?.label ?: tireSpecInput.trim(),
                                     polePairs = parsedPolePairs ?: 50
                                 )
-                                onConfirm(profile)
+                                requestConfirm(profile)
                             },
                             enabled = canSave
                         ) {

@@ -5,9 +5,13 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -26,6 +30,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,6 +45,8 @@ import com.shawnrain.habe.ui.navigation.BlurredModalBottomSheet
 import com.shawnrain.habe.ui.navigation.PredictiveBackPopupTransform
 import com.shawnrain.habe.ui.theme.bezierPillShape
 import com.shawnrain.habe.ui.theme.bezierRoundedShape
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private data class ConnectListItem(
     val name: String,
@@ -323,6 +331,8 @@ fun ConnectionQuickSheet(
     viewModel: MainViewModel,
     onDismiss: () -> Unit
 ) {
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
     val scannedDevices by viewModel.filteredDevices.collectAsState()
     val isScanning by viewModel.isScanning.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
@@ -331,6 +341,11 @@ fun ConnectionQuickSheet(
     val connectedDevice = (connectionState as? ConnectionState.Connected)?.device
     val deviceItems = remember(scannedDevices, rememberedAddress, rememberedName, connectedDevice) {
         buildConnectItems(scannedDevices, rememberedAddress, rememberedName, connectedDevice)
+    }
+    val nearbyDeviceItems = remember(deviceItems, rememberedAddress) {
+        deviceItems.filterNot { item ->
+            rememberedAddress != null && item.address == rememberedAddress
+        }
     }
     val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         listOf(
@@ -342,6 +357,28 @@ fun ConnectionQuickSheet(
         listOf(Manifest.permission.ACCESS_FINE_LOCATION)
     }
     val permissionState = rememberMultiplePermissionsState(permissions = permissions)
+    val enterDurationMs = 300
+    val exitDurationMs = 220
+    var isSheetVisible by remember { mutableStateOf(false) }
+    var dismissInFlight by remember { mutableStateOf(false) }
+    val entryProgress by animateFloatAsState(
+        targetValue = if (isSheetVisible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (isSheetVisible) enterDurationMs else exitDurationMs,
+            easing = if (isSheetVisible) FastOutSlowInEasing else FastOutLinearInEasing
+        ),
+        label = "ConnectionQuickSheetEntry"
+    )
+
+    fun requestDismiss() {
+        if (dismissInFlight) return
+        dismissInFlight = true
+        isSheetVisible = false
+        scope.launch {
+            delay(exitDurationMs.toLong())
+            onDismiss()
+        }
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -349,14 +386,25 @@ fun ConnectionQuickSheet(
         }
     }
 
-    BlurredModalBottomSheet(onDismissRequest = onDismiss) {
+    LaunchedEffect(Unit) {
+        isSheetVisible = true
+    }
+
+    BlurredModalBottomSheet(onDismissRequest = ::requestDismiss) {
         PredictiveBackPopupTransform(
-            onBack = onDismiss,
+            onBack = ::requestDismiss,
             modifier = Modifier.fillMaxWidth()
         ) {
+            val entryTravelPx = with(density) { (1f - entryProgress) * 56.dp.toPx() }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .graphicsLayer {
+                        alpha = entryProgress
+                        translationY = entryTravelPx
+                        scaleX = 0.98f + (0.02f * entryProgress)
+                        scaleY = 0.98f + (0.02f * entryProgress)
+                    }
                     .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -415,7 +463,7 @@ fun ConnectionQuickSheet(
                     shape = bezierRoundedShape(24.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
                 ) {
-                    if (deviceItems.isEmpty()) {
+                    if (nearbyDeviceItems.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text(
                                 text = if (isScanning) "正在扫描附近设备..." else "暂无可连接设备",
@@ -428,14 +476,14 @@ fun ConnectionQuickSheet(
                             contentPadding = PaddingValues(12.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            items(deviceItems, key = { it.address }) { item ->
+                            items(nearbyDeviceItems, key = { it.address }) { item ->
                                 DeviceCard(
                                     item = item,
                                     onClick = {
                                         item.device?.let { device ->
                                             viewModel.stopScan()
                                             viewModel.connect(device)
-                                            onDismiss()
+                                            requestDismiss()
                                         }
                                     }
                                 )

@@ -1,6 +1,7 @@
 package com.shawnrain.habe
 
 import android.app.PictureInPictureParams
+import android.app.Application
 import android.content.pm.ActivityInfo
 import android.content.Context
 import android.content.Intent
@@ -10,7 +11,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Rational
-import android.app.Application
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -95,8 +97,11 @@ class MainActivity : ComponentActivity() {
     private var currentRoute: String? = null
     private var pipEnabled = false
     private var pendingTelemetryPip = false
+    private var skipNextPipForSystemBack = false
+    private var systemBackObserver: OnBackInvokedCallback? = null
 
     companion object {
+        private const val BACK_CHAIN_TAG = "MainActivityBack"
         private const val EXTRA_TARGET_ROUTE = "target_route"
         private val TELEMETRY_PIP_ASPECT_RATIO = Rational(25, 14)
         private val TELEMETRY_PIP_EXPANDED_ASPECT_RATIO = Rational(8, 5)
@@ -124,6 +129,21 @@ class MainActivity : ComponentActivity() {
         }
 
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            systemBackObserver = OnBackInvokedCallback {
+                // Observe committed system back and avoid stealing it with auto PiP.
+                skipNextPipForSystemBack = true
+                AppLogger.i(
+                    BACK_CHAIN_TAG,
+                    "OnBackInvoked(observer) currentRoute=$currentRoute pipEnabled=$pipEnabled inPip=$isInPictureInPictureMode"
+                )
+            }
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_SYSTEM_NAVIGATION_OBSERVER,
+                systemBackObserver!!
+            )
+            AppLogger.i(BACK_CHAIN_TAG, "Registered OnBackInvoked observer (sdk=${Build.VERSION.SDK_INT})")
+        }
         dispatchLaunchIntent(intent)
         enableEdgeToEdge()
         setContent {
@@ -140,6 +160,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onPipPreferenceChanged = { enabled ->
                         pipEnabled = enabled
+                        AppLogger.i(BACK_CHAIN_TAG, "PiP preference changed enabled=$enabled")
                     }
                 )
             }
@@ -154,6 +175,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        AppLogger.i(
+            BACK_CHAIN_TAG,
+            "onUserLeaveHint currentRoute=$currentRoute pipEnabled=$pipEnabled inPip=$isInPictureInPictureMode finishing=$isFinishing"
+        )
         requestTelemetryPictureInPicture()
     }
 
@@ -162,10 +187,21 @@ class MainActivity : ComponentActivity() {
         newConfig: Configuration
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        AppLogger.i(BACK_CHAIN_TAG, "onPictureInPictureModeChanged inPip=$isInPictureInPictureMode route=$currentRoute")
         isInPipModeState.value = isInPictureInPictureMode
         if (!isInPictureInPictureMode) {
             pendingTelemetryPip = false
         }
+    }
+
+    override fun onDestroy() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            systemBackObserver?.let { callback ->
+                onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback)
+            }
+            systemBackObserver = null
+        }
+        super.onDestroy()
     }
 
     private fun dispatchLaunchIntent(intent: Intent?) {
@@ -176,19 +212,43 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestTelemetryPictureInPicture() {
+        AppLogger.i(
+            BACK_CHAIN_TAG,
+            "requestPiP start currentRoute=$currentRoute pipEnabled=$pipEnabled inPip=$isInPictureInPictureMode skipByBack=$skipNextPipForSystemBack finishing=$isFinishing"
+        )
+        if (skipNextPipForSystemBack) {
+            skipNextPipForSystemBack = false
+            AppLogger.i(BACK_CHAIN_TAG, "requestPiP skipped by OnBackInvoked observer")
+            return
+        }
+        if (isFinishing || isDestroyed) {
+            AppLogger.i(BACK_CHAIN_TAG, "requestPiP skipped because activity is finishing/destroyed")
+            return
+        }
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            AppLogger.i(BACK_CHAIN_TAG, "requestPiP skipped because activity is not resumed")
+            return
+        }
         if (!pipEnabled || Build.VERSION.SDK_INT < Build.VERSION_CODES.O || isInPictureInPictureMode) {
+            AppLogger.i(BACK_CHAIN_TAG, "requestPiP skipped by guard")
             return
         }
         if (currentRoute == Screen.Dashboard.route) {
+            AppLogger.i(BACK_CHAIN_TAG, "requestPiP proceed to enterPiP")
             enterTelemetryPictureInPicture()
         } else {
             pendingTelemetryPip = false
-            AppLogger.d("MainActivity", "Skip PiP because current route is $currentRoute")
+            AppLogger.i(BACK_CHAIN_TAG, "requestPiP skipped because current route is $currentRoute")
         }
     }
 
     private fun enterTelemetryPictureInPicture() {
+        AppLogger.i(
+            BACK_CHAIN_TAG,
+            "enterPiP start currentRoute=$currentRoute pipEnabled=$pipEnabled inPip=$isInPictureInPictureMode"
+        )
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || isInPictureInPictureMode) {
+            AppLogger.i(BACK_CHAIN_TAG, "enterPiP skipped by guard")
             return
         }
         val builder = PictureInPictureParams.Builder()
@@ -202,6 +262,9 @@ class MainActivity : ComponentActivity() {
         val params = builder.build()
         runCatching {
             enterPictureInPictureMode(params)
+            AppLogger.i(BACK_CHAIN_TAG, "enterPiP invoke enterPictureInPictureMode done")
+        }.onFailure { error ->
+            AppLogger.e(BACK_CHAIN_TAG, "enterPiP failed", error)
         }
     }
 
@@ -275,8 +338,8 @@ fun MainScreen(
     }
 
     val items = listOf(
-        Screen.Dashboard,
         Screen.Speedtest,
+        Screen.Dashboard,
         Screen.Settings
     )
     val topLevelRoutes = remember(items) { items.mapTo(linkedSetOf()) { it.route } }

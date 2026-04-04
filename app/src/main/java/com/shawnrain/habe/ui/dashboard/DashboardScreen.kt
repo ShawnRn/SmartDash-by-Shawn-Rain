@@ -96,6 +96,7 @@ fun formatMetricValue(type: MetricType, metrics: VehicleMetrics): String {
         MetricType.VOLTAGE_SAG -> String.format("%.1f", metrics.voltageSag)
         MetricType.BUS_CURRENT -> String.format("%.1f", metrics.busCurrent)
         MetricType.PHASE_CURRENT -> String.format("%.1f", metrics.phaseCurrent)
+        MetricType.MOTOR_TEMP -> String.format("%.1f", metrics.motorTemp)
         MetricType.POWER -> String.format("%.1f", metrics.totalPowerW / 1000)
         MetricType.TEMP -> String.format("%.1f", metrics.controllerTemp)
         MetricType.MAX_CONTROLLER_TEMP -> String.format("%.1f", metrics.maxControllerTemp)

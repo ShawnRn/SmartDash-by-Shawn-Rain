@@ -222,6 +222,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _dashboardItems = MutableStateFlow<List<com.shawnrain.habe.data.MetricType>>(emptyList())
     val dashboardItems: StateFlow<List<com.shawnrain.habe.data.MetricType>> = _dashboardItems.asStateFlow()
+    private val _rideOverviewItems = MutableStateFlow<List<com.shawnrain.habe.data.MetricType>>(emptyList())
+    val rideOverviewItems: StateFlow<List<com.shawnrain.habe.data.MetricType>> = _rideOverviewItems.asStateFlow()
 
     // Persistent Scan State for Connection Screen UI
     private val _isScanning = MutableStateFlow(false)
@@ -490,6 +492,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         settingsRepository.dashboardItems.onEach { items ->
             if (_dashboardItems.value.isEmpty()) {
                 _dashboardItems.value = items
+            }
+        }.launchIn(viewModelScope)
+
+        settingsRepository.rideOverviewItems.onEach { items ->
+            if (_rideOverviewItems.value.isEmpty()) {
+                _rideOverviewItems.value = items
             }
         }.launchIn(viewModelScope)
 
@@ -1345,6 +1353,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch {
                 settingsRepository.saveDashboardItems(current)
             }
+        }
+    }
+
+    fun addRideOverviewItem(type: com.shawnrain.habe.data.MetricType) {
+        val current = _rideOverviewItems.value.toMutableList()
+        if (type in current) return
+        current.add(type)
+        _rideOverviewItems.value = current
+        viewModelScope.launch { settingsRepository.saveRideOverviewItems(current) }
+    }
+
+    fun removeRideOverviewItem(type: com.shawnrain.habe.data.MetricType) {
+        val current = _rideOverviewItems.value.toMutableList()
+        if (current.size <= 1) return
+        if (current.remove(type)) {
+            _rideOverviewItems.value = current
+            viewModelScope.launch { settingsRepository.saveRideOverviewItems(current) }
+        }
+    }
+
+    fun moveRideOverviewItem(from: Int, to: Int) {
+        val current = _rideOverviewItems.value.toMutableList()
+        if (from in current.indices && to in current.indices) {
+            val item = current.removeAt(from)
+            current.add(to, item)
+            _rideOverviewItems.value = current
+            viewModelScope.launch { settingsRepository.saveRideOverviewItems(current) }
         }
     }
 

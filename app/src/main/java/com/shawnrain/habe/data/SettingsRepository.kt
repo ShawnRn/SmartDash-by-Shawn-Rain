@@ -23,6 +23,7 @@ enum class MetricType(val title: String, val unit: String) {
     VOLTAGE_SAG("压降", "V"),
     BUS_CURRENT("母线电流", "A"),
     PHASE_CURRENT("相电流", "A"),
+    MOTOR_TEMP("电机温度", "°C"),
     POWER("实时功率", "kW"),
     TEMP("控制器温度", "°C"),
     MAX_CONTROLLER_TEMP("控制器最高温度", "°C"),
@@ -33,7 +34,7 @@ enum class MetricType(val title: String, val unit: String) {
     TRIP_DISTANCE("本次里程", "km"),
     TOTAL_ENERGY("总能耗", "Wh"),
     PEAK_REGEN_POWER("最大回收功率", "kW"),
-    RECOVERED_ENERGY("总回收能量", "Wh")
+    RECOVERED_ENERGY("总回收能量", "W")
 }
 
 enum class SpeedSource(val title: String) {
@@ -64,6 +65,7 @@ class SettingsRepository(private val context: Context) {
         const val K_SPEED_SRC = "speed_src"
         const val K_BATT_SRC = "batt_src"
         const val K_DASH_ITEMS = "dash_items"
+        const val K_RIDE_OVERVIEW_ITEMS = "ride_overview_items"
         const val K_SPEEDTEST_HISTORY = "speedtest_history"
         const val K_RIDE_HISTORY = "ride_history"
         const val K_LAST_CONTROLLER_DEVICE_ADDRESS = "last_controller_device_address"
@@ -149,6 +151,24 @@ class SettingsRepository(private val context: Context) {
             } else {
                 raw.split(",").mapNotNull { try { MetricType.valueOf(it) } catch (e: Exception) { null } }
             }
+        }
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val rideOverviewItems: Flow<List<MetricType>> = currentVehicleId.flatMapLatest { id ->
+        context.dataStore.data.map { pref ->
+            val raw = pref[vKey(id, K_RIDE_OVERVIEW_ITEMS)]
+            val parsed = raw
+                ?.split(",")
+                ?.mapNotNull { token ->
+                    try {
+                        MetricType.valueOf(token)
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                .orEmpty()
+            if (parsed.isNotEmpty()) parsed else MetricType.entries.toList()
         }
     }
 
@@ -323,6 +343,13 @@ class SettingsRepository(private val context: Context) {
     suspend fun saveDashboardItems(items: List<MetricType>) {
         val id = currentVehicleId.first()
         context.dataStore.edit { it[vKey(id, K_DASH_ITEMS)] = items.joinToString(",") { it.name } }
+    }
+
+    suspend fun saveRideOverviewItems(items: List<MetricType>) {
+        val id = currentVehicleId.first()
+        context.dataStore.edit {
+            it[vKey(id, K_RIDE_OVERVIEW_ITEMS)] = items.joinToString(",") { item -> item.name }
+        }
     }
 
     suspend fun saveSpeedTestHistory(records: List<SpeedTestRecord>) {

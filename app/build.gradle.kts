@@ -11,12 +11,12 @@ val releaseKeyPassword = System.getenv("HABE_RELEASE_KEY_PASSWORD")
 
 android {
     namespace = "com.shawnrain.habe"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.shawnrain.habe"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
         

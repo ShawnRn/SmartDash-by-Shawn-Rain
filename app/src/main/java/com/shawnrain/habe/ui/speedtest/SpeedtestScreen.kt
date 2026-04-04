@@ -26,14 +26,12 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
@@ -74,7 +72,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -173,7 +170,6 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val speedTestSession by viewModel.speedTestSession.collectAsState()
     val speedTestHistory by viewModel.speedTestHistory.collectAsState()
     val rideHistory by viewModel.rideHistory.collectAsState()
-    val rideOverviewItems by viewModel.rideOverviewItems.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -431,7 +427,6 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     selectedRideRecord?.let { record ->
         RideHistoryDetailLayer(
             record = record,
-            overviewMetrics = rideOverviewItems,
             onDismiss = { selectedRideRecord = null },
             onShare = {
                 context.startActivity(viewModel.createRideShareIntent(record))
@@ -447,9 +442,7 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             },
             onExportCsv = {
                 context.startActivity(viewModel.createRideCsvShareIntent(record))
-            },
-            onAddOverviewMetric = { type -> viewModel.addRideOverviewItem(type) },
-            onRemoveOverviewMetric = { type -> viewModel.removeRideOverviewItem(type) }
+            }
         )
     }
 }
@@ -881,24 +874,19 @@ private fun HistoryActionChip(
 @Composable
 private fun RideHistoryDetailLayer(
     record: RideHistoryRecord,
-    overviewMetrics: List<MetricType>,
     onDismiss: () -> Unit,
     onShare: () -> Unit,
     onSaveToAlbum: () -> Unit,
-    onExportCsv: () -> Unit,
-    onAddOverviewMetric: (MetricType) -> Unit,
-    onRemoveOverviewMetric: (MetricType) -> Unit
+    onExportCsv: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var fullscreenMetric by remember(record.id) { mutableStateOf<RideChartMetric?>(null) }
     var showShareActions by remember(record.id) { mutableStateOf(false) }
-    var showOverviewMetricPicker by remember(record.id) { mutableStateOf(false) }
-    var overviewEditMode by remember(record.id) { mutableStateOf(false) }
     var dismissDragOffset by remember(record.id) { mutableFloatStateOf(0f) }
     val samples = remember(record.id, record.samples) { normalizeRideDetailSamples(record) }
     var selectedIndex by remember(record.id) { mutableIntStateOf((samples.lastIndex).coerceAtLeast(0)) }
-    val overviewCards = remember(record.id, samples, overviewMetrics) {
-        buildRideOverviewCards(record, samples, overviewMetrics)
+    val overviewCards = remember(record.id, samples) {
+        buildRideOverviewCards(record, samples, MetricType.entries.toList())
     }
     val navigationBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val enterDurationMs = 300
@@ -1019,15 +1007,11 @@ private fun RideHistoryDetailLayer(
                         record = record,
                         samples = samples,
                         overviewCards = overviewCards,
-                        overviewEditMode = overviewEditMode,
                         heavySectionsReady = heavySectionsReady,
                         selectedIndex = selectedIndex,
                         onSelectIndex = { selectedIndex = it },
                         navigationBottomInset = navigationBottomInset,
                         onMetricClick = { fullscreenMetric = it },
-                        onToggleOverviewEdit = { overviewEditMode = !overviewEditMode },
-                        onShowOverviewMetricPicker = { showOverviewMetricPicker = true },
-                        onRemoveOverviewMetric = { type -> onRemoveOverviewMetric(type) },
                         onShowShare = { showShareActions = true },
                         onDismiss = ::requestDismiss
                     )
@@ -1054,17 +1038,6 @@ private fun RideHistoryDetailLayer(
         )
     }
 
-    if (showOverviewMetricPicker) {
-        RideOverviewMetricPickerSheet(
-            selectedMetrics = overviewMetrics,
-            onAddMetric = { type ->
-                onAddOverviewMetric(type)
-                showOverviewMetricPicker = false
-            },
-            onDismiss = { showOverviewMetricPicker = false }
-        )
-    }
-
     fullscreenMetric?.let { metric ->
         RideMetricFullscreenDialog(
             title = formatRideTitle(record.title),
@@ -1080,15 +1053,11 @@ private fun RideHistoryDetailBody(
     record: RideHistoryRecord,
     samples: List<RideMetricSample>,
     overviewCards: List<RideOverviewCard>,
-    overviewEditMode: Boolean,
     heavySectionsReady: Boolean,
     selectedIndex: Int,
     onSelectIndex: (Int) -> Unit,
     navigationBottomInset: Dp,
     onMetricClick: (RideChartMetric) -> Unit,
-    onToggleOverviewEdit: () -> Unit,
-    onShowOverviewMetricPicker: () -> Unit,
-    onRemoveOverviewMetric: (MetricType) -> Unit,
     onShowShare: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1126,29 +1095,9 @@ private fun RideHistoryDetailBody(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
             ) {
                 Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("统计概览", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (overviewEditMode) {
-                                OutlinedButton(onClick = onShowOverviewMetricPicker, shape = bezierPillShape()) {
-                                    Text("添加卡片")
-                                }
-                                OutlinedButton(onClick = onToggleOverviewEdit, shape = bezierPillShape()) {
-                                    Text("完成")
-                                }
-                            }
-                        }
-                    }
+                    Text("统计概览", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        if (overviewEditMode) {
-                            "编辑模式：可添加、删除并调整卡片顺序。"
-                        } else {
-                            "卡片展示的是整段行程统计值；底部固定显示速度图表，点击任一参数卡片可打开对应横屏全屏图表。"
-                        },
+                        "默认展示全部参数卡片；底部固定显示速度图表，点击任一参数卡片可打开对应横屏全屏图表。",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     if (displayedOverviewCards.isEmpty()) {
@@ -1166,12 +1115,7 @@ private fun RideHistoryDetailBody(
                                         RideOverviewMetricCard(
                                             card = card,
                                             selected = false,
-                                            onClick = { if (!overviewEditMode) onMetricClick(card.metric) },
-                                            editMode = overviewEditMode,
-                                            onRemove = {
-                                                displayedOverviewCards.removeAll { it.type == card.type }
-                                                onRemoveOverviewMetric(card.type)
-                                            },
+                                            onClick = { onMetricClick(card.metric) },
                                             modifier = Modifier
                                                 .weight(1f)
                                                 .fillMaxHeight()
@@ -1482,61 +1426,6 @@ private fun RideHistoryDetailSheet(
             metric = metric,
             onDismiss = { fullscreenMetric = null }
         )
-    }
-}
-
-@Composable
-private fun RideOverviewMetricPickerSheet(
-    selectedMetrics: List<MetricType>,
-    onAddMetric: (MetricType) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val available = remember(selectedMetrics) {
-        MetricType.entries.filterNot { type -> type in selectedMetrics }
-    }
-    BlurredModalBottomSheet(onDismissRequest = onDismiss) {
-        PredictiveBackPopupTransform(
-            onBack = onDismiss,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text("添加行程卡片", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                if (available.isEmpty()) {
-                    Text("所有可用指标已添加", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 420.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(available, key = { it.name }) { type ->
-                            Surface(
-                                shape = bezierRoundedShape(18.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f),
-                                onClick = { onAddMetric(type) }
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(type.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                    Text(type.unit, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -2117,8 +2006,6 @@ private fun RideOverviewMetricCard(
     card: RideOverviewCard,
     selected: Boolean,
     onClick: () -> Unit,
-    editMode: Boolean = false,
-    onRemove: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -2133,12 +2020,12 @@ private fun RideOverviewMetricCard(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
-                    .padding(end = if (editMode) 18.dp else 0.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+                .padding(end = 0.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
                 Text(
                     card.title,
                     style = MaterialTheme.typography.labelLarge,
@@ -2154,36 +2041,13 @@ private fun RideOverviewMetricCard(
                     unitFontSize = 11.sp,
                     singleLine = true
                 )
-                Text(
-                    card.supporting,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2
-                )
-                if (editMode) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-            }
-
-            if (editMode) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFB77A81))
-                        .clickable { onRemove() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Remove,
-                        contentDescription = "Remove",
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
+            Text(
+                card.supporting,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2
+            )
+        }
         }
     }
 }

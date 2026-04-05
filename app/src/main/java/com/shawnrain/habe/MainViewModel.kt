@@ -145,6 +145,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val RANGE_REFERENCE_MIN_SPEED_KMH = 12f
         private const val RANGE_BASE_ACCESSORY_POWER_W = 34f
         private const val RANGE_AGGRESSIVE_CURRENT_A = 28f
+        private const val RANGE_DISPLAY_UPDATE_STEP_KM = 1f
         private const val MAX_SOC_SOURCE_DEVIATION_PERCENT = 28f
     }
 
@@ -211,6 +212,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val rideEnergyEstimator = RideEnergyEstimator()
     private var lastKnownSocPercent: Float = Float.NaN
     private var lastKnownRangeKm: Float = Float.NaN
+    private var lastRangeDisplayCommitDistanceKm: Float = Float.NaN
     private var lastRangeReferenceSpeedKmh: Float = 30f
     private var rideStartSocPercent: Float = Float.NaN
 
@@ -429,7 +431,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val estimatedRangeKm = stabilizeRangeForDisplay(
             rawRangeKm = rawEstimatedRangeKm,
             remainingEnergyWh = rideEstimate.remainingEnergyWh,
-            learnedEfficiencyWhKm = currentVehicleProfile.learnedEfficiencyWhKm
+            learnedEfficiencyWhKm = currentVehicleProfile.learnedEfficiencyWhKm,
+            tripDistanceKm = distanceKm.toFloat(),
+            rideActive = rideActive
         )
 
         if (rideActive && speed > 2f) {
@@ -707,6 +711,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _restingVoltageBaseline = 0f
                 lastKnownSocPercent = Float.NaN
                 lastKnownRangeKm = Float.NaN
+                lastRangeDisplayCommitDistanceKm = Float.NaN
             }
         }.launchIn(viewModelScope)
 
@@ -784,6 +789,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 estimatorProtocolId = protocolId
                 rideEnergyEstimator.reset(currentVehicle.value.learnedInternalResistanceOhm)
                 _restingVoltageBaseline = 0f
+                lastRangeDisplayCommitDistanceKm = Float.NaN
             }
             val connected = bleManager.connectionState.value as? ConnectionState.Connected ?: return@onEach
             if (protocolId.isNullOrBlank()) return@onEach
@@ -1058,6 +1064,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         clearPendingRideStopState()
         rideStartSocPercent = metrics.value.soc.takeIf { it in 1f..100f } ?: Float.NaN
         lastRangeReferenceSpeedKmh = 30f
+        lastRangeDisplayCommitDistanceKm = 0f
         _lastRideLocation = null
         rideTrackPoints.clear()
         rideSamples.clear()
@@ -1131,6 +1138,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         rideStartMode = null
         rideStartSocPercent = Float.NaN
+        lastRangeDisplayCommitDistanceKm = Float.NaN
         return shouldPersist
     }
 
@@ -1311,27 +1319,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun stabilizeRangeForDisplay(
         rawRangeKm: Float,
         remainingEnergyWh: Float,
-        learnedEfficiencyWhKm: Float
+        learnedEfficiencyWhKm: Float,
+        tripDistanceKm: Float,
+        rideActive: Boolean
     ): Float {
-        if (rawRangeKm > 0.1f) {
-            lastKnownRangeKm = rawRangeKm
-            return rawRangeKm
+        val resolvedRangeKm = if (rawRangeKm > 0.1f) {
+            rawRangeKm
+        } else {
+            val startupEfficiency = learnedEfficiencyWhKm
+                .takeIf { it in MIN_VALID_EFFICIENCY_WH_KM..MAX_VALID_EFFICIENCY_WH_KM }
+                ?: DEFAULT_STARTUP_EFFICIENCY_WH_KM
+            val startupRange = if (remainingEnergyWh > 1f) {
+                (remainingEnergyWh / startupEfficiency).coerceAtLeast(0f)
+            } else {
+                0f
+            }
+            startupRange.takeIf { it > 0.1f } ?: (lastKnownRangeKm.takeIf { it > 0.1f } ?: 0f)
         }
 
-        val startupEfficiency = learnedEfficiencyWhKm
-            .takeIf { it in MIN_VALID_EFFICIENCY_WH_KM..MAX_VALID_EFFICIENCY_WH_KM }
-            ?: DEFAULT_STARTUP_EFFICIENCY_WH_KM
-        val startupRange = if (remainingEnergyWh > 1f) {
-            (remainingEnergyWh / startupEfficiency).coerceAtLeast(0f)
-        } else {
-            0f
+        if (!rideActive) {
+            lastKnownRangeKm = resolvedRangeKm
+            lastRangeDisplayCommitDistanceKm = Float.NaN
+            return resolvedRangeKm
         }
-        if (startupRange > 0.1f) {
-            lastKnownRangeKm = startupRange
-            return startupRange
+
+        val normalizedDistanceKm = tripDistanceKm.coerceAtLeast(0f)
+        val shownRangeKm = lastKnownRangeKm.takeIf { it > 0.1f }
+        if (shownRangeKm == null) {
+            lastKnownRangeKm = resolvedRangeKm
+            lastRangeDisplayCommitDistanceKm = normalizedDistanceKm
+            return resolvedRangeKm
         }
-        return lastKnownRangeKm.takeIf { it > 0.1f } ?: 0f
+
+        if (!lastRangeDisplayCommitDistanceKm.isFiniteValue()) {
+            lastRangeDisplayCommitDistanceKm = normalizedDistanceKm
+        }
+        val distanceSinceCommitKm = (normalizedDistanceKm - lastRangeDisplayCommitDistanceKm).coerceAtLeast(0f)
+        if (distanceSinceCommitKm >= RANGE_DISPLAY_UPDATE_STEP_KM) {
+            lastKnownRangeKm = resolvedRangeKm
+            lastRangeDisplayCommitDistanceKm = normalizedDistanceKm
+        }
+        return lastKnownRangeKm
     }
+
+    private fun Float.isFiniteValue(): Boolean = !this.isNaN() && !this.isInfinite()
 
     private fun isRidePausedForStop(): Boolean {
         return _pendingRideStop.value != null

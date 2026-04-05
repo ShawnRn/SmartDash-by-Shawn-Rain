@@ -30,6 +30,8 @@ import com.shawnrain.habe.data.RideEnergyEstimator
 import com.shawnrain.habe.data.SettingsRepository
 import com.shawnrain.habe.data.RideSession
 import com.shawnrain.habe.data.VehicleProfile
+import com.shawnrain.habe.data.migration.LanBackupQrPayload
+import com.shawnrain.habe.data.migration.LanBackupTransfer
 import com.shawnrain.habe.data.history.RideHistoryRecord
 import com.shawnrain.habe.data.history.RideMetricSample
 import com.shawnrain.habe.data.history.RideTrackPoint
@@ -47,8 +49,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.roundToInt
+import kotlin.random.Random
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -65,12 +71,20 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class PendingRideStopUiState(
     val title: String,
     val message: String,
     val remainingSeconds: Int,
     val isDisconnect: Boolean
+)
+
+data class LanBackupShareUiState(
+    val isSharing: Boolean = false,
+    val host: String = "",
+    val port: Int = 0,
+    val code: String = ""
 )
 
 private data class PendingRideStopSnapshot(
@@ -116,11 +130,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val AUTO_RECONNECT_SCAN_WINDOW_MS = 5000L
         private const val AUTO_RECONNECT_SCAN_COOLDOWN_MS = 12000L
         private const val AUTO_RECONNECT_SUPPRESS_MS = 180000L
+        private const val GPS_FRESH_TIMEOUT_MS = 3000L
+        private const val MIN_VALID_EFFICIENCY_WH_KM = 5f
+        private const val MAX_VALID_EFFICIENCY_WH_KM = 120f
+        private const val DEFAULT_STARTUP_EFFICIENCY_WH_KM = 35f
     }
 
     private val bleManager = BleManager(application)
     private val bmsBleManager = BleManager(application)
     private val settingsRepository = SettingsRepository(application)
+    private val lanBackupTransfer = LanBackupTransfer()
     val gpsTracker = GpsTracker(application)
     private val headingTracker = HeadingTracker(application)
 
@@ -176,7 +195,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var lastVehicleSnapshotAtMs = 0L
     private var lastVehicleSnapshotTripDistanceKm = 0f
     private var estimatorVehicleId: String? = null
+    private var estimatorProtocolId: String? = null
     private val rideEnergyEstimator = RideEnergyEstimator()
+    private var lastKnownSocPercent: Float = Float.NaN
+    private var lastKnownRangeKm: Float = Float.NaN
 
     val speedSource = settingsRepository.speedSource.stateIn(viewModelScope, SharingStarted.Lazily, SpeedSource.CONTROLLER)
     val battDataSource = settingsRepository.battDataSource.stateIn(viewModelScope, SharingStarted.Lazily, DataSource.CONTROLLER)
@@ -341,11 +363,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val distanceKm = _tripDistanceMeters / 1000.0
-        val fallbackSoc = if (bSource == DataSource.BMS) {
-            bmsMetrics.soc.takeIf { it in 1f..100f }
-        } else {
-            bleMetrics.soc.takeIf { it in 1f..100f } ?: estimateControllerSoc(volt).takeIf { it > 0f }
-        }
+        val fallbackSoc = selectFallbackSocPercent(
+            voltage = volt,
+            bmsSocPercent = if (bSource == DataSource.BMS) bmsMetrics.soc.takeIf { it in 1f..100f } else null,
+            batterySeries = currentVehicleProfile.batterySeries,
+            activeProtocolId = activeProtocolId
+        )
         val rideEstimate = rideEnergyEstimator.estimate(
             rawVoltage = volt,
             rawCurrent = curr,
@@ -370,11 +393,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             rideEstimate.averageWindowEfficiencyWhKm > 8f -> rideEstimate.averageWindowEfficiencyWhKm
             else -> avgEff
         }
-        val estimatedRangeKm = if (rangeBasisEfficiencyWhKm > 0.1f) {
-            (rideEstimate.remainingEnergyWh / rangeBasisEfficiencyWhKm).coerceAtLeast(0f)
+        val blendedRangeEfficiencyWhKm = blendRangeEfficiencyWhKm(
+            shortTermEfficiencyWhKm = rangeBasisEfficiencyWhKm,
+            learnedEfficiencyWhKm = currentVehicleProfile.learnedEfficiencyWhKm,
+            tripDistanceKm = distanceKm.toFloat()
+        )
+        val rawEstimatedRangeKm = if (blendedRangeEfficiencyWhKm > 0.1f) {
+            (rideEstimate.remainingEnergyWh / blendedRangeEfficiencyWhKm).coerceAtLeast(0f)
         } else {
             0f
         }
+        val displaySocPercent = stabilizeSocForDisplay(rideEstimate.displaySocPercent)
+        val estimatedRangeKm = stabilizeRangeForDisplay(
+            rawRangeKm = rawEstimatedRangeKm,
+            remainingEnergyWh = rideEstimate.remainingEnergyWh,
+            learnedEfficiencyWhKm = currentVehicleProfile.learnedEfficiencyWhKm
+        )
 
         if (rideActive && speed > 2f) {
             if (speed > _maxSpeed) _maxSpeed = speed
@@ -390,7 +424,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             speedKmH = speed,
             efficiencyWhKm = efficiency,
             tripDistance = distanceKm,
-            soc = rideEstimate.displaySocPercent,
+            soc = displaySocPercent,
             estimatedRangeKm = estimatedRangeKm,
             avgEfficiencyWhKm = avgEff,
             totalEnergyWh = if (rideActive || _tripDistanceMeters > 0.0) currentTripEnergyWh else 0f,
@@ -456,17 +490,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return (_restingVoltageBaseline - voltage).coerceAtLeast(0f)
     }
 
-    private fun estimateControllerSoc(voltage: Float): Float {
+    private fun selectFallbackSocPercent(
+        voltage: Float,
+        bmsSocPercent: Float?,
+        batterySeries: Int,
+        activeProtocolId: String?
+    ): Float? {
+        if (bmsSocPercent != null) return bmsSocPercent
+        return estimateControllerSoc(
+            voltage = voltage,
+            batterySeries = batterySeries,
+            activeProtocolId = activeProtocolId
+        ).takeIf { it in 1f..100f }
+    }
+
+    private fun estimateControllerSoc(
+        voltage: Float,
+        batterySeries: Int,
+        activeProtocolId: String?
+    ): Float {
         if (voltage <= 0f) return 0f
 
-        val zhikeSettings = _latestZhikeSettings.value
-        if (zhikeSettings != null && zhikeSettings.overVoltage > zhikeSettings.underVoltage) {
-            val minVoltage = zhikeSettings.underVoltage.toFloat()
-            val maxVoltage = zhikeSettings.overVoltage.toFloat()
-            return (((voltage - minVoltage) / (maxVoltage - minVoltage)) * 100f).coerceIn(0f, 100f)
-        }
+        val normalizedSeries = inferBatterySeriesFromVoltage(
+            voltage = voltage,
+            configuredSeries = batterySeries,
+            zhikeSettings = if (activeProtocolId == "zhike") _latestZhikeSettings.value else null
+        )
+        val ocvSoc = socFromPackVoltage(
+            packVoltage = voltage,
+            batterySeries = normalizedSeries
+        ).takeIf { it in 0f..100f }
 
         return when {
+            ocvSoc != null -> ocvSoc
             voltage >= 81f -> linearSoc(voltage, 60f, 84f)
             voltage >= 66f -> linearSoc(voltage, 56f, 72f)
             voltage >= 49f -> linearSoc(voltage, 42f, 58f)
@@ -475,14 +531,108 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun inferBatterySeriesFromVoltage(
+        voltage: Float,
+        configuredSeries: Int,
+        zhikeSettings: ZhikeSettings?
+    ): Int {
+        if (voltage <= 0f) return configuredSeries.coerceAtLeast(1)
+
+        val candidates = (8..24).toList()
+        val plausibleByVoltage = candidates.filter { series ->
+            val minPackVoltage = series * 3.0f
+            val maxPackVoltage = series * 4.25f
+            voltage in minPackVoltage..maxPackVoltage
+        }
+
+        val configured = configuredSeries.coerceAtLeast(1)
+        if (configured in plausibleByVoltage) {
+            return configured
+        }
+
+        val inferredFromZhikeParam = zhikeSettings
+            ?.rawWords
+            ?.getOrNull(46)
+            ?.let { word -> word and 0x3F }
+            ?.takeIf { it in plausibleByVoltage }
+        if (inferredFromZhikeParam != null) {
+            return inferredFromZhikeParam
+        }
+
+        val inferredFromZhikeVoltage = zhikeSettings
+            ?.takeIf { it.overVoltage > it.underVoltage }
+            ?.let { settings ->
+                (settings.overVoltage.toFloat() / 4.2f).roundToInt()
+            }
+            ?.takeIf { it in plausibleByVoltage }
+        if (inferredFromZhikeVoltage != null) {
+            return inferredFromZhikeVoltage
+        }
+
+        return plausibleByVoltage.minByOrNull { series ->
+            abs(voltage - (series * 3.7f))
+        } ?: configured.coerceIn(8, 24)
+    }
+
+    private fun socFromPackVoltage(packVoltage: Float, batterySeries: Int): Float {
+        val series = batterySeries.coerceAtLeast(1)
+        val cellVoltage = packVoltage / series
+        val table = listOf(
+            4.20f to 100f,
+            4.10f to 92f,
+            4.00f to 82f,
+            3.92f to 72f,
+            3.85f to 62f,
+            3.79f to 52f,
+            3.73f to 42f,
+            3.68f to 32f,
+            3.63f to 22f,
+            3.58f to 14f,
+            3.50f to 8f,
+            3.40f to 3f,
+            3.30f to 0f
+        )
+        if (cellVoltage >= table.first().first) return table.first().second
+        if (cellVoltage <= table.last().first) return table.last().second
+        table.zipWithNext().forEach { (high, low) ->
+            if (cellVoltage <= high.first && cellVoltage >= low.first) {
+                val progress = (cellVoltage - low.first) / (high.first - low.first)
+                return low.second + ((high.second - low.second) * progress)
+            }
+        }
+        return 0f
+    }
+
     private fun linearSoc(voltage: Float, emptyVoltage: Float, fullVoltage: Float): Float {
         if (fullVoltage <= emptyVoltage) return 0f
         return (((voltage - emptyVoltage) / (fullVoltage - emptyVoltage)) * 100f).coerceIn(0f, 100f)
     }
 
+    private fun isRecentGpsAvailable(now: Long = System.currentTimeMillis()): Boolean {
+        val lastLocation = gpsTracker.location.value ?: return false
+        val ageMs = now - lastLocation.time
+        return ageMs in 0..GPS_FRESH_TIMEOUT_MS
+    }
+
+    private fun currentSpeedForSpeedTest(metrics: VehicleMetrics, now: Long): Float {
+        return if (isRecentGpsAvailable(now)) {
+            gpsTracker.gpsSpeed.value.coerceAtLeast(0f)
+        } else {
+            metrics.speedKmH.coerceAtLeast(0f)
+        }
+    }
+
     private val _calibrationMessage = MutableStateFlow<String?>(null)
     val calibrationMessage: StateFlow<String?> = _calibrationMessage
     fun clearCalibrationMessage() { _calibrationMessage.value = null }
+    private val _lanBackupShare = MutableStateFlow(LanBackupShareUiState())
+    val lanBackupShare: StateFlow<LanBackupShareUiState> = _lanBackupShare.asStateFlow()
+    private val _lanBackupRestoring = MutableStateFlow(false)
+    val lanBackupRestoring: StateFlow<Boolean> = _lanBackupRestoring.asStateFlow()
+    private val _lanBackupMessage = MutableStateFlow<String?>(null)
+    val lanBackupMessage: StateFlow<String?> = _lanBackupMessage.asStateFlow()
+    fun clearLanBackupMessage() { _lanBackupMessage.value = null }
+    fun showLanBackupMessage(message: String) { _lanBackupMessage.value = message }
     val gpsCalibrationState: StateFlow<GpsCalibrationState> = autoCalibrator.state
     val activeProtocolLabel: StateFlow<String> = ProtocolParser.activeProtocolLabel
     val bmsActiveProtocolLabel: StateFlow<String> = BmsParser.activeProtocolLabel
@@ -518,6 +668,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 estimatorVehicleId = profile.id
                 rideEnergyEstimator.reset(profile.learnedInternalResistanceOhm)
                 _restingVoltageBaseline = 0f
+                lastKnownSocPercent = Float.NaN
+                lastKnownRangeKm = Float.NaN
             }
         }.launchIn(viewModelScope)
 
@@ -591,6 +743,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }.launchIn(viewModelScope)
 
         ProtocolParser.activeProtocolId.onEach { protocolId ->
+            if (protocolId != estimatorProtocolId && !_isRideActive.value) {
+                estimatorProtocolId = protocolId
+                rideEnergyEstimator.reset(currentVehicle.value.learnedInternalResistanceOhm)
+                _restingVoltageBaseline = 0f
+            }
             val connected = bleManager.connectionState.value as? ConnectionState.Connected ?: return@onEach
             if (protocolId.isNullOrBlank()) return@onEach
             viewModelScope.launch {
@@ -766,9 +923,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun updateSpeedTestSession(metrics: VehicleMetrics, now: Long) {
         val session = _speedTestSession.value
         if (!session.isActive) return
+        val speedKmh = currentSpeedForSpeedTest(metrics, now)
 
         if (session.isStandby) {
-            if (metrics.speedKmH > 0.5f) {
+            if (speedKmh > 0.5f) {
                 // 起步，解除 Standby 开始计时
                 _speedTestStartedAtMs = now
                 _speedTestSession.value = session.copy(
@@ -780,7 +938,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        _speedTestMaxSpeed = maxOf(_speedTestMaxSpeed, metrics.speedKmH)
+        _speedTestMaxSpeed = maxOf(_speedTestMaxSpeed, speedKmh)
         _speedTestPeakPowerKw = maxOf(_speedTestPeakPowerKw, metrics.totalPowerW / 1000f)
         _speedTestPeakBusCurrentA = maxOf(_speedTestPeakBusCurrentA, metrics.busCurrent)
         _speedTestMinVoltage = if (_speedTestMinVoltage <= 0f) {
@@ -792,7 +950,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (now - _speedTestLastSampleAtMs >= SPEED_TEST_SAMPLE_INTERVAL_MS) {
             _speedTestSession.value = _speedTestSession.value.copy(
                 elapsedMs = now - _speedTestStartedAtMs,
-                currentSpeedKmh = metrics.speedKmH,
+                currentSpeedKmh = speedKmh,
                 maxSpeedKmh = _speedTestMaxSpeed,
                 peakPowerKw = _speedTestPeakPowerKw,
                 peakBusCurrentA = _speedTestPeakBusCurrentA,
@@ -803,7 +961,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _speedTestLastSampleAtMs = now
         }
 
-        if (metrics.speedKmH >= _speedTestTargetSpeedKmh) {
+        if (speedKmh >= _speedTestTargetSpeedKmh) {
             val record = SpeedTestRecord(
                 id = UUID.randomUUID().toString(),
                 label = _speedTestTargetLabel,
@@ -825,7 +983,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _speedTestSession.value = _speedTestSession.value.copy(
                 isActive = false,
                 elapsedMs = record.timeMs,
-                currentSpeedKmh = metrics.speedKmH,
+                currentSpeedKmh = speedKmh,
                 maxSpeedKmh = _speedTestMaxSpeed,
                 peakPowerKw = _speedTestPeakPowerKw,
                 peakBusCurrentA = _speedTestPeakBusCurrentA,
@@ -943,6 +1101,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val tripDistanceKm = (_tripDistanceMeters / 1000.0).toFloat()
         val absoluteMileageKm = rideStartVehicleMileageKm + tripDistanceKm
         val learnedResistance = rideEnergyEstimator.currentLearnedInternalResistanceOhm()
+        val observedEfficiencyWhKm = observeCurrentRideEfficiencyWhKm()
         settingsRepository.updateCurrentVehicle { profile ->
             profile.copy(
                 totalMileageKm = absoluteMileageKm.coerceAtLeast(profile.totalMileageKm),
@@ -950,9 +1109,93 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     learnedResistance
                 } else {
                     profile.learnedInternalResistanceOhm
-                }
+                },
+                learnedEfficiencyWhKm = blendLearnedEfficiencyWhKm(
+                    previousLearnedWhKm = profile.learnedEfficiencyWhKm,
+                    observedWhKm = observedEfficiencyWhKm,
+                    tripDistanceKm = tripDistanceKm
+                )
             )
         }
+    }
+
+    private fun observeCurrentRideEfficiencyWhKm(): Float {
+        val tripDistanceKm = (_tripDistanceMeters / 1000.0).toFloat()
+        if (tripDistanceKm < 0.25f) return 0f
+        val totalEnergyWh = maxOf(_rideEnergyWh, _totalEnergyUsedWh.toFloat())
+        if (totalEnergyWh <= 1f) return 0f
+        return (totalEnergyWh / tripDistanceKm).toFloat()
+    }
+
+    private fun blendRangeEfficiencyWhKm(
+        shortTermEfficiencyWhKm: Float,
+        learnedEfficiencyWhKm: Float,
+        tripDistanceKm: Float
+    ): Float {
+        val shortTerm = shortTermEfficiencyWhKm
+            .takeIf { it in MIN_VALID_EFFICIENCY_WH_KM..MAX_VALID_EFFICIENCY_WH_KM }
+        val learned = learnedEfficiencyWhKm
+            .takeIf { it in MIN_VALID_EFFICIENCY_WH_KM..MAX_VALID_EFFICIENCY_WH_KM }
+        return when {
+            shortTerm != null && learned != null -> {
+                val shortWeight = (tripDistanceKm / 4.0f).coerceIn(0.15f, 0.8f)
+                (shortTerm * shortWeight) + (learned * (1f - shortWeight))
+            }
+            shortTerm != null -> shortTerm
+            learned != null -> learned
+            else -> 0f
+        }
+    }
+
+    private fun blendLearnedEfficiencyWhKm(
+        previousLearnedWhKm: Float,
+        observedWhKm: Float,
+        tripDistanceKm: Float
+    ): Float {
+        val observed = observedWhKm.takeIf { it in MIN_VALID_EFFICIENCY_WH_KM..MAX_VALID_EFFICIENCY_WH_KM }
+            ?: return previousLearnedWhKm.coerceAtLeast(0f)
+        if (tripDistanceKm < 0.25f) return previousLearnedWhKm.coerceAtLeast(0f)
+
+        val previous = previousLearnedWhKm
+            .takeIf { it in MIN_VALID_EFFICIENCY_WH_KM..MAX_VALID_EFFICIENCY_WH_KM }
+        if (previous == null) return observed
+
+        val updateWeight = (tripDistanceKm / 25f).coerceIn(0.05f, 0.35f)
+        return (previous * (1f - updateWeight)) + (observed * updateWeight)
+    }
+
+    private fun stabilizeSocForDisplay(rawSocPercent: Float): Float {
+        val normalized = rawSocPercent.takeIf { it in 1f..100f }
+        if (normalized != null) {
+            lastKnownSocPercent = normalized
+            return normalized
+        }
+        return lastKnownSocPercent.takeIf { it in 1f..100f } ?: 0f
+    }
+
+    private fun stabilizeRangeForDisplay(
+        rawRangeKm: Float,
+        remainingEnergyWh: Float,
+        learnedEfficiencyWhKm: Float
+    ): Float {
+        if (rawRangeKm > 0.1f) {
+            lastKnownRangeKm = rawRangeKm
+            return rawRangeKm
+        }
+
+        val startupEfficiency = learnedEfficiencyWhKm
+            .takeIf { it in MIN_VALID_EFFICIENCY_WH_KM..MAX_VALID_EFFICIENCY_WH_KM }
+            ?: DEFAULT_STARTUP_EFFICIENCY_WH_KM
+        val startupRange = if (remainingEnergyWh > 1f) {
+            (remainingEnergyWh / startupEfficiency).coerceAtLeast(0f)
+        } else {
+            0f
+        }
+        if (startupRange > 0.1f) {
+            lastKnownRangeKm = startupRange
+            return startupRange
+        }
+        return lastKnownRangeKm.takeIf { it > 0.1f } ?: 0f
     }
 
     private fun isRidePausedForStop(): Boolean {
@@ -1035,7 +1278,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startSpeedTest(label: String, targetSpeedKmh: Float): String? {
-        if (metrics.value.speedKmH > 5f) {
+        gpsTracker.startTracking()
+        if (!isRecentGpsAvailable()) {
+            return "请先等待 GPS 定位稳定后再开始测试"
+        }
+        val gpsSpeedKmh = gpsTracker.gpsSpeed.value.coerceAtLeast(0f)
+        if (gpsSpeedKmh > 5f) {
             return "请先减速到 5 km/h 以下再开始测试"
         }
 
@@ -1437,6 +1685,80 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         AppLogger.i(TAG, "用户请求分享调试日志")
         return Intent.createChooser(AppLogger.createShareIntent(getApplication()), "分享调试日志")
     }
+
+    fun startLanBackupShare(): kotlinx.coroutines.Job = viewModelScope.launch {
+        if (_lanBackupShare.value.isSharing) return@launch
+        val code = Random.nextInt(100000, 999999).toString()
+        runCatching {
+            lanBackupTransfer.start(
+                scope = viewModelScope,
+                code = code,
+                onRestoreApplied = {
+                    _lanBackupShare.value = LanBackupShareUiState()
+                    _lanBackupMessage.value = "新设备恢复成功，已自动停止发送"
+                }
+            ) { settingsRepository.exportBackupJson() }
+        }.onSuccess { offer ->
+            _lanBackupShare.value = LanBackupShareUiState(
+                isSharing = true,
+                host = offer.host,
+                port = offer.port,
+                code = offer.code
+            )
+            _lanBackupMessage.value = "局域网迁移已开启，请在新设备输入地址与配对码"
+        }.onFailure { error ->
+            _lanBackupMessage.value = "开启迁移失败：${error.message ?: "未知错误"}"
+        }
+    }
+
+    fun stopLanBackupShare(): kotlinx.coroutines.Job = viewModelScope.launch {
+        runCatching { lanBackupTransfer.stop() }
+        _lanBackupShare.value = LanBackupShareUiState()
+        _lanBackupMessage.value = "局域网迁移已关闭"
+    }
+
+    fun currentLanBackupQrPayload(): String? {
+        val state = _lanBackupShare.value
+        if (!state.isSharing || state.host.isBlank() || state.port !in 1..65535 || state.code.isBlank()) {
+            return null
+        }
+        return LanBackupQrPayload(
+            host = state.host,
+            port = state.port,
+            code = state.code
+        ).encodeToQrText()
+    }
+
+    fun restoreFromLanBackup(
+        host: String,
+        portText: String,
+        code: String
+    ): kotlinx.coroutines.Job = viewModelScope.launch {
+        val cleanHost = host.trim()
+        val cleanCode = code.trim()
+        val port = portText.trim().toIntOrNull()
+        if (cleanHost.isBlank() || cleanCode.isBlank() || port == null || port !in 1..65535) {
+            _lanBackupMessage.value = "请输入正确的地址、端口和配对码"
+            return@launch
+        }
+        if (_lanBackupRestoring.value) return@launch
+        _lanBackupRestoring.value = true
+        _lanBackupMessage.value = "二维码识别成功，正在恢复数据..."
+        try {
+            val count = withContext(Dispatchers.IO) {
+                val payload = lanBackupTransfer.pull(cleanHost, port, cleanCode)
+                val importedCount = settingsRepository.importBackupJson(payload)
+                runCatching { lanBackupTransfer.notifyRestoreApplied(cleanHost, port, cleanCode) }
+                importedCount
+            }
+            _lanBackupMessage.value = "恢复完成：已应用 $count 项资料"
+            autoReconnectAttemptedAddress = null
+        } catch (error: Throwable) {
+            _lanBackupMessage.value = "恢复失败：${error.message ?: "网络或配对码错误"}"
+        } finally {
+            _lanBackupRestoring.value = false
+        }
+    }
     fun handleAppVisibilityChanged(isForeground: Boolean) {
         if (isForeground) {
             lastControllerDeviceAddress.value?.let { address ->
@@ -1452,7 +1774,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (bleManager.connectionState.value !is ConnectionState.Disconnected) return
         val rememberedName = lastControllerDeviceName.value?.takeIf { it.isNotBlank() }
         val rememberedProtocolId = lastControllerProtocolId.value?.takeIf { it.isNotBlank() }
-        val started = bleManager.connect(address, rememberedName, rememberedProtocolId)
+        val started = runCatching {
+            bleManager.connect(address, rememberedName, rememberedProtocolId)
+        }.onFailure { error ->
+            AppLogger.e(TAG, "自动重连失败 reason=$reason address=$address", error)
+        }.getOrDefault(false)
         if (started) {
             autoReconnectAttemptedAddress = address
             AppLogger.i(TAG, "自动重连已发起 reason=$reason address=$address name=${rememberedName ?: "-"} protocol=${rememberedProtocolId ?: "-"}")
@@ -1630,6 +1956,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun getActiveProtocolId(): String? = ProtocolParser.getActiveProtocolId()
 
     override fun onCleared() {
+        runCatching { kotlinx.coroutines.runBlocking { lanBackupTransfer.stop() } }
         headingTracker.stop()
         gpsTracker.stopTracking()
         super.onCleared()

@@ -120,7 +120,7 @@ class RideEnergyEstimator {
 
         displayedSocPercent = when {
             displayedSocPercent.isNaN() -> fusedSoc
-            filteredCurrent < -1f -> displayedSocPercent
+            filteredCurrent < -1f -> min(displayedSocPercent, fusedSoc)
             abs(filteredCurrent) > 8f -> min(displayedSocPercent, socByAhPercent)
             else -> min(displayedSocPercent, fusedSoc)
         }

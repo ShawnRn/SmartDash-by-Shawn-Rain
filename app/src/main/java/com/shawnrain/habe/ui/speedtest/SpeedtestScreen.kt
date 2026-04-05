@@ -108,6 +108,7 @@ import com.shawnrain.habe.ui.dashboard.BaselineMetricValue
 import com.shawnrain.habe.ui.navigation.ApplyDialogWindowBlurEffect
 import com.shawnrain.habe.ui.navigation.BlurredAlertDialog
 import com.shawnrain.habe.ui.navigation.BlurredModalBottomSheet
+import com.shawnrain.habe.ui.navigation.P2PageHeader
 import com.shawnrain.habe.ui.navigation.PredictiveBackPopupTransform
 import com.shawnrain.habe.ui.navigation.PopupBackdropBlurLayer
 import com.shawnrain.habe.ui.navigation.rememberPredictiveBackMotion
@@ -156,12 +157,12 @@ private enum class RideChartMetric(val title: String, val unit: String, val colo
     AVG_EFFICIENCY("平均能耗", "Wh/km", Color(0xFF6EE7F2)),
     RANGE("续航", "km", Color(0xFFD8F28F)),
     TOTAL_ENERGY("总能耗", "Wh", Color(0xFFFFB4A2)),
-    RECOVERED_ENERGY("回收能量", "W", Color(0xFF86EFAC)),
+    RECOVERED_ENERGY("回收能量", "Wh", Color(0xFF86EFAC)),
     MAX_CONTROLLER_TEMP("控制器最高温度", "°C", Color(0xFFF59E8B)),
     SOC("电量", "%", Color(0xFF98E57A)),
     RPM("转速", "rpm", Color(0xFFC2C7D0)),
     DISTANCE("里程", "km", Color(0xFFA7F3D0)),
-    REGEN_POWER("回收功率", "kW", Color(0xFF86EFAC))
+    REGEN_POWER("回收功率", "W", Color(0xFF86EFAC))
 }
 
 @Composable
@@ -449,18 +450,10 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
 
 @Composable
 private fun Header(currentSpeed: Float) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 20.dp)
-    ) {
-        Text("性能与行程", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            "当前车速 ${formatFloat(currentSpeed)} km/h",
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
+    P2PageHeader(
+        title = "性能与行程",
+        subtitle = "当前车速 ${formatFloat(currentSpeed)} km/h"
+    )
 }
 
 @Composable
@@ -2060,6 +2053,10 @@ private fun buildRideOverviewCards(
     if (samples.isEmpty()) return emptyList()
     val first = samples.first()
     val last = samples.last()
+    val startSoc = samples.firstOrNull { it.soc > 1f }?.soc ?: first.soc.takeIf { it > 0.01f } ?: last.soc
+    val startRangeKm = samples.firstOrNull { it.estimatedRangeKm > 0.1f }?.estimatedRangeKm
+        ?: first.estimatedRangeKm.takeIf { it > 0.01f }
+        ?: last.estimatedRangeKm
     val finalDistanceKm = ((last.distanceMeters.takeIf { it > 1f } ?: record.distanceMeters) / 1000f).coerceAtLeast(0f)
     val avgPowerKw = samples.map { it.powerKw }.average().toFloat()
     val peakPowerKw = samples.maxOf { it.powerKw }
@@ -2072,14 +2069,29 @@ private fun buildRideOverviewCards(
     val peakBusCurrent = samples.maxOf { kotlin.math.abs(it.busCurrent) }
     val avgPhaseCurrent = samples.map { kotlin.math.abs(it.phaseCurrent) }.average().toFloat()
     val peakPhaseCurrent = samples.maxOf { kotlin.math.abs(it.phaseCurrent) }
-    val avgMotorTemp = samples.map { it.motorTemp }.average().toFloat()
-    val peakMotorTemp = samples.maxOf { it.motorTemp }
+    val reliableMotorTempSamples = samples.filter { sample -> isReliableMotorTempSample(sample) }
+    val hasReliableMotorTemp = reliableMotorTempSamples.maxOfOrNull { it.motorTemp }?.let { it >= 5f } == true
+    val avgMotorTemp = if (hasReliableMotorTemp) {
+        reliableMotorTempSamples.map { it.motorTemp }.average().toFloat()
+    } else {
+        0f
+    }
+    val peakMotorTemp = if (hasReliableMotorTemp) {
+        reliableMotorTempSamples.maxOf { it.motorTemp }
+    } else {
+        0f
+    }
     val avgControllerTemp = samples.map { it.controllerTemp }.average().toFloat()
     val peakControllerTemp = samples.maxOf { it.controllerTemp }
     val avgRpm = samples.map { it.rpm }.average().toFloat()
     val peakRpm = samples.maxOf { it.rpm }
     val avgInstantEfficiency = samples.map { it.efficiencyWhKm }.average().toFloat()
-    val peakInstantEfficiency = samples.maxOf { it.efficiencyWhKm }
+    val peakAverageEfficiency = samples.maxOf { sample ->
+        when {
+            sample.avgEfficiencyWhKm > 0.01f -> sample.avgEfficiencyWhKm
+            else -> sample.efficiencyWhKm
+        }
+    }
     val recoveredEnergyWh = samples.maxOf { it.recoveredEnergyWh }.coerceAtLeast(last.recoveredEnergyWh)
     val cardsByType = linkedMapOf<MetricType, RideOverviewCard>(
         MetricType.POWER to RideOverviewCard(
@@ -2142,14 +2154,14 @@ private fun buildRideOverviewCards(
             type = MetricType.SOC,
             title = "电量",
             value = metricOf(last.soc, "%"),
-            supporting = "起点 ${formatFloat(first.soc)} %",
+            supporting = "起点 ${formatFloat(startSoc)} %",
             metric = RideChartMetric.SOC
         ),
         MetricType.RANGE to RideOverviewCard(
             type = MetricType.RANGE,
             title = "剩余续航",
             value = metricOf(last.estimatedRangeKm, "km"),
-            supporting = "起点 ${formatFloat(first.estimatedRangeKm)} km",
+            supporting = "起点 ${formatFloat(startRangeKm)} km",
             metric = RideChartMetric.RANGE
         ),
         MetricType.RPM to RideOverviewCard(
@@ -2163,7 +2175,7 @@ private fun buildRideOverviewCards(
             type = MetricType.EFFICIENCY,
             title = "平均能耗",
             value = metricOf(record.avgEfficiencyWhKm.takeIf { it > 0.01f } ?: avgInstantEfficiency, "Wh/km"),
-            supporting = "峰值 ${formatFloat(peakInstantEfficiency)} Wh/km",
+            supporting = "峰值 ${formatFloat(peakAverageEfficiency)} Wh/km",
             metric = RideChartMetric.AVG_EFFICIENCY
         ),
         MetricType.TRIP_DISTANCE to RideOverviewCard(
@@ -2177,24 +2189,27 @@ private fun buildRideOverviewCards(
             type = MetricType.TOTAL_ENERGY,
             title = "总能耗",
             value = metricOf(record.totalEnergyWh, "Wh"),
-            supporting = "回收 ${formatFloat(recoveredEnergyWh)} W",
+            supporting = "回收 ${formatFloat(recoveredEnergyWh)} Wh",
             metric = RideChartMetric.TOTAL_ENERGY
         ),
         MetricType.PEAK_REGEN_POWER to RideOverviewCard(
             type = MetricType.PEAK_REGEN_POWER,
             title = "最大回收功率",
-            value = metricOf(peakRegenPowerKw, "kW"),
-            supporting = "总回收 ${formatFloat(recoveredEnergyWh)} W",
+            value = metricOf(peakRegenPowerKw * 1000f, "W"),
+            supporting = "总回收 ${formatFloat(recoveredEnergyWh)} Wh",
             metric = RideChartMetric.REGEN_POWER
         ),
         MetricType.RECOVERED_ENERGY to RideOverviewCard(
             type = MetricType.RECOVERED_ENERGY,
             title = "总回收能量",
-            value = metricOf(recoveredEnergyWh, "W"),
-            supporting = "回收峰值 ${formatFloat(peakRegenPowerKw)} kW",
+            value = metricOf(recoveredEnergyWh, "Wh"),
+            supporting = "回收峰值 ${formatFloat(peakRegenPowerKw * 1000f)} W",
             metric = RideChartMetric.RECOVERED_ENERGY
         )
     )
+    if (!hasReliableMotorTemp) {
+        cardsByType.remove(MetricType.MOTOR_TEMP)
+    }
     val ordered = orderedTypes
         .distinct()
         .mapNotNull { type -> cardsByType[type] }
@@ -2435,6 +2450,12 @@ private fun EmptyCard(title: String, subtitle: String) {
     }
 }
 
+private fun isReliableMotorTempSample(sample: RideMetricSample): Boolean {
+    if (sample.motorTemp !in -40f..220f) return false
+    if (sample.controllerTemp >= 18f && sample.motorTemp <= 0f) return false
+    return true
+}
+
 private fun RideMetricSample.metricValue(metric: RideChartMetric): Float {
     return when (metric) {
         RideChartMetric.SPEED -> speedKmH
@@ -2454,7 +2475,7 @@ private fun RideMetricSample.metricValue(metric: RideChartMetric): Float {
         RideChartMetric.SOC -> soc
         RideChartMetric.RPM -> rpm
         RideChartMetric.DISTANCE -> distanceMeters / 1000f
-        RideChartMetric.REGEN_POWER -> (-powerKw).coerceAtLeast(0f)
+        RideChartMetric.REGEN_POWER -> (-powerKw).coerceAtLeast(0f) * 1000f
     }
 }
 

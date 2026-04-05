@@ -1,5 +1,6 @@
 package com.shawnrain.habe.ble
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
@@ -14,6 +15,9 @@ import com.shawnrain.habe.debug.AppLogger
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -78,8 +82,9 @@ class BleManager(private val context: Context) {
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
-            if (device.name != null && !_scannedDevices.value.any { it.address == device.address }) {
-                AppLogger.d(TAG, "扫描到设备: ${device.name} (${device.address}) rssi=${result.rssi}")
+            val name = safeDeviceName(device)
+            if (!name.isNullOrBlank() && !_scannedDevices.value.any { it.address == device.address }) {
+                AppLogger.d(TAG, "扫描到设备: $name (${device.address}) rssi=${result.rssi}")
                 _scannedDevices.update { it + device }
             }
         }
@@ -97,19 +102,33 @@ class BleManager(private val context: Context) {
     }
 
     fun connect(device: BluetoothDevice) {
-        pendingDeviceNameHint = device.name ?: pendingDeviceNameHint
+        if (!hasBluetoothConnectPermission()) {
+            AppLogger.w(TAG, "缺少 BLUETOOTH_CONNECT 权限，无法连接 ${device.address}")
+            return
+        }
+        val resolvedName = safeDeviceName(device) ?: pendingDeviceNameHint
+        pendingDeviceNameHint = resolvedName
         stopPolling()
         ProtocolParser.reset()
         bluetoothGatt?.close()
         _connectionState.value = ConnectionState.Connecting
-        AppLogger.i(TAG, "连接设备: ${device.name ?: "Unknown"} (${device.address})")
-        bluetoothGatt = device.connectGatt(context, false, gattCallback)
-        startPolling()
+        AppLogger.i(TAG, "连接设备: ${resolvedName ?: "Unknown"} (${device.address})")
+        try {
+            bluetoothGatt = device.connectGatt(context, false, gattCallback)
+            startPolling()
+        } catch (error: SecurityException) {
+            AppLogger.e(TAG, "连接失败：缺少蓝牙权限 ${device.address}", error)
+            _connectionState.value = ConnectionState.Disconnected
+        }
     }
 
     fun connect(address: String, nameHint: String? = null, protocolIdHint: String? = null): Boolean {
         val adapter = bluetoothAdapter ?: run {
             AppLogger.w(TAG, "蓝牙适配器不可用，无法自动重连 $address")
+            return false
+        }
+        if (!hasBluetoothConnectPermission()) {
+            AppLogger.w(TAG, "缺少 BLUETOOTH_CONNECT 权限，无法自动重连 $address")
             return false
         }
         val device = try {
@@ -280,7 +299,7 @@ class BleManager(private val context: Context) {
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                val identifiedName = gatt.device.name ?: pendingDeviceNameHint ?: "Unknown"
+                val identifiedName = safeDeviceName(gatt.device) ?: pendingDeviceNameHint ?: "Unknown"
                 val serviceIds = mutableListOf<String>()
                 val charIds = mutableListOf<String>()
                 val writableCharacteristics = mutableListOf<BluetoothGattCharacteristic>()
@@ -460,5 +479,17 @@ class BleManager(private val context: Context) {
             AppLogger.v(TAG, "收到通知 ${characteristic.uuidString()} bytes=${value.size} hex=${value.toHexPreview()}")
             _rawData.tryEmit(value)
         }
+    }
+
+    private fun hasBluetoothConnectPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.BLUETOOTH_CONNECT
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun safeDeviceName(device: BluetoothDevice): String? {
+        return runCatching { device.name }.getOrNull()
     }
 }

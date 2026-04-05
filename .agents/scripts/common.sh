@@ -175,6 +175,41 @@ clean_variant_dex_intermediates() {
     "$PROJECT_ROOT/app/build/tmp/kotlin-classes/$variant"
 }
 
+variant_task_suffix() {
+  local variant="$1"
+  case "$variant" in
+    debug) echo "Debug" ;;
+    release) echo "Release" ;;
+    devRelease) echo "DevRelease" ;;
+    *) echo "$variant" ;;
+  esac
+}
+
+sanitize_variant_split_artifacts() {
+  local variant="$1"
+  local task_suffix
+  task_suffix="$(variant_task_suffix "$variant")"
+  local removed=0
+
+  while IFS= read -r -d '' file; do
+    case "$file" in
+      *"/$variant/"*|*"/mergeExtDex$task_suffix/"*)
+        rm -f "$file"
+        removed=$((removed + 1))
+        ;;
+    esac
+  done < <(
+    find "$PROJECT_ROOT/app/build/intermediates" \
+      -type f \
+      \( -name "* *.dex" -o -name "* *.jar" \) \
+      -print0 2>/dev/null
+  )
+
+  if [[ "$removed" -gt 0 ]]; then
+    echo "[pre-clean] Removed $removed stale split dex/jar artifacts for variant '$variant'."
+  fi
+}
+
 log_has_retryable_dex_issue() {
   local log_file="$1"
   grep -Eq \
@@ -187,8 +222,18 @@ run_gradle_logged_with_dex_retry() {
   local variant="$2"
   shift 2
 
-  if run_gradle_logged "$log_file" "$@"; then
-    return 0
+  sanitize_variant_split_artifacts "$variant"
+
+  if [[ "${HABE_FORCE_CLEAN:-0}" == "1" ]]; then
+    echo "[pre-clean] HABE_FORCE_CLEAN=1 -> running :app:clean before build." | tee "$log_file"
+    RUN_GRADLE_LOG_MODE=append run_gradle_logged "$log_file" :app:clean || return 1
+    if RUN_GRADLE_LOG_MODE=append run_gradle_logged "$log_file" "$@"; then
+      return 0
+    fi
+  else
+    if run_gradle_logged "$log_file" "$@"; then
+      return 0
+    fi
   fi
 
   if ! log_has_retryable_dex_issue "$log_file"; then
@@ -201,6 +246,7 @@ run_gradle_logged_with_dex_retry() {
     echo "[dex-retry] Cleaning project_dex_archive and related caches, then retrying once..."
   } | tee -a "$log_file"
 
+  sanitize_variant_split_artifacts "$variant"
   clean_variant_dex_intermediates "$variant"
   RUN_GRADLE_LOG_MODE=append run_gradle_logged "$log_file" "$@"
 }

@@ -3,8 +3,6 @@ package com.shawnrain.habe.ui.bms
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -17,11 +15,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.shawnrain.habe.MainViewModel
+import com.shawnrain.habe.ui.navigation.P2PageHeader
 import com.shawnrain.habe.ui.theme.bezierRoundedShape
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun BmsScreen(viewModel: MainViewModel, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun BmsScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val bmsMetrics by viewModel.bmsMetrics.collectAsState()
     val bmsLabel by viewModel.bmsActiveProtocolLabel.collectAsState()
 
@@ -30,22 +29,9 @@ fun BmsScreen(viewModel: MainViewModel, onBack: () -> Unit, modifier: Modifier =
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        TopAppBar(
-            title = { 
-                Column {
-                    Text("电池与 BMS", style = MaterialTheme.typography.titleMedium)
-                    Text(bmsLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                }
-            },
-            navigationIcon = {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.background,
-                titleContentColor = MaterialTheme.colorScheme.onBackground
-            )
+        P2PageHeader(
+            title = "电池与BMS",
+            subtitle = bmsLabel
         )
         
         LazyColumn(modifier = Modifier.padding(horizontal = 24.dp)) {
@@ -64,7 +50,7 @@ fun BmsScreen(viewModel: MainViewModel, onBack: () -> Unit, modifier: Modifier =
             
             item {
                 Spacer(modifier = Modifier.height(24.dp))
-                Text("单体电压 (Cell Voltages)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("单体电压", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 FlowRow(

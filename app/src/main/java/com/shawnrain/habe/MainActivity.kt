@@ -1,28 +1,41 @@
 package com.shawnrain.habe
 
+import android.Manifest
 import android.app.PictureInPictureParams
 import android.app.Application
 import android.content.pm.ActivityInfo
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Typeface
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Rational
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,9 +59,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -66,12 +81,14 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.ViewModelProvider
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -89,6 +106,7 @@ import com.shawnrain.habe.ui.speedtest.SpeedtestScreen
 import com.shawnrain.habe.ui.theme.HabeTheme
 import kotlin.math.min
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
@@ -148,21 +166,23 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             HabeTheme {
-                MainScreen(
-                    isInPictureInPictureMode = isInPipModeState.value,
-                    onRouteChanged = { route ->
-                        currentRoute = route
-                        updateOrientationForRoute(route)
-                        if (pendingTelemetryPip && route == Screen.Dashboard.route) {
-                            pendingTelemetryPip = false
-                            enterTelemetryPictureInPicture()
+                PermissionBootstrapGate {
+                    MainScreen(
+                        isInPictureInPictureMode = isInPipModeState.value,
+                        onRouteChanged = { route ->
+                            currentRoute = route
+                            updateOrientationForRoute(route)
+                            if (pendingTelemetryPip && route == Screen.Dashboard.route) {
+                                pendingTelemetryPip = false
+                                enterTelemetryPictureInPicture()
+                            }
+                        },
+                        onPipPreferenceChanged = { enabled ->
+                            pipEnabled = enabled
+                            AppLogger.i(BACK_CHAIN_TAG, "PiP preference changed enabled=$enabled")
                         }
-                    },
-                    onPipPreferenceChanged = { enabled ->
-                        pipEnabled = enabled
-                        AppLogger.i(BACK_CHAIN_TAG, "PiP preference changed enabled=$enabled")
-                    }
-                )
+                    )
+                }
             }
         }
     }
@@ -277,6 +297,205 @@ class MainActivity : ComponentActivity() {
         if (requestedOrientation != targetOrientation) {
             requestedOrientation = targetOrientation
         }
+    }
+}
+
+@Composable
+private fun PermissionBootstrapGate(
+    content: @Composable () -> Unit
+) {
+    val context = LocalContext.current
+    val firstLaunchPrefs = remember(context) {
+        context.getSharedPreferences("habe_bootstrap", Context.MODE_PRIVATE)
+    }
+    val shouldSuggestMigration = remember {
+        !firstLaunchPrefs.getBoolean("migration_assistant_suggested", false)
+    }
+    val requiredPermissions = remember { requiredRuntimePermissions() }
+    var hasAllPermissions by remember {
+        mutableStateOf(hasAllRuntimePermissions(context, requiredPermissions))
+    }
+    var launchRequested by remember { mutableStateOf(false) }
+    var showMigrationSuggestion by remember { mutableStateOf(false) }
+    var suggestionEntranceScheduled by remember { mutableStateOf(false) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        hasAllPermissions = hasAllRuntimePermissions(context, requiredPermissions)
+    }
+
+    LaunchedEffect(hasAllPermissions, launchRequested, requiredPermissions) {
+        if (requiredPermissions.isNotEmpty() && !hasAllPermissions && !launchRequested) {
+            launchRequested = true
+            permissionLauncher.launch(requiredPermissions.toTypedArray())
+        }
+    }
+    LaunchedEffect(hasAllPermissions, shouldSuggestMigration) {
+        if (hasAllPermissions && shouldSuggestMigration && !suggestionEntranceScheduled) {
+            suggestionEntranceScheduled = true
+            delay(160)
+            showMigrationSuggestion = true
+        }
+    }
+
+    if (hasAllPermissions || requiredPermissions.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            content()
+            AnimatedVisibility(
+                visible = showMigrationSuggestion,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 16.dp, vertical = 22.dp),
+                enter = fadeIn(
+                    animationSpec = tween(durationMillis = 280, easing = LinearOutSlowInEasing)
+                ) + slideInVertically(
+                    animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing),
+                    initialOffsetY = { fullHeight -> fullHeight / 3 }
+                ) + scaleIn(
+                    animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+                    initialScale = 0.92f,
+                    transformOrigin = TransformOrigin(0.5f, 1f)
+                ),
+                exit = fadeOut(
+                    animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing)
+                ) + slideOutVertically(
+                    animationSpec = tween(durationMillis = 220, easing = FastOutLinearInEasing),
+                    targetOffsetY = { fullHeight -> fullHeight / 3 }
+                ) + scaleOut(
+                    animationSpec = tween(durationMillis = 220, easing = FastOutLinearInEasing),
+                    targetScale = 0.96f,
+                    transformOrigin = TransformOrigin(0.5f, 1f)
+                )
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.96f),
+                    shape = MaterialTheme.shapes.large,
+                    tonalElevation = 6.dp,
+                    shadowElevation = 10.dp
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "是否从旧设备迁移数据？",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "建议先用“换机助手”迁移车辆、行程和配置，避免重复设置。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    firstLaunchPrefs.edit()
+                                        .putBoolean("migration_assistant_suggested", true)
+                                        .apply()
+                                    showMigrationSuggestion = false
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = "稍后再说",
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Button(
+                                onClick = {
+                                    firstLaunchPrefs.edit()
+                                        .putBoolean("migration_assistant_suggested", true)
+                                        .apply()
+                                    showMigrationSuggestion = false
+                                    MainActivityRouteRequests.emit(Screen.Settings.route)
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = "去换机助手",
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 28.dp, vertical = 32.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "授权后继续",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "为避免换机恢复后闪退，应用启动时会一次性申请蓝牙、定位和相机权限。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(
+                onClick = { permissionLauncher.launch(requiredPermissions.toTypedArray()) },
+                modifier = Modifier.fillMaxWidth(0.9f)
+            ) {
+                Text("重新请求权限")
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = {
+                    val intent = Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", context.packageName, null)
+                    ).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                },
+                modifier = Modifier.fillMaxWidth(0.9f)
+            ) {
+                Text("前往系统设置授权")
+            }
+        }
+    }
+}
+
+private fun requiredRuntimePermissions(): List<String> {
+    val permissions = mutableListOf(
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.CAMERA
+    )
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        permissions += Manifest.permission.BLUETOOTH_SCAN
+        permissions += Manifest.permission.BLUETOOTH_CONNECT
+    }
+    return permissions
+}
+
+private fun hasAllRuntimePermissions(context: Context, permissions: List<String>): Boolean {
+    return permissions.all { permission ->
+        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
     }
 }
 
@@ -471,13 +690,27 @@ fun MainScreen(
             composable(Screen.Dashboard.route) { DashboardScreen(viewModel = viewModel) }
             composable(
                 route = Screen.Bms.route,
-                enterTransition = { EnterTransition.None },
-                exitTransition = { ExitTransition.None },
-                popEnterTransition = { EnterTransition.None },
-                popExitTransition = { ExitTransition.None }
+                enterTransition = {
+                    slideInHorizontally(
+                        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+                        initialOffsetX = { fullWidth -> (fullWidth * 0.14f).toInt() }
+                    ) + fadeIn(animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing))
+                },
+                exitTransition = {
+                    fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutLinearInEasing))
+                },
+                popEnterTransition = {
+                    fadeIn(animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing))
+                },
+                popExitTransition = {
+                    slideOutHorizontally(
+                        animationSpec = tween(durationMillis = 260, easing = FastOutLinearInEasing),
+                        targetOffsetX = { fullWidth -> (fullWidth * 0.16f).toInt() }
+                    ) + fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing))
+                }
             ) {
                 PredictiveBackPage(onBack = { navController.popBackStack() }) {
-                    BmsScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
+                    BmsScreen(viewModel = viewModel)
                 }
             }
             composable(Screen.Speedtest.route) { SpeedtestScreen(viewModel = viewModel) }
@@ -490,10 +723,24 @@ fun MainScreen(
             }
             composable(
                 route = Screen.ZhikeSettings.route,
-                enterTransition = { EnterTransition.None },
-                exitTransition = { ExitTransition.None },
-                popEnterTransition = { EnterTransition.None },
-                popExitTransition = { ExitTransition.None }
+                enterTransition = {
+                    slideInHorizontally(
+                        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+                        initialOffsetX = { fullWidth -> (fullWidth * 0.14f).toInt() }
+                    ) + fadeIn(animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing))
+                },
+                exitTransition = {
+                    fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutLinearInEasing))
+                },
+                popEnterTransition = {
+                    fadeIn(animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing))
+                },
+                popExitTransition = {
+                    slideOutHorizontally(
+                        animationSpec = tween(durationMillis = 260, easing = FastOutLinearInEasing),
+                        targetOffsetX = { fullWidth -> (fullWidth * 0.16f).toInt() }
+                    ) + fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing))
+                }
             ) {
                 PredictiveBackPage(onBack = { navController.popBackStack() }) {
                     com.shawnrain.habe.ui.settings.zhike.ZhikeSettingsScreen(
@@ -620,6 +867,6 @@ sealed class Screen(
     data object Dashboard : Screen("dashboard", "仪表", Icons.Filled.Speed)
     data object Speedtest : Screen("speedtest", "加速", Icons.Filled.RocketLaunch)
     data object Settings : Screen("settings", "设置", Icons.Filled.Settings)
-    data object Bms : Screen("bms", "电池", Icons.Filled.BatteryChargingFull)
-    data object ZhikeSettings : Screen("zhike_settings", "智科设置", Icons.Filled.Settings)
+    data object Bms : Screen("bms", "电池与BMS", Icons.Filled.BatteryChargingFull)
+    data object ZhikeSettings : Screen("zhike_settings", "智科调校", Icons.Filled.Settings)
 }

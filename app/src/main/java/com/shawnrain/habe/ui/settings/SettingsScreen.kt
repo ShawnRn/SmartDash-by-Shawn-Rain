@@ -1,10 +1,31 @@
 package com.shawnrain.habe.ui.settings
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Color as AndroidColor
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.view.CameraController
+import androidx.camera.view.LifecycleCameraController
+import androidx.camera.view.PreviewView
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -15,32 +36,54 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.shawnrain.habe.MainViewModel
 import com.shawnrain.habe.data.DataSource
 import com.shawnrain.habe.data.SpeedSource
 import com.shawnrain.habe.data.VehicleProfile
 import com.shawnrain.habe.data.WheelPresets
+import com.shawnrain.habe.data.migration.LanBackupQrPayload
 import com.shawnrain.habe.debug.AppLogLevel
 import com.shawnrain.habe.ui.navigation.ApplyDialogWindowBlurEffect
 import com.shawnrain.habe.ui.navigation.BlurredAlertDialog
+import com.shawnrain.habe.ui.navigation.P2PageHeader
 import com.shawnrain.habe.ui.navigation.PopupBackdropBlurLayer
 import com.shawnrain.habe.ui.navigation.rememberPredictiveBackMotion
 import com.shawnrain.habe.ui.theme.bezierPillShape
 import com.shawnrain.habe.ui.theme.bezierRoundedShape
-import androidx.compose.runtime.saveable.rememberSaveable
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.common.InputImage
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,6 +102,9 @@ fun SettingsScreen(
     val vehicleProfiles by viewModel.vehicleProfiles.collectAsState()
     val currentVehicle by viewModel.currentVehicle.collectAsState()
     val gpsCalibrationState by viewModel.gpsCalibrationState.collectAsState()
+    val lanBackupShare by viewModel.lanBackupShare.collectAsState()
+    val lanBackupRestoring by viewModel.lanBackupRestoring.collectAsState()
+    val lanBackupMessage by viewModel.lanBackupMessage.collectAsState()
 
     var expandSpeedSource by remember { mutableStateOf(false) }
     var expandBattSource by remember { mutableStateOf(false) }
@@ -66,24 +112,62 @@ fun SettingsScreen(
     var editingVehicle by remember { mutableStateOf<VehicleProfile?>(null) }
     var creatingVehicle by remember { mutableStateOf(false) }
     var deletingVehicle by remember { mutableStateOf<VehicleProfile?>(null) }
+    var lanRestoreHost by remember { mutableStateOf("") }
+    var lanRestorePort by remember { mutableStateOf("") }
+    var lanRestoreCode by remember { mutableStateOf("") }
+    var showLanQrDialog by remember { mutableStateOf(false) }
+    var showLanScannerDialog by remember { mutableStateOf(false) }
+    val qrPayload = remember(lanBackupShare) { viewModel.currentLanBackupQrPayload() }
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            showLanScannerDialog = true
+        } else {
+            viewModel.showLanBackupMessage("未授予相机权限，无法扫码迁移")
+        }
+    }
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(lanBackupMessage) {
+        val message = lanBackupMessage ?: return@LaunchedEffect
+        snackbarHostState.currentSnackbarData?.dismiss()
+        snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
+        viewModel.clearLanBackupMessage()
+    }
+    LaunchedEffect(lanBackupShare.isSharing) {
+        if (!lanBackupShare.isSharing) {
+            showLanQrDialog = false
+        }
+    }
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0.dp),
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.padding(16.dp)
+            )
+        }
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
-                .verticalScroll(rememberScrollState())
                 .padding(innerPadding)
-                .padding(24.dp)
         ) {
-            Text(
-                text = "设置",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onBackground
+            P2PageHeader(
+                title = "设置",
+                subtitle = "当前活跃车辆「${currentVehicle.name}」",
+                modifier = Modifier.fillMaxWidth()
             )
-            Spacer(modifier = Modifier.height(20.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp)
+            ) {
+            Spacer(modifier = Modifier.height(8.dp))
 
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(
@@ -181,7 +265,7 @@ fun SettingsScreen(
                 ) {
                     Text("GPS 轮径校准", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                     Text(
-                        "保留在设置一级界面。保存时会直接应用到当前活跃车辆：${currentVehicle.name}",
+                        "保存后会直接应用到当前活跃车辆：${currentVehicle.name}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -228,7 +312,12 @@ fun SettingsScreen(
                             modifier = Modifier.weight(1f),
                             shape = bezierPillShape()
                         ) {
-                            Text(if (gpsCalibrationState.isRunning) "停止校准" else "开始校准")
+                            Text(
+                                text = if (gpsCalibrationState.isRunning) "停止校准" else "开始校准",
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                         Button(
                             onClick = { viewModel.applyGpsCalibrationSuggestion() },
@@ -236,7 +325,12 @@ fun SettingsScreen(
                             modifier = Modifier.weight(1f),
                             shape = bezierPillShape()
                         ) {
-                            Text("应用到当前车辆")
+                            Text(
+                                text = "应用",
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
@@ -256,7 +350,7 @@ fun SettingsScreen(
                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         Icon(Icons.Default.BatteryChargingFull, contentDescription = "BMS", tint = MaterialTheme.colorScheme.onPrimaryContainer)
                         Spacer(modifier = Modifier.width(16.dp))
-                        Text("电池信息与 BMS", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text("电池与BMS", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     }
                     Icon(Icons.Default.ChevronRight, contentDescription = "Enter", tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
@@ -278,7 +372,7 @@ fun SettingsScreen(
                         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                             Icon(Icons.Default.Settings, contentDescription = "Zhike", tint = MaterialTheme.colorScheme.onSecondaryContainer)
                             Spacer(modifier = Modifier.width(16.dp))
-                            Text("智科控制器参数设置", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                            Text("智科调校", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
                         }
                         Icon(Icons.Default.ChevronRight, contentDescription = "Enter", tint = MaterialTheme.colorScheme.onSecondaryContainer)
                     }
@@ -439,6 +533,189 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("换机助手", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "支持同一局域网下设备直接迁移 App 资料。旧设备开启发送，新设备输入地址、端口和配对码后可立即恢复。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    AnimatedContent(
+                        targetState = lanBackupShare.isSharing,
+                        transitionSpec = {
+                            (
+                                fadeIn(
+                                    animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing)
+                                ) + slideInVertically(
+                                    animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+                                    initialOffsetY = { fullHeight -> fullHeight / 5 }
+                                )
+                            ).togetherWith(
+                                fadeOut(
+                                    animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing)
+                                ) + slideOutVertically(
+                                    animationSpec = tween(durationMillis = 220, easing = FastOutLinearInEasing),
+                                    targetOffsetY = { fullHeight -> -fullHeight / 6 }
+                                )
+                            ).using(SizeTransform(clip = false))
+                        },
+                        label = "LanShareStateSwap"
+                    ) { isSharing ->
+                        if (isSharing) {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = MaterialTheme.shapes.medium,
+                                    color = MaterialTheme.colorScheme.primaryContainer
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            "发送中：${lanBackupShare.host}:${lanBackupShare.port}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                        Text(
+                                            "配对码：${lanBackupShare.code}",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    }
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { showLanQrDialog = true },
+                                        shape = bezierPillShape(),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.QrCode2, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("显示二维码")
+                                    }
+                                    OutlinedButton(
+                                        onClick = { viewModel.stopLanBackupShare() },
+                                        shape = bezierPillShape(),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("停止发送")
+                                    }
+                                }
+                            }
+                        } else {
+                            FilledTonalButton(
+                                onClick = { viewModel.startLanBackupShare() },
+                                shape = bezierPillShape()
+                            ) {
+                                Text("开启局域网发送")
+                            }
+                        }
+                    }
+
+                    HorizontalDivider()
+
+                    Text("在本设备恢复", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                    AnimatedVisibility(
+                        visible = lanBackupRestoring,
+                        enter = fadeIn(
+                            animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing)
+                        ) + slideInVertically(
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            initialOffsetY = { fullHeight -> fullHeight / 3 }
+                        ),
+                        exit = fadeOut(
+                            animationSpec = tween(durationMillis = 160, easing = FastOutLinearInEasing)
+                        ) + slideOutVertically(
+                            animationSpec = tween(durationMillis = 220, easing = FastOutLinearInEasing),
+                            targetOffsetY = { fullHeight -> -fullHeight / 4 }
+                        )
+                    ) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.2.dp
+                                )
+                                Text(
+                                    text = "正在从旧设备恢复数据，请保持网络稳定…",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            val granted = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.CAMERA
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (granted) {
+                                showLanScannerDialog = true
+                            } else {
+                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        },
+                        shape = bezierPillShape()
+                    ) {
+                        Icon(Icons.Default.QrCodeScanner, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("扫码迁移")
+                    }
+                    OutlinedTextField(
+                        value = lanRestoreHost,
+                        onValueChange = { lanRestoreHost = it.trim() },
+                        label = { Text("旧设备地址") },
+                        supportingText = { Text("示例：192.168.1.23") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = lanRestorePort,
+                        onValueChange = { lanRestorePort = it.filter(Char::isDigit) },
+                        label = { Text("端口") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = lanRestoreCode,
+                        onValueChange = { lanRestoreCode = it.filter(Char::isDigit).take(6) },
+                        label = { Text("配对码") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(
+                        onClick = {
+                            viewModel.restoreFromLanBackup(
+                                host = lanRestoreHost,
+                                portText = lanRestorePort,
+                                code = lanRestoreCode
+                            )
+                        },
+                        enabled = !lanBackupRestoring,
+                        shape = bezierPillShape()
+                    ) {
+                        Text("立即恢复")
+                    }
+
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.large,
@@ -456,7 +733,36 @@ fun SettingsScreen(
                     )
                 }
             }
+            }
         }
+    }
+
+    if (showLanQrDialog && qrPayload != null) {
+        LanBackupQrDialog(
+            payload = qrPayload,
+            onDismiss = { showLanQrDialog = false }
+        )
+    }
+    if (showLanScannerDialog) {
+        LanBackupScanDialog(
+            onDismiss = { showLanScannerDialog = false },
+            onScanResult = { raw ->
+                val payload = LanBackupQrPayload.decode(raw)
+                if (payload == null) {
+                    viewModel.showLanBackupMessage("二维码无效：不是 Habe 换机码")
+                } else {
+                    showLanScannerDialog = false
+                    lanRestoreHost = payload.host
+                    lanRestorePort = payload.port.toString()
+                    lanRestoreCode = payload.code
+                    viewModel.restoreFromLanBackup(
+                        host = payload.host,
+                        portText = payload.port.toString(),
+                        code = payload.code
+                    )
+                }
+            }
+        )
     }
 
     if (creatingVehicle || editingVehicle != null) {
@@ -501,6 +807,365 @@ fun SettingsScreen(
             }
         )
     }
+}
+
+@Composable
+private fun LanBackupScanDialog(
+    onDismiss: () -> Unit,
+    onScanResult: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val scanExecutor = remember { Executors.newSingleThreadExecutor() }
+    val scanOptions = remember {
+        com.google.mlkit.vision.barcode.BarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+            .build()
+    }
+    val barcodeScanner = remember(scanOptions) { BarcodeScanning.getClient(scanOptions) }
+    val consumed = remember { AtomicBoolean(false) }
+    val cameraController = remember(context) {
+        LifecycleCameraController(context).apply {
+            cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+            setEnabledUseCases(CameraController.IMAGE_ANALYSIS)
+            imageAnalysisBackpressureStrategy = ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
+        }
+    }
+    var bindError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val enterDurationMs = 320
+    val exitDurationMs = 220
+    var isDialogVisible by remember { mutableStateOf(false) }
+    var dismissInFlight by remember { mutableStateOf(false) }
+    val entryProgress by animateFloatAsState(
+        targetValue = if (isDialogVisible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (isDialogVisible) enterDurationMs else exitDurationMs,
+            easing = if (isDialogVisible) FastOutSlowInEasing else FastOutLinearInEasing
+        ),
+        label = "LanBackupScanDialogEntry"
+    )
+
+    fun requestDismiss() {
+        if (dismissInFlight) return
+        dismissInFlight = true
+        isDialogVisible = false
+        scope.launch {
+            kotlinx.coroutines.delay(exitDurationMs.toLong())
+            onDismiss()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        dismissInFlight = false
+        isDialogVisible = true
+    }
+
+    DisposableEffect(Unit) {
+        runCatching {
+            cameraController.bindToLifecycle(lifecycleOwner)
+            cameraController.setImageAnalysisAnalyzer(scanExecutor) { imageProxy ->
+                val mediaImage = imageProxy.image
+                if (mediaImage == null || consumed.get()) {
+                    imageProxy.close()
+                    return@setImageAnalysisAnalyzer
+                }
+                val image = InputImage.fromMediaImage(
+                    mediaImage,
+                    imageProxy.imageInfo.rotationDegrees
+                )
+                barcodeScanner.process(image)
+                    .addOnSuccessListener { barcodes ->
+                        if (consumed.get()) return@addOnSuccessListener
+                        val raw = barcodes
+                            .firstNotNullOfOrNull { it.rawValue?.trim() }
+                            ?.takeIf { it.isNotBlank() }
+                        if (raw != null && consumed.compareAndSet(false, true)) {
+                            onScanResult(raw)
+                        }
+                    }
+                    .addOnFailureListener {
+                        // Keep scanning; occasional frame decode failures are expected.
+                    }
+                    .addOnCompleteListener {
+                        imageProxy.close()
+                    }
+            }
+            bindError = null
+        }.onFailure {
+            bindError = "相机绑定失败"
+        }
+        onDispose {
+            runCatching { cameraController.clearImageAnalysisAnalyzer() }
+            runCatching { cameraController.unbind() }
+            runCatching { barcodeScanner.close() }
+            scanExecutor.shutdown()
+        }
+    }
+
+    Dialog(
+        onDismissRequest = ::requestDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        ApplyDialogWindowBlurEffect(blurRadius = 28.dp)
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            val density = LocalDensity.current
+            val motion = rememberPredictiveBackMotion(
+                width = maxWidth,
+                onBack = ::requestDismiss,
+                maxHorizontalInset = 10.dp,
+                maxVerticalInset = 8.dp,
+                maxCorner = 16.dp,
+                maxScaleTravelFraction = 0.1f
+            )
+            val scale = 1f - (0.045f * motion.progress)
+            PopupBackdropBlurLayer(
+                blurRadius = 28.dp,
+                scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.24f * entryProgress),
+                onDismissRequest = ::requestDismiss
+            )
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 460.dp)
+                    .padding(horizontal = 24.dp)
+                    .padding(horizontal = motion.insetHorizontal, vertical = motion.insetVertical)
+                    .graphicsLayer {
+                        translationX = motion.translationX
+                        translationY = with(density) { (1f - entryProgress) * 24.dp.toPx() } + motion.insetVertical.toPx()
+                        scaleX = scale * (0.95f + 0.05f * entryProgress)
+                        scaleY = scale * (0.95f + 0.05f * entryProgress)
+                        alpha = motion.alpha * entryProgress
+                    },
+                shape = bezierRoundedShape(28.dp + motion.corner),
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("扫码迁移", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "请将旧设备的换机二维码放入取景框内，支持连续自动对焦。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.large,
+                        color = Color.Black
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(3f / 4f)
+                                .clip(MaterialTheme.shapes.large)
+                                .background(Color.Black)
+                        ) {
+                            AndroidView(
+                                factory = { ctx ->
+                                    PreviewView(ctx).apply {
+                                        scaleType = PreviewView.ScaleType.FILL_CENTER
+                                        // Use TextureView path so preview participates in the same
+                                        // transform stack as the dialog card animation.
+                                        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                                        setBackgroundColor(AndroidColor.BLACK)
+                                        controller = cameraController
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        // Force a slight crop to hide device-specific letterboxing strips.
+                                        scaleX = 1.08f
+                                        scaleY = 1.08f
+                                    }
+                            )
+                        }
+                    }
+                    bindError?.let { message ->
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Button(
+                        onClick = ::requestDismiss,
+                        shape = bezierPillShape(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("取消")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LanBackupQrDialog(
+    payload: String,
+    onDismiss: () -> Unit
+) {
+    val clipboardManager = LocalClipboardManager.current
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val enterDurationMs = 320
+    val exitDurationMs = 220
+    var isDialogVisible by remember(payload) { mutableStateOf(false) }
+    var dismissInFlight by remember(payload) { mutableStateOf(false) }
+    val entryProgress by animateFloatAsState(
+        targetValue = if (isDialogVisible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (isDialogVisible) enterDurationMs else exitDurationMs,
+            easing = if (isDialogVisible) FastOutSlowInEasing else FastOutLinearInEasing
+        ),
+        label = "LanBackupQrDialogEntry"
+    )
+    val qrBitmap = remember(payload) {
+        generateLanBackupQrBitmap(payload = payload, sizePx = 900)
+    }
+
+    fun requestDismiss() {
+        if (dismissInFlight) return
+        dismissInFlight = true
+        isDialogVisible = false
+        scope.launch {
+            kotlinx.coroutines.delay(exitDurationMs.toLong())
+            onDismiss()
+        }
+    }
+
+    LaunchedEffect(payload) {
+        dismissInFlight = false
+        isDialogVisible = true
+    }
+
+    Dialog(
+        onDismissRequest = ::requestDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        ApplyDialogWindowBlurEffect(blurRadius = 28.dp)
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            val motion = rememberPredictiveBackMotion(
+                width = maxWidth,
+                onBack = ::requestDismiss,
+                maxHorizontalInset = 10.dp,
+                maxVerticalInset = 8.dp,
+                maxCorner = 16.dp,
+                maxScaleTravelFraction = 0.1f
+            )
+            val scale = 1f - (0.045f * motion.progress)
+            PopupBackdropBlurLayer(
+                blurRadius = 28.dp,
+                scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.24f * entryProgress),
+                onDismissRequest = ::requestDismiss
+            )
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 420.dp)
+                    .padding(horizontal = 24.dp)
+                    .padding(horizontal = motion.insetHorizontal, vertical = motion.insetVertical)
+                    .graphicsLayer {
+                        translationX = motion.translationX
+                        translationY = with(density) { (1f - entryProgress) * 26.dp.toPx() } + motion.insetVertical.toPx()
+                        scaleX = scale * (0.94f + 0.06f * entryProgress)
+                        scaleY = scale * (0.94f + 0.06f * entryProgress)
+                        alpha = motion.alpha * entryProgress
+                    },
+                shape = bezierRoundedShape(28.dp + motion.corner),
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text("换机二维码", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "新设备在“换机助手”里点“扫码迁移”即可自动恢复。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (qrBitmap != null) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.large,
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f)
+                        ) {
+                            Image(
+                                bitmap = qrBitmap.asImageBitmap(),
+                                contentDescription = "换机二维码",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .padding(4.dp)
+                            )
+                        }
+                    } else {
+                        Text(
+                            "二维码生成失败，请改用手动输入地址、端口、配对码。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                clipboardManager.setText(AnnotatedString(payload))
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = bezierPillShape()
+                        ) {
+                            Text("复制字符串")
+                        }
+                        Button(
+                            onClick = ::requestDismiss,
+                            modifier = Modifier.weight(1f),
+                            shape = bezierPillShape()
+                        ) {
+                            Text("完成")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun generateLanBackupQrBitmap(payload: String, sizePx: Int): Bitmap? {
+    if (payload.isBlank() || sizePx < 120) return null
+    return runCatching {
+        val hints = mapOf(
+            EncodeHintType.MARGIN to 0,
+            EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M
+        )
+        val matrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, sizePx, sizePx, hints)
+        val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+        for (x in 0 until sizePx) {
+            for (y in 0 until sizePx) {
+                bitmap.setPixel(x, y, if (matrix[x, y]) AndroidColor.BLACK else AndroidColor.WHITE)
+            }
+        }
+        bitmap
+    }.getOrNull()
 }
 
 @Composable

@@ -1,0 +1,129 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.2.3). Leave empty to auto-generate."
+        required: false
+        type: string
+      prerelease:
+        description: "Mark as prerelease"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    env:
+      CI: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Resolve tag
+        id: meta
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="${{ github.event.inputs.tag }}"
+            if [[ -z "${TAG}" ]]; then
+              TAG="v$(date +'%Y.%m.%d-%H%M')"
+            fi
+          fi
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "name=Habe Dashboard ${TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate release signing secrets
+        env:
+          HABE_RELEASE_STORE_FILE_BASE64: ${{ secrets.HABE_RELEASE_STORE_FILE_BASE64 }}
+          HABE_RELEASE_STORE_PASSWORD: ${{ secrets.HABE_RELEASE_STORE_PASSWORD }}
+          HABE_RELEASE_KEY_ALIAS: ${{ secrets.HABE_RELEASE_KEY_ALIAS }}
+          HABE_RELEASE_KEY_PASSWORD: ${{ secrets.HABE_RELEASE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          missing=0
+          [[ -z "${HABE_RELEASE_STORE_FILE_BASE64}" ]] && echo "Missing required secret: HABE_RELEASE_STORE_FILE_BASE64" >&2 && missing=1
+          [[ -z "${HABE_RELEASE_STORE_PASSWORD}" ]] && echo "Missing required secret: HABE_RELEASE_STORE_PASSWORD" >&2 && missing=1
+          [[ -z "${HABE_RELEASE_KEY_ALIAS}" ]] && echo "Missing required secret: HABE_RELEASE_KEY_ALIAS" >&2 && missing=1
+          [[ -z "${HABE_RELEASE_KEY_PASSWORD}" ]] && echo "Missing required secret: HABE_RELEASE_KEY_PASSWORD" >&2 && missing=1
+          if [[ "${missing}" -ne 0 ]]; then
+            echo "Release workflow requires complete signing secrets to produce signed artifacts." >&2
+            exit 1
+          fi
+
+      - name: Prepare release signing
+        id: signing
+        shell: bash
+        run: |
+          STORE_FILE="${RUNNER_TEMP}/habe-release.jks"
+          echo "${{ secrets.HABE_RELEASE_STORE_FILE_BASE64 }}" | base64 --decode > "${STORE_FILE}"
+          echo "HABE_RELEASE_STORE_FILE=${STORE_FILE}" >> "${GITHUB_ENV}"
+          echo "HABE_RELEASE_STORE_PASSWORD=${{ secrets.HABE_RELEASE_STORE_PASSWORD }}" >> "${GITHUB_ENV}"
+          echo "HABE_RELEASE_KEY_ALIAS=${{ secrets.HABE_RELEASE_KEY_ALIAS }}" >> "${GITHUB_ENV}"
+          echo "HABE_RELEASE_KEY_PASSWORD=${{ secrets.HABE_RELEASE_KEY_PASSWORD }}" >> "${GITHUB_ENV}"
+          echo "signed=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Build release APK
+        shell: bash
+        run: ./gradlew :app:assembleRelease --console plain
+
+      - name: Collect artifact path
+        id: artifact
+        shell: bash
+        run: |
+          APK_PATH="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' ! -name '*-unsigned.apk' | head -n 1)"
+          if [[ -z "${APK_PATH}" ]]; then
+            echo "No signed APK found under app/build/outputs/apk/release" >&2
+            exit 1
+          fi
+          cp "${APK_PATH}" "habe-${{ steps.meta.outputs.tag }}-release.apk"
+          SHA256="$(sha256sum "habe-${{ steps.meta.outputs.tag }}-release.apk" | awk '{print $1}')"
+          printf '%s  %s\n' "${SHA256}" "habe-${{ steps.meta.outputs.tag }}-release.apk" > "habe-${{ steps.meta.outputs.tag }}-release.sha256"
+          echo "apk=${APK_PATH}" >> "${GITHUB_OUTPUT}"
+          echo "apk_copy=habe-${{ steps.meta.outputs.tag }}-release.apk" >> "${GITHUB_OUTPUT}"
+          echo "sha_copy=habe-${{ steps.meta.outputs.tag }}-release.sha256" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload signed release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: habe-${{ steps.meta.outputs.tag }}-signed
+          path: |
+            ${{ steps.artifact.outputs.apk_copy }}
+            ${{ steps.artifact.outputs.sha_copy }}
+          if-no-files-found: error
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
+          generate_release_notes: true
+          make_latest: true
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          files: |
+            ${{ steps.artifact.outputs.apk_copy }}
+            ${{ steps.artifact.outputs.sha_copy }}
+          body: |
+            Automated Android release from GitHub Actions.
+
+            Signed APK: `${{ steps.signing.outputs.signed }}`

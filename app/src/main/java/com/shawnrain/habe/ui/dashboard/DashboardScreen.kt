@@ -103,10 +103,10 @@ fun formatMetricValue(type: MetricType, metrics: VehicleMetrics): String {
         MetricType.SOC -> String.format("%.0f", metrics.soc)
         MetricType.RANGE -> String.format("%.1f", metrics.estimatedRangeKm)
         MetricType.RPM -> String.format("%.0f", metrics.rpm)
-        MetricType.EFFICIENCY -> String.format("%.1f", metrics.efficiencyWhKm)
+        MetricType.EFFICIENCY -> String.format("%.1f", metrics.avgEfficiencyWhKm)
         MetricType.TRIP_DISTANCE -> String.format("%.2f", metrics.tripDistance)
         MetricType.TOTAL_ENERGY -> String.format("%.1f", metrics.totalEnergyWh)
-        MetricType.PEAK_REGEN_POWER -> String.format("%.1f", metrics.peakRegenPowerKw)
+        MetricType.PEAK_REGEN_POWER -> String.format("%.0f", metrics.peakRegenPowerKw * 1000f)
         MetricType.RECOVERED_ENERGY -> String.format("%.1f", metrics.recoveredEnergyWh)
     }
 }

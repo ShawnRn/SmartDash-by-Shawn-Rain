@@ -27,6 +27,7 @@ class RideEnergyEstimator {
         private const val CURRENT_STEP_THRESHOLD_A = 10f
         private const val STATIONARY_CURRENT_THRESHOLD_A = 1f
         private const val STATIONARY_RECALIBRATION_MS = 2 * 60 * 1000L
+        private const val STATIONARY_STRONG_RECALIBRATION_MS = 4 * 60 * 1000L
         private const val RANGE_WINDOW_DISTANCE_KM = 2.0
         private const val MIN_RANGE_WINDOW_DISTANCE_KM = 0.2
     }
@@ -80,11 +81,13 @@ class RideEnergyEstimator {
         distanceKm: Double,
         batterySeries: Int,
         batteryCapacityAh: Float,
+        usableEnergyRatio: Float,
         fallbackSocPercent: Float?,
         nowMs: Long
     ): RideEnergyEstimate {
         val safeSeries = batterySeries.coerceAtLeast(1)
         val safeCapacityAh = batteryCapacityAh.coerceAtLeast(1f)
+        val safeUsableRatio = usableEnergyRatio.coerceIn(0.72f, 0.98f)
 
         filteredVoltage = if (filteredVoltage.isNaN()) rawVoltage else ema(filteredVoltage, rawVoltage)
         filteredCurrent = if (filteredCurrent.isNaN()) rawCurrent else ema(filteredCurrent, rawCurrent)
@@ -118,12 +121,18 @@ class RideEnergyEstimator {
         val (wAh, wOcv) = weightsForCurrent(abs(filteredCurrent), nowMs)
         val fusedSoc = ((socByAhPercent * wAh) + (socByOcvPercent * wOcv)).coerceIn(0f, 100f)
 
-        displayedSocPercent = when {
-            displayedSocPercent.isNaN() -> fusedSoc
-            filteredCurrent < -1f -> min(displayedSocPercent, fusedSoc)
-            abs(filteredCurrent) > 8f -> min(displayedSocPercent, socByAhPercent)
-            else -> min(displayedSocPercent, fusedSoc)
-        }
+        val targetSoc = when {
+            abs(filteredCurrent) > 8f -> socByAhPercent
+            else -> fusedSoc
+        }.coerceIn(0f, 100f)
+        displayedSocPercent = updateDisplayedSoc(
+            previousSoc = displayedSocPercent,
+            targetSoc = targetSoc,
+            absCurrent = abs(filteredCurrent),
+            current = filteredCurrent,
+            dtSeconds = dtSeconds,
+            nowMs = nowMs
+        )
 
         updateRangeWindow(distanceKm = distanceKm, consumedEnergyWh = consumedPositiveEnergyWh)
 
@@ -132,7 +141,8 @@ class RideEnergyEstimator {
         } else {
             0f
         }
-        val remainingEnergyWh = (displayedSocPercent / 100f) * safeCapacityAh * nominalPackVoltage(safeSeries)
+        val nominalPackEnergyWh = safeCapacityAh * nominalPackVoltage(safeSeries)
+        val remainingEnergyWh = (displayedSocPercent / 100f) * nominalPackEnergyWh * safeUsableRatio
         val estimatedRangeKm = if (averageWindowEfficiencyWhKm > 0.1f) {
             (remainingEnergyWh / averageWindowEfficiencyWhKm).coerceAtLeast(0f)
         } else {
@@ -187,6 +197,44 @@ class RideEnergyEstimator {
             absCurrent <= 15f -> 0.97f to 0.03f
             else -> 0.995f to 0.005f
         }
+    }
+
+    private fun updateDisplayedSoc(
+        previousSoc: Float,
+        targetSoc: Float,
+        absCurrent: Float,
+        current: Float,
+        dtSeconds: Double,
+        nowMs: Long
+    ): Float {
+        if (previousSoc.isNaN()) return targetSoc
+        val safeDt = dtSeconds.coerceIn(0.0, 5.0).toFloat().takeIf { it > 0f } ?: 0.25f
+        val stationaryDurationMs = if (stationarySinceMs > 0L) {
+            (nowMs - stationarySinceMs).coerceAtLeast(0L)
+        } else {
+            0L
+        }
+
+        val maxDropPerSecond = when {
+            absCurrent >= 35f -> 2.6f
+            absCurrent >= 18f -> 1.5f
+            else -> 0.9f
+        }
+        val maxRisePerSecond = when {
+            stationaryDurationMs >= STATIONARY_STRONG_RECALIBRATION_MS -> 1.3f
+            stationaryDurationMs >= STATIONARY_RECALIBRATION_MS -> 0.9f
+            current <= -2f -> 0.6f
+            absCurrent <= 2f -> 0.25f
+            else -> 0.08f
+        }
+
+        val delta = targetSoc - previousSoc
+        val next = if (delta < 0f) {
+            previousSoc + max(delta, -(maxDropPerSecond * safeDt))
+        } else {
+            previousSoc + min(delta, maxRisePerSecond * safeDt)
+        }
+        return next.coerceIn(0f, 100f)
     }
 
     private fun updateRangeWindow(distanceKm: Double, consumedEnergyWh: Double) {
@@ -247,18 +295,24 @@ class RideEnergyEstimator {
         }
         val table = listOf(
             4.20f to 100f,
-            4.10f to 92f,
-            4.00f to 82f,
-            3.92f to 72f,
-            3.85f to 62f,
-            3.79f to 52f,
-            3.73f to 42f,
-            3.68f to 32f,
-            3.63f to 22f,
-            3.58f to 14f,
+            4.15f to 96f,
+            4.10f to 91f,
+            4.05f to 85f,
+            4.00f to 78f,
+            3.95f to 71f,
+            3.90f to 63f,
+            3.85f to 55f,
+            3.80f to 47f,
+            3.75f to 39f,
+            3.70f to 31f,
+            3.65f to 24f,
+            3.60f to 17f,
+            3.55f to 12f,
             3.50f to 8f,
+            3.45f to 5f,
             3.40f to 3f,
-            3.30f to 0f
+            3.30f to 1f,
+            3.20f to 0f
         )
         if (cellVoltage >= table.first().first) return table.first().second
         if (cellVoltage <= table.last().first) return table.last().second

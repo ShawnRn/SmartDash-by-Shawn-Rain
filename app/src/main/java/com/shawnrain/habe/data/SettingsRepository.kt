@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.map
 val Context.dataStore by preferencesDataStore(name = "habe_settings")
 
 enum class MetricType(val title: String, val unit: String) {
+    SPEED("速度", "km/h"),
     VOLTAGE("电压", "V"),
     VOLTAGE_SAG("压降", "V"),
     BUS_CURRENT("母线电流", "A"),
@@ -160,11 +161,14 @@ class SettingsRepository(private val context: Context) {
     val dashboardItems: Flow<List<MetricType>> = currentVehicleId.flatMapLatest { id ->
         preferencesFlow.map { pref ->
             val raw = pref.safeGet(vKey(id, K_DASH_ITEMS))
-            if (raw.isNullOrEmpty()) {
+            val resolved = if (raw.isNullOrEmpty()) {
                 listOf(MetricType.SOC, MetricType.RANGE, MetricType.POWER, MetricType.EFFICIENCY)
             } else {
                 raw.split(",").mapNotNull { try { MetricType.valueOf(it) } catch (e: Exception) { null } }
             }
+            resolved
+                .filterNot { it == MetricType.MOTOR_TEMP }
+                .ifEmpty { listOf(MetricType.SOC, MetricType.RANGE, MetricType.POWER, MetricType.EFFICIENCY) }
         }
     }
 
@@ -251,7 +255,8 @@ class SettingsRepository(private val context: Context) {
                     polePairs = profile.polePairs.coerceAtLeast(1),
                     totalMileageKm = profile.totalMileageKm.coerceAtLeast(0f),
                     learnedInternalResistanceOhm = profile.learnedInternalResistanceOhm.coerceAtLeast(0f),
-                    learnedEfficiencyWhKm = profile.learnedEfficiencyWhKm.coerceAtLeast(0f)
+                    learnedEfficiencyWhKm = profile.learnedEfficiencyWhKm.coerceAtLeast(0f),
+                    learnedUsableEnergyRatio = profile.learnedUsableEnergyRatio.coerceIn(0.72f, 0.98f)
                 )
             }
             .distinctBy { it.id }
@@ -276,7 +281,8 @@ class SettingsRepository(private val context: Context) {
             polePairs = profile.polePairs.coerceAtLeast(1),
             totalMileageKm = profile.totalMileageKm.coerceAtLeast(0f),
             learnedInternalResistanceOhm = profile.learnedInternalResistanceOhm.coerceAtLeast(0f),
-            learnedEfficiencyWhKm = profile.learnedEfficiencyWhKm.coerceAtLeast(0f)
+            learnedEfficiencyWhKm = profile.learnedEfficiencyWhKm.coerceAtLeast(0f),
+            learnedUsableEnergyRatio = profile.learnedUsableEnergyRatio.coerceIn(0.72f, 0.98f)
         )
         val existingIndex = current.indexOfFirst { it.id == normalized.id }
         if (existingIndex >= 0) {
@@ -358,7 +364,8 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveDashboardItems(items: List<MetricType>) {
         val id = currentVehicleId.first()
-        context.dataStore.edit { it[vKey(id, K_DASH_ITEMS)] = items.joinToString(",") { it.name } }
+        val sanitized = items.filterNot { it == MetricType.MOTOR_TEMP }
+        context.dataStore.edit { it[vKey(id, K_DASH_ITEMS)] = sanitized.joinToString(",") { it.name } }
     }
 
     suspend fun saveRideOverviewItems(items: List<MetricType>) {

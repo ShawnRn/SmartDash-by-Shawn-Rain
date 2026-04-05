@@ -7,12 +7,21 @@
 package com.shawnrain.habe.ui.speedtest
 
 import android.graphics.Paint
+import android.content.Context
 import android.content.Intent
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -195,6 +204,9 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         pageCount = { SpeedPageTab.entries.size }
     )
     val rideSelectionMode = selectedRideIds.isNotEmpty()
+    BackHandler(enabled = rideSelectionMode) {
+        selectedRideIds = emptySet()
+    }
 
     LaunchedEffect(speedTestSession.statusText) {
         if (!speedTestSession.isActive && speedTestSession.statusText.isNotBlank() && speedTestSession.statusText != "等待开始") {
@@ -558,7 +570,6 @@ private fun LiveTelemetryGrid(metrics: com.shawnrain.habe.ble.VehicleMetrics) {
         MetricCardData("压降", metricOf(metrics.voltageSag, "V")),
         MetricCardData("母线电流", metricOf(metrics.busCurrent, "A")),
         MetricCardData("相电流", metricOf(metrics.phaseCurrent, "A")),
-        MetricCardData("电机温度", metricOf(metrics.motorTemp, "°C")),
         MetricCardData("控制器温度", metricOf(metrics.controllerTemp, "°C")),
         MetricCardData("转速", metricOf(metrics.rpm, "rpm"))
     )
@@ -874,6 +885,8 @@ private fun RideHistoryDetailLayer(
 ) {
     val scope = rememberCoroutineScope()
     var fullscreenMetric by remember(record.id) { mutableStateOf<RideChartMetric?>(null) }
+    var multiCompareMetrics by remember(record.id) { mutableStateOf<List<RideChartMetric>>(emptyList()) }
+    var selectedCompareMetrics by remember(record.id) { mutableStateOf<Set<RideChartMetric>>(emptySet()) }
     var showShareActions by remember(record.id) { mutableStateOf(false) }
     var dismissDragOffset by remember(record.id) { mutableFloatStateOf(0f) }
     val samples = remember(record.id, record.samples) { normalizeRideDetailSamples(record) }
@@ -905,6 +918,9 @@ private fun RideHistoryDetailLayer(
             onDismiss()
         }
     }
+    fun clearCompareSelection() {
+        selectedCompareMetrics = emptySet()
+    }
 
     LaunchedEffect(record.id) {
         isSheetVisible = true
@@ -913,8 +929,18 @@ private fun RideHistoryDetailLayer(
         heavySectionsReady = true
     }
 
+    BackHandler(enabled = selectedCompareMetrics.isNotEmpty()) {
+        clearCompareSelection()
+    }
+
     Dialog(
-        onDismissRequest = ::requestDismiss,
+        onDismissRequest = {
+            if (selectedCompareMetrics.isNotEmpty()) {
+                clearCompareSelection()
+            } else {
+                requestDismiss()
+            }
+        },
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
         ApplyDialogWindowBlurEffect(blurRadius = 28.dp, fullscreen = true)
@@ -934,7 +960,13 @@ private fun RideHistoryDetailLayer(
             
             val motion = rememberPredictiveBackMotion(
                 width = screenWidth,
-                onBack = ::requestDismiss,
+                onBack = {
+                    if (selectedCompareMetrics.isNotEmpty()) {
+                        clearCompareSelection()
+                    } else {
+                        requestDismiss()
+                    }
+                },
                 maxHorizontalInset = 10.dp,
                 maxVerticalInset = 8.dp,
                 maxCorner = 20.dp,
@@ -979,35 +1011,98 @@ private fun RideHistoryDetailLayer(
                 shape = bezierRoundedShape(32.dp + motion.corner),
                 color = MaterialTheme.colorScheme.background
             ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 16.dp, bottom = 8.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Column(modifier = Modifier.fillMaxSize()) {
                         Box(
                             modifier = Modifier
-                                .width(44.dp)
-                                .height(5.dp)
-                                .background(
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                    shape = bezierPillShape()
-                                )
+                                .fillMaxWidth()
+                                .padding(top = 16.dp, bottom = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(44.dp)
+                                    .height(5.dp)
+                                    .background(
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                        shape = bezierPillShape()
+                                    )
+                            )
+                        }
+                        RideHistoryDetailBody(
+                            record = record,
+                            samples = samples,
+                            overviewCards = overviewCards,
+                            heavySectionsReady = heavySectionsReady,
+                            selectedIndex = selectedIndex,
+                            onSelectIndex = { selectedIndex = it },
+                            navigationBottomInset = navigationBottomInset,
+                            selectedCompareMetrics = selectedCompareMetrics,
+                            onMetricClick = { metric ->
+                                if (selectedCompareMetrics.isNotEmpty()) {
+                                    selectedCompareMetrics = if (metric in selectedCompareMetrics) {
+                                        selectedCompareMetrics - metric
+                                    } else {
+                                        selectedCompareMetrics + metric
+                                    }
+                                } else {
+                                    fullscreenMetric = metric
+                                }
+                            },
+                            onMetricLongPress = { metric ->
+                                selectedCompareMetrics = if (metric in selectedCompareMetrics) {
+                                    selectedCompareMetrics - metric
+                                } else {
+                                    selectedCompareMetrics + metric
+                                }
+                            },
+                            onShowShare = { showShareActions = true },
+                            onDismiss = ::requestDismiss
                         )
                     }
-                    RideHistoryDetailBody(
-                        record = record,
-                        samples = samples,
-                        overviewCards = overviewCards,
-                        heavySectionsReady = heavySectionsReady,
-                        selectedIndex = selectedIndex,
-                        onSelectIndex = { selectedIndex = it },
-                        navigationBottomInset = navigationBottomInset,
-                        onMetricClick = { fullscreenMetric = it },
-                        onShowShare = { showShareActions = true },
-                        onDismiss = ::requestDismiss
-                    )
+
+                    AnimatedVisibility(
+                        visible = selectedCompareMetrics.isNotEmpty(),
+                        enter = fadeIn(animationSpec = tween(180, easing = FastOutSlowInEasing)) +
+                            expandVertically(expandFrom = Alignment.Bottom, animationSpec = tween(220, easing = FastOutSlowInEasing)),
+                        exit = fadeOut(animationSpec = tween(140, easing = FastOutLinearInEasing)) +
+                            shrinkVertically(shrinkTowards = Alignment.Bottom, animationSpec = tween(180, easing = FastOutLinearInEasing)),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(horizontal = 20.dp, vertical = 16.dp + navigationBottomInset)
+                    ) {
+                        Surface(
+                            shape = bezierRoundedShape(24.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.62f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.36f)),
+                            tonalElevation = 8.dp,
+                            shadowElevation = 0.dp
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "已选 ${selectedCompareMetrics.size} 项",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Button(
+                                    onClick = { multiCompareMetrics = selectedCompareMetrics.toList() },
+                                    shape = bezierPillShape()
+                                ) {
+                                    Text("打开对照")
+                                }
+                                OutlinedButton(
+                                    onClick = ::clearCompareSelection,
+                                    shape = bezierPillShape()
+                                ) {
+                                    Text("清空")
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1039,6 +1134,15 @@ private fun RideHistoryDetailLayer(
             onDismiss = { fullscreenMetric = null }
         )
     }
+
+    if (multiCompareMetrics.isNotEmpty()) {
+        RideMultiMetricCompareDialog(
+            title = formatRideTitle(record.title),
+            samples = samples,
+            metrics = multiCompareMetrics,
+            onDismiss = { multiCompareMetrics = emptyList() }
+        )
+    }
 }
 
 @Composable
@@ -1050,7 +1154,9 @@ private fun RideHistoryDetailBody(
     selectedIndex: Int,
     onSelectIndex: (Int) -> Unit,
     navigationBottomInset: Dp,
+    selectedCompareMetrics: Set<RideChartMetric>,
     onMetricClick: (RideChartMetric) -> Unit,
+    onMetricLongPress: (RideChartMetric) -> Unit,
     onShowShare: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1087,12 +1193,31 @@ private fun RideHistoryDetailBody(
                 shape = bezierRoundedShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
             ) {
-                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    modifier = Modifier
+                        .padding(18.dp)
+                        .animateContentSize(
+                            animationSpec = tween(
+                                durationMillis = 220,
+                                easing = FastOutSlowInEasing
+                            )
+                        ),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Text("统计概览", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(
-                        "默认展示全部参数卡片；底部固定显示速度图表，点击任一参数卡片可打开对应横屏全屏图表。",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    AnimatedContent(
+                        targetState = selectedCompareMetrics.isNotEmpty(),
+                        label = "RideCompareHint"
+                    ) { selecting ->
+                        Text(
+                            text = if (!selecting) {
+                                "默认展示全部参数卡片；点击任一参数卡片可打开横屏全屏图表，长按可多选对照。"
+                            } else {
+                                "已选 ${selectedCompareMetrics.size} 项参数；可继续勾选，底部悬浮条可随时打开对照或清空。"
+                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     if (displayedOverviewCards.isEmpty()) {
                         Text("暂无可查看的采样数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
@@ -1107,8 +1232,9 @@ private fun RideHistoryDetailBody(
                                     row.forEach { card ->
                                         RideOverviewMetricCard(
                                             card = card,
-                                            selected = false,
+                                            selected = card.metric in selectedCompareMetrics,
                                             onClick = { onMetricClick(card.metric) },
+                                            onLongClick = { onMetricLongPress(card.metric) },
                                             modifier = Modifier
                                                 .weight(1f)
                                                 .fillMaxHeight()
@@ -1732,12 +1858,427 @@ private fun RideMetricPlot(
 }
 
 @Composable
+private fun RideMultiMetricCompareDialog(
+    title: String,
+    samples: List<RideMetricSample>,
+    metrics: List<RideChartMetric>,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var selectedIndex by remember(metrics, samples) { mutableIntStateOf((samples.lastIndex).coerceAtLeast(0)) }
+    val dialogMetrics = remember(metrics) { metrics.distinct().take(6) }
+    val overlaySeries = remember(samples, dialogMetrics) { buildOverlayMetricSeries(samples, dialogMetrics) }
+    val mermaidPayload = remember(title, samples, dialogMetrics) {
+        buildMultiMetricMermaid(title = title, samples = samples, metrics = dialogMetrics)
+    }
+    var highlightedMetric by remember(dialogMetrics) { mutableStateOf<RideChartMetric?>(null) }
+    var dismissDrag by remember(dialogMetrics) { mutableFloatStateOf(0f) }
+    val enterDurationMs = 300
+    val exitDurationMs = 220
+    var isDialogVisible by remember(dialogMetrics) { mutableStateOf(false) }
+    var dismissInFlight by remember(dialogMetrics) { mutableStateOf(false) }
+    val entryProgress by animateFloatAsState(
+        targetValue = if (isDialogVisible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (isDialogVisible) enterDurationMs else exitDurationMs,
+            easing = if (isDialogVisible) FastOutSlowInEasing else FastOutLinearInEasing
+        ),
+        label = "RideMultiMetricDialogEntry"
+    )
+    val selectedSample = samples.getOrNull(selectedIndex)
+
+    fun requestDismiss() {
+        if (dismissInFlight) return
+        dismissInFlight = true
+        isDialogVisible = false
+        scope.launch {
+            delay(exitDurationMs.toLong())
+            onDismiss()
+        }
+    }
+
+    LaunchedEffect(dialogMetrics) {
+        isDialogVisible = true
+    }
+
+    Dialog(
+        onDismissRequest = ::requestDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        ApplyDialogWindowBlurEffect(blurRadius = 34.dp, fullscreen = true)
+        val statusBarInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            PopupBackdropBlurLayer(
+                blurRadius = 34.dp,
+                scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.24f * entryProgress),
+                onDismissRequest = ::requestDismiss
+            )
+            val motion = rememberPredictiveBackMotion(
+                width = maxWidth,
+                onBack = ::requestDismiss,
+                maxHorizontalInset = 8.dp,
+                maxVerticalInset = 8.dp,
+                maxCorner = 22.dp,
+                maxScaleTravelFraction = 0.08f
+            )
+            val outerHorizontal = 4.dp + motion.insetHorizontal
+            val outerTop = statusBarInset + 10.dp + motion.insetVertical
+            val outerBottom = navigationBarInset + 10.dp + motion.insetVertical
+            val availableWidth = (maxWidth - outerHorizontal * 2).coerceAtLeast(240.dp)
+            val availableHeight = (maxHeight - outerTop - outerBottom).coerceAtLeast(360.dp)
+            val density = LocalDensity.current
+            val entryTravelPx = with(density) { (1f - entryProgress) * 56.dp.toPx() }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = outerHorizontal, end = outerHorizontal, top = outerTop, bottom = outerBottom)
+                    .graphicsLayer {
+                        val scale = (1f - (0.06f * motion.progress)) * (0.94f + 0.06f * entryProgress)
+                        scaleX = scale
+                        scaleY = scale
+                        alpha = motion.alpha * entryProgress
+                        translationX = motion.translationX
+                        translationY = dismissDrag + entryTravelPx
+                    }
+                    .pointerInput(dialogMetrics) {
+                        detectVerticalDragGestures(
+                            onVerticalDrag = { _, dragAmount ->
+                                dismissDrag = (dismissDrag + dragAmount).coerceAtLeast(0f)
+                            },
+                            onDragEnd = {
+                                if (dismissDrag > 96.dp.toPx()) requestDismiss()
+                                dismissDrag = 0f
+                            },
+                            onDragCancel = { dismissDrag = 0f }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .requiredWidth(availableHeight)
+                        .requiredHeight(availableWidth)
+                        .graphicsLayer { rotationZ = 90f },
+                    shape = bezierRoundedShape(30.dp + motion.corner),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 18.dp, vertical = 18.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .width(122.dp)
+                                .fillMaxHeight(),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("参数对照图", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+                                Text(
+                                    title,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2
+                                )
+                                selectedSample?.let { sample ->
+                                    Text(
+                                        "联动 ${formatAxisDuration(sample.elapsedMs)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Text(
+                                    "同图多线归一化",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(
+                                    onClick = { shareMermaidText(context, title, mermaidPayload) },
+                                    enabled = mermaidPayload.isNotBlank(),
+                                    shape = bezierPillShape(),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Text("导出")
+                                }
+                                OutlinedButton(
+                                    onClick = ::requestDismiss,
+                                    shape = bezierPillShape(),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Text("关闭")
+                                }
+                            }
+                        }
+
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            shape = bezierRoundedShape(26.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                RideMultiMetricPlot(
+                                    samples = samples,
+                                    series = overlaySeries,
+                                    highlightedMetric = highlightedMetric,
+                                    selectedIndex = selectedIndex,
+                                    onSelectIndex = { selectedIndex = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f)
+                                )
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    val safeIndex = selectedIndex.coerceIn(0, (samples.lastIndex).coerceAtLeast(0))
+                                    overlaySeries.forEach { series ->
+                                        val value = series.rawValues.getOrNull(safeIndex) ?: 0f
+                                        Surface(
+                                            shape = bezierRoundedShape(14.dp),
+                                            color = if (series.metric == highlightedMetric) {
+                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.86f)
+                                            } else if (highlightedMetric != null) {
+                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.58f)
+                                            } else {
+                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.86f)
+                                            },
+                                            border = if (series.metric == highlightedMetric) {
+                                                BorderStroke(1.dp, series.metric.color.copy(alpha = 0.82f))
+                                            } else {
+                                                null
+                                            },
+                                            onClick = {
+                                                highlightedMetric = if (highlightedMetric == series.metric) {
+                                                    null
+                                                } else {
+                                                    series.metric
+                                                }
+                                            }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(8.dp)
+                                                        .background(series.metric.color, shape = bezierPillShape())
+                                                )
+                                                Text(
+                                                    "${series.metric.title} ${formatFloat(value)} ${series.metric.unit}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class OverlayMetricSeries(
+    val metric: RideChartMetric,
+    val rawValues: List<Float>,
+    val normalizedValues: List<Float>
+)
+
+private fun buildOverlayMetricSeries(
+    samples: List<RideMetricSample>,
+    metrics: List<RideChartMetric>
+): List<OverlayMetricSeries> {
+    if (samples.isEmpty() || metrics.isEmpty()) return emptyList()
+    return metrics.distinct().map { metric ->
+        val raw = samples.map { sample -> sample.metricValue(metric) }
+        val minValue = raw.minOrNull() ?: 0f
+        val maxValue = raw.maxOrNull() ?: minValue
+        val span = (maxValue - minValue).takeIf { it > 0.001f } ?: 1f
+        val normalized = raw.map { value ->
+            ((value - minValue) / span).coerceIn(0f, 1f)
+        }
+        OverlayMetricSeries(
+            metric = metric,
+            rawValues = raw,
+            normalizedValues = normalized
+        )
+    }
+}
+
+@Composable
+private fun RideMultiMetricPlot(
+    samples: List<RideMetricSample>,
+    series: List<OverlayMetricSeries>,
+    highlightedMetric: RideChartMetric?,
+    selectedIndex: Int,
+    onSelectIndex: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val density = LocalDensity.current
+    val axisPaint = remember {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textAlign = Paint.Align.LEFT
+        }
+    }
+    val axisTextSizePx = with(density) { 11.sp.toPx() }
+    axisPaint.textSize = axisTextSizePx
+    axisPaint.color = Color(0xFFC8CFDD).toArgb()
+
+    Box(
+        modifier = modifier.pointerInput(samples, series) {
+            detectDragGestures(
+                onDragStart = { offset ->
+                    if (samples.isNotEmpty()) {
+                        val step = size.width / samples.size.toFloat().coerceAtLeast(1f)
+                        onSelectIndex(((offset.x / step).toInt()).coerceIn(0, samples.lastIndex))
+                    }
+                }
+            ) { change, _ ->
+                if (samples.isNotEmpty()) {
+                    val step = size.width / samples.size.toFloat().coerceAtLeast(1f)
+                    onSelectIndex(((change.position.x / step).toInt()).coerceIn(0, samples.lastIndex))
+                }
+            }
+        }
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            if (samples.isEmpty() || series.isEmpty()) return@Canvas
+            val paddingLeft = 44.dp.toPx()
+            val paddingRight = 18.dp.toPx()
+            val paddingTop = 20.dp.toPx()
+            val paddingBottom = 30.dp.toPx()
+            val chartWidth = size.width - paddingLeft - paddingRight
+            val chartHeight = size.height - paddingTop - paddingBottom
+
+            drawLine(
+                color = Color.White.copy(alpha = 0.44f),
+                start = Offset(paddingLeft, paddingTop),
+                end = Offset(paddingLeft, size.height - paddingBottom),
+                strokeWidth = 1.8f
+            )
+            drawLine(
+                color = Color.White.copy(alpha = 0.44f),
+                start = Offset(paddingLeft, size.height - paddingBottom),
+                end = Offset(size.width - paddingRight, size.height - paddingBottom),
+                strokeWidth = 1.8f
+            )
+
+            val ticks = listOf(1f, 0.5f, 0f)
+            ticks.forEach { tick ->
+                val y = paddingTop + (1f - tick) * chartHeight
+                drawLine(
+                    color = Color.White.copy(alpha = 0.18f),
+                    start = Offset(paddingLeft, y),
+                    end = Offset(size.width - paddingRight, y),
+                    strokeWidth = 1.5f
+                )
+                drawContext.canvas.nativeCanvas.drawText(
+                    "${(tick * 100).toInt()}%",
+                    8.dp.toPx(),
+                    y + axisPaint.textSize / 3f,
+                    axisPaint
+                )
+            }
+
+            series.forEach { one ->
+                val isHighlighted = highlightedMetric == null || one.metric == highlightedMetric
+                val lineColor = if (isHighlighted) {
+                    one.metric.color.copy(alpha = if (highlightedMetric == null) 0.95f else 1f)
+                } else {
+                    Color(0xFF8A8F9A).copy(alpha = 0.42f)
+                }
+                val path = Path()
+                one.normalizedValues.forEachIndexed { index, value ->
+                    val x = paddingLeft + chartWidth * index / (one.normalizedValues.lastIndex.coerceAtLeast(1))
+                    val y = paddingTop + chartHeight - (value * chartHeight)
+                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(
+                    path = path,
+                    color = lineColor,
+                    style = Stroke(
+                        width = if (isHighlighted) 4.8f else 3.2f,
+                        cap = StrokeCap.Round
+                    )
+                )
+            }
+
+            val safeIndex = selectedIndex.coerceIn(0, samples.lastIndex)
+            val selectedX = paddingLeft + chartWidth * safeIndex / (samples.lastIndex.coerceAtLeast(1))
+            drawLine(
+                color = Color.White.copy(alpha = 0.55f),
+                start = Offset(selectedX, paddingTop),
+                end = Offset(selectedX, size.height - paddingBottom),
+                strokeWidth = 2.8f
+            )
+            series.forEach { one ->
+                val value = one.normalizedValues.getOrNull(safeIndex) ?: return@forEach
+                val y = paddingTop + chartHeight - (value * chartHeight)
+                val isHighlighted = highlightedMetric == null || one.metric == highlightedMetric
+                val pointColor = if (isHighlighted) one.metric.color else Color(0xFF8A8F9A)
+                drawCircle(
+                    color = pointColor.copy(alpha = if (isHighlighted) 0.30f else 0.18f),
+                    radius = if (isHighlighted) 10f else 7f,
+                    center = Offset(selectedX, y)
+                )
+                drawCircle(
+                    color = pointColor.copy(alpha = if (isHighlighted) 1f else 0.58f),
+                    radius = if (isHighlighted) 6f else 4f,
+                    center = Offset(selectedX, y)
+                )
+            }
+
+            val midIndex = samples.lastIndex / 2
+            val labels = listOf(
+                paddingLeft to formatAxisDuration(samples.firstOrNull()?.elapsedMs ?: 0L),
+                (paddingLeft + chartWidth * 0.5f) to formatAxisDuration(samples.getOrNull(midIndex)?.elapsedMs ?: 0L),
+                (paddingLeft + chartWidth) to formatAxisDuration(samples.lastOrNull()?.elapsedMs ?: 0L)
+            )
+            labels.forEach { (x, label) ->
+                val textWidth = axisPaint.measureText(label)
+                drawContext.canvas.nativeCanvas.drawText(
+                    label,
+                    (x - textWidth / 2f).coerceIn(paddingLeft, size.width - paddingRight - textWidth),
+                    size.height - 8.dp.toPx(),
+                    axisPaint
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun RideMetricFullscreenDialog(
     title: String,
     samples: List<RideMetricSample>,
     metric: RideChartMetric,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var selectedIndex by remember(metric, samples) { mutableIntStateOf((samples.lastIndex).coerceAtLeast(0)) }
     var dismissDrag by remember(metric) { mutableFloatStateOf(0f) }
@@ -1746,6 +2287,9 @@ private fun RideMetricFullscreenDialog(
     var isDialogVisible by remember(metric) { mutableStateOf(false) }
     var dismissInFlight by remember(metric) { mutableStateOf(false) }
     val values = remember(samples, metric) { samples.map { it.metricValue(metric) } }
+    val mermaidPayload = remember(title, samples, metric) {
+        buildSingleMetricMermaid(title = title, samples = samples, metric = metric)
+    }
     val averageValue = remember(values) { values.takeIf { it.isNotEmpty() }?.average()?.toFloat() ?: 0f }
     val peakValue = remember(values) { values.maxOrNull() ?: 0f }
     val selectedValue = values.getOrNull(selectedIndex) ?: 0f
@@ -1878,8 +2422,24 @@ private fun RideMetricFullscreenDialog(
                                     }
                                 }
                             }
-                            OutlinedButton(onClick = ::requestDismiss, shape = bezierPillShape()) {
-                                Text("关闭")
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(
+                                    onClick = { shareMermaidText(context, title, mermaidPayload) },
+                                    enabled = mermaidPayload.isNotBlank(),
+                                    shape = bezierPillShape(),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Text("导出")
+                                }
+                                OutlinedButton(
+                                    onClick = ::requestDismiss,
+                                    shape = bezierPillShape(),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Text("关闭")
+                                }
                             }
                         }
                         Surface(
@@ -1931,6 +2491,148 @@ private fun formatAxisDuration(durationMs: Long): String {
     return if (minutes > 0) "${minutes}m${seconds}s" else "${seconds}s"
 }
 
+private fun shareMermaidText(
+    context: Context,
+    title: String,
+    payload: String
+) {
+    if (payload.isBlank()) return
+    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, "$title Mermaid")
+        putExtra(Intent.EXTRA_TEXT, payload)
+    }
+    runCatching {
+        context.startActivity(Intent.createChooser(shareIntent, "导出 Mermaid"))
+    }
+}
+
+private fun buildSingleMetricMermaid(
+    title: String,
+    samples: List<RideMetricSample>,
+    metric: RideChartMetric
+): String {
+    val sampled = downsampleForMermaid(samples)
+    if (sampled.isEmpty()) return ""
+    val xValues = sampled.indices.map { it.toFloat() }
+    val yValues = smoothSeries(sampled.map { it.metricValue(metric) })
+    val minValue = yValues.minOrNull() ?: 0f
+    val maxValue = yValues.maxOrNull() ?: minValue
+    val span = (maxValue - minValue).coerceAtLeast(0.001f)
+    val padding = (span * 0.14f).coerceAtLeast(1f)
+    val yMin = minValue - padding
+    val yMax = maxValue + padding
+    val xPadding = 2f
+    val xMin = -xPadding
+    val xMax = (xValues.lastOrNull() ?: 0f) + xPadding
+    val metricLabel = "${metric.title} (${metric.unit})"
+    return buildString {
+        appendLine("%%{init: {'theme': 'dark'}}%%")
+        appendLine("%% 导入 draw.io 时请直接粘贴本段纯 Mermaid 文本")
+        appendLine("%% 时间范围: ${formatAxisDuration(sampled.first().elapsedMs)} -> ${formatAxisDuration(sampled.last().elapsedMs)}")
+        appendLine("%% 导出点数: ${sampled.size}（已降采样）")
+        appendLine("xychart-beta")
+        appendLine("    title \"${escapeMermaidText(title)} - ${escapeMermaidText(metric.title)}\"")
+        appendLine("    x-axis \"采样序列\" ${formatMermaidAxisNumber(xMin)} --> ${formatMermaidAxisNumber(xMax)}")
+        appendLine("    y-axis \"${escapeMermaidText(metricLabel)}\" ${formatMermaidValueNumber(yMin)} --> ${formatMermaidValueNumber(yMax)}")
+        appendLine("    line \"${escapeMermaidText(metric.title)}\" [${yValues.joinToString(", ") { formatMermaidValueNumber(it) }}]")
+    }
+}
+
+private fun buildMultiMetricMermaid(
+    title: String,
+    samples: List<RideMetricSample>,
+    metrics: List<RideChartMetric>
+): String {
+    val sampled = downsampleForMermaid(samples)
+    val distinctMetrics = metrics.distinct().take(6)
+    if (sampled.isEmpty() || distinctMetrics.isEmpty()) return ""
+    val xValues = sampled.indices.map { it.toFloat() }
+    val xPadding = 2f
+    val xMin = -xPadding
+    val xMax = (xValues.lastOrNull() ?: 0f) + xPadding
+    return buildString {
+        appendLine("%%{init: {'theme': 'dark'}}%%")
+        appendLine("%% 导入 draw.io 时请直接粘贴本段纯 Mermaid 文本")
+        appendLine("%% 多参数已归一化到 0-100%，便于同图对照")
+        appendLine("%% 时间范围: ${formatAxisDuration(sampled.first().elapsedMs)} -> ${formatAxisDuration(sampled.last().elapsedMs)}")
+        appendLine("%% 导出点数: ${sampled.size}（已降采样）")
+        appendLine("xychart-beta")
+        appendLine("    title \"${escapeMermaidText(title)} - 参数对照图\"")
+        appendLine("    x-axis \"采样序列\" ${formatMermaidAxisNumber(xMin)} --> ${formatMermaidAxisNumber(xMax)}")
+        appendLine("    y-axis \"归一化(%)\" -8 --> 108")
+        distinctMetrics.forEach { metric ->
+            val rawValues = sampled.map { it.metricValue(metric) }
+            val lowerBound = percentile(rawValues, 0.05f)
+            val upperBound = percentile(rawValues, 0.95f)
+            val minValue = rawValues.minOrNull() ?: 0f
+            val maxValue = rawValues.maxOrNull() ?: minValue
+            val span = (upperBound - lowerBound).coerceAtLeast(0.001f)
+            val normalized = if (rawValues.size < 2) {
+                List(rawValues.size) { 50f }
+            } else {
+                smoothSeries(
+                    rawValues.map { ((it - lowerBound) / span * 100f).coerceIn(2f, 98f) }
+                )
+            }
+            appendLine("%% ${escapeMermaidText(metric.title)} (${metric.unit}) min=${formatMermaidValueNumber(minValue)} max=${formatMermaidValueNumber(maxValue)}")
+            appendLine("    line \"${escapeMermaidText(metric.title)}\" [${normalized.joinToString(", ") { formatMermaidValueNumber(it) }}]")
+        }
+    }
+}
+
+private fun downsampleForMermaid(
+    samples: List<RideMetricSample>,
+    maxPoints: Int = 28
+): List<RideMetricSample> {
+    if (samples.size <= maxPoints) return samples
+    val step = samples.lastIndex.toFloat() / (maxPoints - 1).coerceAtLeast(1)
+    return (0 until maxPoints)
+        .map { index ->
+            val sampleIndex = (index * step).roundToInt().coerceIn(0, samples.lastIndex)
+            samples[sampleIndex]
+        }
+        .distinctBy { it.elapsedMs to it.distanceMeters }
+}
+
+private fun escapeMermaidText(text: String): String =
+    text.replace('"', '\'')
+
+private fun formatMermaidAxisNumber(value: Float): String =
+    String.format(Locale.US, "%.0f", value)
+
+private fun formatMermaidValueNumber(value: Float): String =
+    String.format(Locale.US, "%.1f", value)
+
+private fun smoothSeries(values: List<Float>, radius: Int = 1): List<Float> {
+    if (values.size <= 2 || radius <= 0) return values
+    return values.indices.map { index ->
+        val start = (index - radius).coerceAtLeast(0)
+        val end = (index + radius).coerceAtMost(values.lastIndex)
+        var sum = 0f
+        var count = 0
+        for (i in start..end) {
+            sum += values[i]
+            count += 1
+        }
+        sum / count.coerceAtLeast(1)
+    }
+}
+
+private fun percentile(values: List<Float>, p: Float): Float {
+    if (values.isEmpty()) return 0f
+    val sorted = values.sorted()
+    val clamped = p.coerceIn(0f, 1f)
+    val position = clamped * (sorted.lastIndex)
+    val lowerIndex = position.toInt().coerceIn(0, sorted.lastIndex)
+    val upperIndex = (lowerIndex + 1).coerceAtMost(sorted.lastIndex)
+    val fraction = position - lowerIndex
+    return sorted[lowerIndex] * (1f - fraction) + sorted[upperIndex] * fraction
+}
+
+private fun formatMermaidNumber(value: Float): String =
+    String.format(Locale.US, "%.2f", value)
+
 private fun normalizeRideDetailSamples(record: RideHistoryRecord): List<RideMetricSample> {
     val rawSamples = record.samples
     if (rawSamples.isEmpty()) return rawSamples
@@ -1944,6 +2646,12 @@ private fun normalizeRideDetailSamples(record: RideHistoryRecord): List<RideMetr
         ?: 0f
     val finalElapsedMs = rawSamples.lastOrNull()?.elapsedMs?.takeIf { it > 0L } ?: 0L
     var runningMaxControllerTemp = 0f
+    var energyOffsetWh = 0f
+    var recoveredOffsetWh = 0f
+    var previousRawEnergyWh = 0f
+    var previousRawRecoveredWh = 0f
+    var runningTotalEnergyWh = 0f
+    var runningTotalRecoveredWh = 0f
 
     return rawSamples.map { sample ->
         val progress = when {
@@ -1958,10 +2666,19 @@ private fun normalizeRideDetailSamples(record: RideHistoryRecord): List<RideMetr
             record.totalEnergyWh > 0.01f -> record.totalEnergyWh * progress
             else -> sample.totalEnergyWh
         }
+        if (hasCumulativeEnergy && totalEnergyWh + 0.05f < previousRawEnergyWh) {
+            energyOffsetWh += previousRawEnergyWh
+        }
+        previousRawEnergyWh = totalEnergyWh
+        val mergedTotalEnergyWh = max(
+            runningTotalEnergyWh,
+            (energyOffsetWh + totalEnergyWh).coerceAtLeast(0f)
+        )
+        runningTotalEnergyWh = mergedTotalEnergyWh
         val avgEfficiencyWhKm = when {
             sample.avgEfficiencyWhKm > 0.01f -> sample.avgEfficiencyWhKm
-            sample.distanceMeters > 10f && totalEnergyWh > 0.01f ->
-                totalEnergyWh / (sample.distanceMeters / 1000f)
+            sample.distanceMeters > 10f && mergedTotalEnergyWh > 0.01f ->
+                mergedTotalEnergyWh / (sample.distanceMeters / 1000f)
             record.avgEfficiencyWhKm > 0.1f -> record.avgEfficiencyWhKm
             else -> sample.avgEfficiencyWhKm
         }
@@ -1969,6 +2686,15 @@ private fun normalizeRideDetailSamples(record: RideHistoryRecord): List<RideMetr
             hasRecoveredEnergy -> sample.recoveredEnergyWh
             else -> 0f
         }
+        if (hasRecoveredEnergy && recoveredEnergyWh + 0.05f < previousRawRecoveredWh) {
+            recoveredOffsetWh += previousRawRecoveredWh
+        }
+        previousRawRecoveredWh = recoveredEnergyWh
+        val mergedRecoveredEnergyWh = max(
+            runningTotalRecoveredWh,
+            (recoveredOffsetWh + recoveredEnergyWh).coerceAtLeast(0f)
+        )
+        runningTotalRecoveredWh = mergedRecoveredEnergyWh
         runningMaxControllerTemp = max(
             runningMaxControllerTemp,
             max(sample.controllerTemp, sample.maxControllerTemp)
@@ -1978,9 +2704,9 @@ private fun normalizeRideDetailSamples(record: RideHistoryRecord): List<RideMetr
             else -> runningMaxControllerTemp
         }
         sample.copy(
-            totalEnergyWh = totalEnergyWh,
+            totalEnergyWh = mergedTotalEnergyWh,
             avgEfficiencyWhKm = avgEfficiencyWhKm,
-            recoveredEnergyWh = recoveredEnergyWh,
+            recoveredEnergyWh = mergedRecoveredEnergyWh,
             maxControllerTemp = maxControllerTemp
         )
     }
@@ -1999,19 +2725,48 @@ private fun RideOverviewMetricCard(
     card: RideOverviewCard,
     selected: Boolean,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        modifier = modifier.heightIn(min = 104.dp),
-        shape = bezierRoundedShape(22.dp),
-        color = if (selected) {
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) {
             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.68f)
         } else {
             MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
         },
-        onClick = onClick
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "RideCardColor"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+        } else {
+            Color.Transparent
+        },
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "RideCardBorder"
+    )
+    val tonalElevation by animateDpAsState(
+        targetValue = if (selected) 4.dp else 0.dp,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "RideCardTonalElevation"
+    )
+    Surface(
+        modifier = modifier.heightIn(min = 104.dp),
+        shape = bezierRoundedShape(22.dp),
+        color = containerColor,
+        border = BorderStroke(1.dp, borderColor),
+        tonalElevation = tonalElevation,
+        shadowElevation = 0.dp
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick
+                )
+        ) {
             Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -2069,20 +2824,10 @@ private fun buildRideOverviewCards(
     val peakBusCurrent = samples.maxOf { kotlin.math.abs(it.busCurrent) }
     val avgPhaseCurrent = samples.map { kotlin.math.abs(it.phaseCurrent) }.average().toFloat()
     val peakPhaseCurrent = samples.maxOf { kotlin.math.abs(it.phaseCurrent) }
-    val reliableMotorTempSamples = samples.filter { sample -> isReliableMotorTempSample(sample) }
-    val hasReliableMotorTemp = reliableMotorTempSamples.maxOfOrNull { it.motorTemp }?.let { it >= 5f } == true
-    val avgMotorTemp = if (hasReliableMotorTemp) {
-        reliableMotorTempSamples.map { it.motorTemp }.average().toFloat()
-    } else {
-        0f
-    }
-    val peakMotorTemp = if (hasReliableMotorTemp) {
-        reliableMotorTempSamples.maxOf { it.motorTemp }
-    } else {
-        0f
-    }
     val avgControllerTemp = samples.map { it.controllerTemp }.average().toFloat()
     val peakControllerTemp = samples.maxOf { it.controllerTemp }
+    val avgSpeedKmh = samples.map { it.speedKmH }.average().toFloat()
+    val peakSpeedKmh = max(record.maxSpeedKmh, samples.maxOf { it.speedKmH })
     val avgRpm = samples.map { it.rpm }.average().toFloat()
     val peakRpm = samples.maxOf { it.rpm }
     val avgInstantEfficiency = samples.map { it.efficiencyWhKm }.average().toFloat()
@@ -2094,6 +2839,13 @@ private fun buildRideOverviewCards(
     }
     val recoveredEnergyWh = samples.maxOf { it.recoveredEnergyWh }.coerceAtLeast(last.recoveredEnergyWh)
     val cardsByType = linkedMapOf<MetricType, RideOverviewCard>(
+        MetricType.SPEED to RideOverviewCard(
+            type = MetricType.SPEED,
+            title = "速度",
+            value = metricOf(peakSpeedKmh, "km/h"),
+            supporting = "平均 ${formatFloat(avgSpeedKmh)} km/h",
+            metric = RideChartMetric.SPEED
+        ),
         MetricType.POWER to RideOverviewCard(
             type = MetricType.POWER,
             title = "功率",
@@ -2128,13 +2880,6 @@ private fun buildRideOverviewCards(
             value = metricOf(avgPhaseCurrent, "A"),
             supporting = "峰值 ${formatFloat(peakPhaseCurrent)} A",
             metric = RideChartMetric.PHASE_CURRENT
-        ),
-        MetricType.MOTOR_TEMP to RideOverviewCard(
-            type = MetricType.MOTOR_TEMP,
-            title = "电机温度",
-            value = metricOf(avgMotorTemp, "°C"),
-            supporting = "最高 ${formatFloat(peakMotorTemp)} °C",
-            metric = RideChartMetric.MOTOR_TEMP
         ),
         MetricType.TEMP to RideOverviewCard(
             type = MetricType.TEMP,
@@ -2207,9 +2952,6 @@ private fun buildRideOverviewCards(
             metric = RideChartMetric.RECOVERED_ENERGY
         )
     )
-    if (!hasReliableMotorTemp) {
-        cardsByType.remove(MetricType.MOTOR_TEMP)
-    }
     val ordered = orderedTypes
         .distinct()
         .mapNotNull { type -> cardsByType[type] }

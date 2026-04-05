@@ -177,15 +177,46 @@ fun BlurredAlertDialog(
         decorFitsSystemWindows = false
     )
 ) {
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val enterDurationMs = 260
+    val exitDurationMs = 200
+    var isDialogVisible by remember { mutableStateOf(false) }
+    var dismissInFlight by remember { mutableStateOf(false) }
+    val entryProgress by animateFloatAsState(
+        targetValue = if (isDialogVisible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (isDialogVisible) enterDurationMs else exitDurationMs,
+            easing = if (isDialogVisible) FastOutSlowInEasing else FastOutLinearInEasing
+        ),
+        label = "BlurredAlertDialogEntry"
+    )
+
+    fun requestDismiss() {
+        if (dismissInFlight) return
+        dismissInFlight = true
+        isDialogVisible = false
+        scope.launch {
+            delay(exitDurationMs.toLong())
+            onDismissRequest()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        dismissInFlight = false
+        isDialogVisible = true
+    }
+
     Dialog(
-        onDismissRequest = onDismissRequest,
+        onDismissRequest = ::requestDismiss,
         properties = properties
     ) {
         ApplyDialogWindowBlurEffect(blurRadius = blurRadius, fullscreen = true)
         Box(modifier = Modifier.fillMaxSize()) {
             PopupBackdropBlurLayer(
                 blurRadius = blurRadius,
-                onDismissRequest = onDismissRequest
+                scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.30f * entryProgress),
+                onDismissRequest = ::requestDismiss
             )
             Box(
                 modifier = Modifier
@@ -194,32 +225,53 @@ fun BlurredAlertDialog(
                     .windowInsetsPadding(WindowInsets.navigationBars),
                 contentAlignment = Alignment.Center
             ) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth(0.88f)
-                        .widthIn(max = 420.dp)
-                        .padding(horizontal = 24.dp, vertical = 24.dp),
-                    shape = bezierRoundedShape(28.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
-                    shadowElevation = 16.dp
+                PredictiveBackPopupTransform(
+                    onBack = ::requestDismiss,
+                    modifier = Modifier.fillMaxSize(),
+                    maxHorizontalInset = 10.dp,
+                    maxVerticalInset = 8.dp,
+                    maxCorner = 24.dp,
+                    maxScaleTravelFraction = 0.08f
                 ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 22.dp)
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
                     ) {
-                        title?.invoke()
-                        if (text != null) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            text()
-                        }
-                        Spacer(modifier = Modifier.height(20.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth(0.88f)
+                                .widthIn(max = 420.dp)
+                                .padding(horizontal = 24.dp, vertical = 24.dp)
+                                .graphicsLayer {
+                                    alpha = entryProgress
+                                    translationY = with(density) { (1f - entryProgress) * 42.dp.toPx() }
+                                    val scale = 0.96f + (0.04f * entryProgress)
+                                    scaleX = scale
+                                    scaleY = scale
+                                },
+                            shape = bezierRoundedShape(28.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 6.dp,
+                            shadowElevation = 16.dp
                         ) {
-                            Spacer(modifier = Modifier.weight(1f))
-                            dismissButton?.invoke()
-                            confirmButton()
+                            Column(
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 22.dp)
+                            ) {
+                                title?.invoke()
+                                if (text != null) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    text()
+                                }
+                                Spacer(modifier = Modifier.height(20.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                    dismissButton?.invoke()
+                                    confirmButton()
+                                }
+                            }
                         }
                     }
                 }

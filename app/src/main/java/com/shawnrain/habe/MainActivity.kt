@@ -59,11 +59,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -538,6 +540,7 @@ fun MainScreen(
     )
     val configuration = LocalConfiguration.current
     val pipEnabled by viewModel.overlayEnabled.collectAsState()
+    val pendingRideStop by viewModel.pendingRideStop.collectAsState()
 
     DisposableEffect(viewModel) {
         val lifecycle = ProcessLifecycleOwner.get().lifecycle
@@ -634,10 +637,15 @@ fun MainScreen(
             }
         }
     ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = Screen.Dashboard.route,
-            modifier = Modifier.padding(innerPadding),
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            NavHost(
+                navController = navController,
+                startDestination = Screen.Dashboard.route,
+                modifier = Modifier.fillMaxSize(),
             enterTransition = {
                 if (isTopLevelTabTransition(initialState.destination.route, targetState.destination.route, topLevelRoutes)) {
                     fadeIn(animationSpec = tween(120)) + slideInHorizontally(
@@ -676,80 +684,109 @@ fun MainScreen(
             popExitTransition = {
                 fadeOut(animationSpec = tween(120))
             }
-        ) {
-            composable(Screen.Connect.route) {
-                ConnectScreen(
-                    viewModel = viewModel,
-                    onNavigateToDashboard = {
-                        navController.navigate(Screen.Dashboard.route) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = false }
-                            launchSingleTop = true
-                            restoreState = false
+            ) {
+                composable(Screen.Connect.route) {
+                    ConnectScreen(
+                        viewModel = viewModel,
+                        onNavigateToDashboard = {
+                            navController.navigate(Screen.Dashboard.route) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                                launchSingleTop = true
+                                restoreState = false
+                            }
+                        }
+                    )
+                }
+                composable(Screen.Dashboard.route) { DashboardScreen(viewModel = viewModel) }
+                composable(
+                    route = Screen.Bms.route,
+                    enterTransition = {
+                        slideInHorizontally(
+                            animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> (fullWidth * 0.14f).toInt() }
+                        ) + fadeIn(animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing))
+                    },
+                    exitTransition = {
+                        fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutLinearInEasing))
+                    },
+                    popEnterTransition = {
+                        fadeIn(animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing))
+                    },
+                    popExitTransition = {
+                        slideOutHorizontally(
+                            animationSpec = tween(durationMillis = 260, easing = FastOutLinearInEasing),
+                            targetOffsetX = { fullWidth -> (fullWidth * 0.16f).toInt() }
+                        ) + fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing))
+                    }
+                ) {
+                    PredictiveBackPage(onBack = { navController.popBackStack() }) {
+                        BmsScreen(viewModel = viewModel)
+                    }
+                }
+                composable(Screen.Speedtest.route) { SpeedtestScreen(viewModel = viewModel) }
+                composable(Screen.Settings.route) {
+                    SettingsScreen(
+                        viewModel = viewModel,
+                        onNavigateToBms = { navController.navigate(Screen.Bms.route) },
+                        onNavigateToZhikeSettings = { navController.navigate(Screen.ZhikeSettings.route) }
+                    )
+                }
+                composable(
+                    route = Screen.ZhikeSettings.route,
+                    enterTransition = {
+                        slideInHorizontally(
+                            animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> (fullWidth * 0.14f).toInt() }
+                        ) + fadeIn(animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing))
+                    },
+                    exitTransition = {
+                        fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutLinearInEasing))
+                    },
+                    popEnterTransition = {
+                        fadeIn(animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing))
+                    },
+                    popExitTransition = {
+                        slideOutHorizontally(
+                            animationSpec = tween(durationMillis = 260, easing = FastOutLinearInEasing),
+                            targetOffsetX = { fullWidth -> (fullWidth * 0.16f).toInt() }
+                        ) + fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing))
+                    }
+                ) {
+                    PredictiveBackPage(onBack = { navController.popBackStack() }) {
+                        com.shawnrain.habe.ui.settings.zhike.ZhikeSettingsScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+                }
+            }
+
+            pendingRideStop?.let { pending ->
+                AlertDialog(
+                    onDismissRequest = { },
+                    title = { Text(pending.title) },
+                    text = { Text(pending.message) },
+                    confirmButton = {
+                        Button(onClick = { viewModel.confirmRideStopCountdownNow() }) {
+                            Text(
+                                text = "立即结束",
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { viewModel.cancelRideStopCountdown() }) {
+                            Text(
+                                text = "继续记录",
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 )
-            }
-            composable(Screen.Dashboard.route) { DashboardScreen(viewModel = viewModel) }
-            composable(
-                route = Screen.Bms.route,
-                enterTransition = {
-                    slideInHorizontally(
-                        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
-                        initialOffsetX = { fullWidth -> (fullWidth * 0.14f).toInt() }
-                    ) + fadeIn(animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing))
-                },
-                exitTransition = {
-                    fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutLinearInEasing))
-                },
-                popEnterTransition = {
-                    fadeIn(animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing))
-                },
-                popExitTransition = {
-                    slideOutHorizontally(
-                        animationSpec = tween(durationMillis = 260, easing = FastOutLinearInEasing),
-                        targetOffsetX = { fullWidth -> (fullWidth * 0.16f).toInt() }
-                    ) + fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing))
-                }
-            ) {
-                PredictiveBackPage(onBack = { navController.popBackStack() }) {
-                    BmsScreen(viewModel = viewModel)
-                }
-            }
-            composable(Screen.Speedtest.route) { SpeedtestScreen(viewModel = viewModel) }
-            composable(Screen.Settings.route) {
-                SettingsScreen(
-                    viewModel = viewModel,
-                    onNavigateToBms = { navController.navigate(Screen.Bms.route) },
-                    onNavigateToZhikeSettings = { navController.navigate(Screen.ZhikeSettings.route) }
-                )
-            }
-            composable(
-                route = Screen.ZhikeSettings.route,
-                enterTransition = {
-                    slideInHorizontally(
-                        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
-                        initialOffsetX = { fullWidth -> (fullWidth * 0.14f).toInt() }
-                    ) + fadeIn(animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing))
-                },
-                exitTransition = {
-                    fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutLinearInEasing))
-                },
-                popEnterTransition = {
-                    fadeIn(animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing))
-                },
-                popExitTransition = {
-                    slideOutHorizontally(
-                        animationSpec = tween(durationMillis = 260, easing = FastOutLinearInEasing),
-                        targetOffsetX = { fullWidth -> (fullWidth * 0.16f).toInt() }
-                    ) + fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing))
-                }
-            ) {
-                PredictiveBackPage(onBack = { navController.popBackStack() }) {
-                    com.shawnrain.habe.ui.settings.zhike.ZhikeSettingsScreen(
-                        viewModel = viewModel,
-                        onBack = { navController.popBackStack() }
-                    )
-                }
             }
         }
     }

@@ -60,6 +60,9 @@ fun rememberPredictiveBackMotion(
                 progress.snapTo(event.progress)
             }
             onBack()
+            // If onBack does not actually remove this surface (e.g. exits selection mode),
+            // reset motion progress to avoid leaving the UI in a stuck transformed state.
+            progress.animateTo(0f, animationSpec = tween(160))
         } catch (_: CancellationException) {
             progress.animateTo(0f, animationSpec = tween(180))
         }

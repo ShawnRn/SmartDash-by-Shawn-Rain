@@ -217,7 +217,7 @@ class AutoCalibrator(
             activeSession.stableSamples += 1
             activeSession.suggestions += derivedCircumference
             if (activeSession.suggestions.size > 12) {
-                activeSession.suggestions.removeFirst()
+                activeSession.suggestions.removeAt(0)
             }
         }
 

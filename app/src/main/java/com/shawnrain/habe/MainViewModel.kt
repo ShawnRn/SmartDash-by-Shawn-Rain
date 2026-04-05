@@ -2,6 +2,7 @@ package com.shawnrain.habe
 
 import android.annotation.SuppressLint
 import android.app.Application
+import android.bluetooth.BluetoothDevice
 import android.content.ContentValues
 import android.content.Intent
 import android.location.Location
@@ -105,6 +106,11 @@ private data class PendingRideStopSnapshot(
     val trackPointCount: Int,
     val sampleCount: Int
 )
+
+@SuppressLint("MissingPermission")
+private fun BluetoothDevice.safeNameOrNull(): String? {
+    return runCatching { name }.getOrNull()
+}
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private enum class RideStartMode {
@@ -708,7 +714,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         bmsBleManager.connectionState.onEach { state ->
             if (state is ConnectionState.Connected) {
-                BmsParser.selectProtocol(state.device.name ?: "", emptyList())
+                BmsParser.selectProtocol(state.device.safeNameOrNull() ?: "", emptyList())
             } else if (state is ConnectionState.Disconnected) {
                 BmsParser.reset()
             }
@@ -724,7 +730,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 viewModelScope.launch {
                     settingsRepository.saveLastControllerProfile(
                         address = state.device.address,
-                        name = state.device.name ?: lastControllerDeviceName.value,
+                        name = state.device.safeNameOrNull() ?: lastControllerDeviceName.value,
                         protocolId = activeProtocolId.value ?: lastControllerProtocolId.value
                     )
                 }
@@ -753,7 +759,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch {
                 settingsRepository.saveLastControllerProfile(
                     address = connected.device.address,
-                    name = connected.device.name ?: lastControllerDeviceName.value,
+                    name = connected.device.safeNameOrNull() ?: lastControllerDeviceName.value,
                     protocolId = protocolId
                 )
             }
@@ -1825,7 +1831,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             settingsRepository.saveLastControllerProfile(
                 address = device.address,
-                name = device.name,
+                name = device.safeNameOrNull(),
                 protocolId = activeProtocolId.value ?: lastControllerProtocolId.value
             )
         }

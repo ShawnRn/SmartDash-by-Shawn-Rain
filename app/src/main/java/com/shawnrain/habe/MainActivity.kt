@@ -275,6 +275,8 @@ class MainActivity : ComponentActivity() {
             .setAspectRatio(TELEMETRY_PIP_ASPECT_RATIO)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setSeamlessResizeEnabled(false)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             // Android 12+ supports system double-tap to toggle between normal and expanded PiP.
             // Keep the expanded state only slightly larger so it stays compact on bike use.
             builder.setExpandedAspectRatio(TELEMETRY_PIP_EXPANDED_ASPECT_RATIO)

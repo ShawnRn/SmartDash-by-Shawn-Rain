@@ -56,6 +56,11 @@ private data class ConnectListItem(
     val isConnected: Boolean
 )
 
+@SuppressLint("MissingPermission")
+private fun BluetoothDevice.safeNameOrNull(): String? {
+    return runCatching { name }.getOrNull()
+}
+
 private fun buildConnectItems(
     scannedDevices: List<BluetoothDevice>,
     rememberedAddress: String?,
@@ -67,7 +72,7 @@ private fun buildConnectItems(
 
         connectedDevice?.let { device ->
             merged[device.address] = ConnectListItem(
-                name = device.name ?: rememberedName ?: "已连接设备",
+                name = device.safeNameOrNull() ?: rememberedName ?: "已连接设备",
                 address = device.address,
                 device = device,
                 isRemembered = device.address == rememberedAddress,
@@ -89,7 +94,7 @@ private fun buildConnectItems(
         scannedDevices.forEach { device ->
             val existing = merged[device.address]
             merged[device.address] = ConnectListItem(
-                name = device.name ?: existing?.name ?: "未知设备",
+                name = device.safeNameOrNull() ?: existing?.name ?: "未知设备",
                 address = device.address,
                 device = device,
                 isRemembered = existing?.isRemembered == true,

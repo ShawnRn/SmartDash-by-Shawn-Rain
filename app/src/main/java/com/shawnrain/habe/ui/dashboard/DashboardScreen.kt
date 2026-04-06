@@ -153,6 +153,7 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         ConnectionState.Connecting -> "连接中"
         is ConnectionState.Connected -> activeProtocol
         ConnectionState.Disconnected -> "未连接"
+        is ConnectionState.Error -> "连接错误"
     }
 
     // Auto-calibration / auto-config snackbar

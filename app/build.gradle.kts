@@ -38,7 +38,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -51,6 +52,14 @@ android {
             initWith(getByName("release"))
             isDebuggable = false
             matchingFallbacks += listOf("release")
+            if (!releaseStoreFile.isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+        create("fastDevRelease") {
+            initWith(getByName("devRelease"))
+            isDebuggable = true
+            matchingFallbacks += listOf("devRelease", "release")
             if (!releaseStoreFile.isNullOrBlank()) {
                 signingConfig = signingConfigs.getByName("release")
             }

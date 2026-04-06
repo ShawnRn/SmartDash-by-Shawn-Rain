@@ -2416,6 +2416,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun getActiveProtocolId(): String? = ProtocolParser.getActiveProtocolId()
 
     override fun onCleared() {
+        AppLogger.i(TAG, "MainViewModel 被清理，清理 BLE 资源")
+        // Disconnect BLE managers to prevent lingering connections
+        bleManager.disconnect()
+        bmsBleManager.disconnect()
         runCatching { kotlinx.coroutines.runBlocking { lanBackupTransfer.stop() } }
         headingTracker.stop()
         gpsTracker.stopTracking()

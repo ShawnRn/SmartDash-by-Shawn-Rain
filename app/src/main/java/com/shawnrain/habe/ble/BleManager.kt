@@ -13,7 +13,9 @@ import android.bluetooth.BluetoothProfile
 import com.shawnrain.habe.ble.ProtocolParser
 import com.shawnrain.habe.debug.AppLogger
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -31,6 +33,16 @@ sealed class ConnectionState {
     object Disconnected : ConnectionState()
     object Connecting : ConnectionState()
     data class Connected(val device: BluetoothDevice) : ConnectionState()
+    data class Error(val message: String) : ConnectionState()
+}
+
+/**
+ * Represents the result of a BLE write operation.
+ */
+sealed class WriteResult {
+    object Success : WriteResult()
+    data class Dropped(val reason: String) : WriteResult()
+    data class Failed(val status: Int) : WriteResult()
 }
 
 @SuppressLint("MissingPermission")
@@ -38,6 +50,8 @@ class BleManager(private val context: Context) {
     companion object {
         private const val TAG = "BleManager"
         private const val CCC_DESCRIPTOR = "00002902-0000-1000-8000-00805f9b34fb"
+        private const val SCAN_TIMEOUT_MS = 10_000L // 10 seconds
+        private const val GATT_MTU = 247 // Request larger MTU for better throughput
     }
 
     private enum class WriteRoute {
@@ -45,7 +59,7 @@ class BleManager(private val context: Context) {
         ZHIKE_MAIN,
         ZHIKE_AUX
     }
-    
+
     private val bluetoothAdapter: BluetoothAdapter? by lazy {
         val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothManager.adapter
@@ -60,6 +74,10 @@ class BleManager(private val context: Context) {
     private val _rawData = MutableSharedFlow<ByteArray>(extraBufferCapacity = 64)
     val rawData: SharedFlow<ByteArray> = _rawData.asSharedFlow()
 
+    // Write result telemetry for observability
+    private val _writeResults = MutableSharedFlow<WriteResult>(extraBufferCapacity = 16)
+    val writeResults: SharedFlow<WriteResult> = _writeResults.asSharedFlow()
+
     private var bluetoothGatt: BluetoothGatt? = null
     private var writeCharacteristic: BluetoothGattCharacteristic? = null
     private var zhikeMainWriteCharacteristic: BluetoothGattCharacteristic? = null
@@ -68,7 +86,7 @@ class BleManager(private val context: Context) {
     private var activeProtocolId: String? = null
     private var pendingDeviceNameHint: String? = null
     private var pendingProtocolIdHint: String? = null
-    
+
     private val pollingHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val pollingRunnable = object : Runnable {
         override fun run() {
@@ -83,20 +101,64 @@ class BleManager(private val context: Context) {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
             val name = safeDeviceName(device)
-            if (!name.isNullOrBlank() && !_scannedDevices.value.any { it.address == device.address }) {
-                AppLogger.d(TAG, "扫描到设备: $name (${device.address}) rssi=${result.rssi}")
-                _scannedDevices.update { it + device }
+            if (!name.isNullOrBlank()) {
+                // Use Set for O(1) deduplication
+                val currentDevices = _scannedDevices.value
+                if (currentDevices.none { it.address == device.address }) {
+                    AppLogger.d(TAG, "扫描到设备: $name (${device.address}) rssi=${result.rssi}")
+                    _scannedDevices.update { it + device }
+                }
             }
+        }
+
+        override fun onScanFailed(errorCode: Int) {
+            AppLogger.e(TAG, "BLE 扫描失败 errorCode=$errorCode")
+            _scannedDevices.value = emptyList()
         }
     }
 
+    // Scan timeout handler
+    private val scanTimeoutRunnable = Runnable {
+        AppLogger.w(TAG, "BLE 扫描超时，自动停止扫描")
+        stopScan()
+    }
+
     fun startScan() {
+        if (!hasBluetoothScanPermission()) {
+            AppLogger.w(TAG, "缺少 BLUETOOTH_SCAN 权限，无法开始扫描")
+            return
+        }
+        
         _scannedDevices.value = emptyList()
         AppLogger.i(TAG, "开始 BLE 扫描")
-        bluetoothAdapter?.bluetoothLeScanner?.startScan(scanCallback)
+        
+        // Stop any existing scan timeout
+        pollingHandler.removeCallbacks(scanTimeoutRunnable)
+        
+        // Start scan with timeout
+        val scanner = bluetoothAdapter?.bluetoothLeScanner
+        if (scanner != null) {
+            // Use scan filter for service UUID 0000FFE0 (common for these controllers)
+            val filter = ScanFilter.Builder()
+                .setServiceUuid(android.os.ParcelUuid(UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb")))
+                .build()
+            
+            val settings = ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .build()
+            
+            scanner.startScan(listOf(filter), settings, scanCallback)
+        } else {
+            // Fallback to unfiltered scan if scanner is null
+            bluetoothAdapter?.bluetoothLeScanner?.startScan(scanCallback)
+        }
+        
+        // Set timeout to auto-stop
+        pollingHandler.postDelayed(scanTimeoutRunnable, SCAN_TIMEOUT_MS)
     }
 
     fun stopScan() {
+        pollingHandler.removeCallbacks(scanTimeoutRunnable)
         AppLogger.i(TAG, "停止 BLE 扫描")
         bluetoothAdapter?.bluetoothLeScanner?.stopScan(scanCallback)
     }
@@ -106,16 +168,28 @@ class BleManager(private val context: Context) {
             AppLogger.w(TAG, "缺少 BLUETOOTH_CONNECT 权限，无法连接 ${device.address}")
             return
         }
-        val resolvedName = safeDeviceName(device) ?: pendingDeviceNameHint
-        pendingDeviceNameHint = resolvedName
+        val resolvedName = safeDeviceName(device)
+        // Don't override hint if already set
+        if (pendingDeviceNameHint == null) {
+            pendingDeviceNameHint = resolvedName
+        }
         stopPolling()
+        stopScan() // Stop any active scan before connecting
         ProtocolParser.reset()
-        bluetoothGatt?.close()
+        
+        // Properly disconnect before reconnecting
+        val existingGatt = bluetoothGatt
+        if (existingGatt != null) {
+            AppLogger.d(TAG, "断开现有连接后再重新连接")
+            existingGatt.disconnect()
+            // Don't close yet - let the callback handle it
+        }
+        
         _connectionState.value = ConnectionState.Connecting
         AppLogger.i(TAG, "连接设备: ${resolvedName ?: "Unknown"} (${device.address})")
         try {
             bluetoothGatt = device.connectGatt(context, false, gattCallback)
-            startPolling()
+            // Polling will start after service discovery
         } catch (error: SecurityException) {
             AppLogger.e(TAG, "连接失败：缺少蓝牙权限 ${device.address}", error)
             _connectionState.value = ConnectionState.Disconnected
@@ -149,7 +223,28 @@ class BleManager(private val context: Context) {
     fun disconnect() {
         AppLogger.i(TAG, "主动断开 BLE 连接")
         stopPolling()
+        
+        // Disable notifications before disconnecting
+        bluetoothGatt?.let { gatt ->
+            writeCharacteristic?.let { char ->
+                disableNotification(gatt, char)
+            }
+            zhikeMainWriteCharacteristic?.let { char ->
+                disableNotification(gatt, char)
+            }
+        }
+        
         bluetoothGatt?.disconnect()
+        // Don't call close() here - let the callback handle it when STATE_DISCONNECTED fires
+    }
+
+    private fun disableNotification(gatt: BluetoothGatt, char: BluetoothGattCharacteristic) {
+        gatt.setCharacteristicNotification(char, false)
+        val descriptor = char.getDescriptor(UUID.fromString(CCC_DESCRIPTOR))
+        if (descriptor != null) {
+            descriptor.value = BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+            gatt.writeDescriptor(descriptor)
+        }
     }
 
     private fun startPolling() {
@@ -176,12 +271,19 @@ class BleManager(private val context: Context) {
         writeBytes(hexToBytes(hex), WriteRoute.ZHIKE_AUX)
     }
 
-    private fun writeBytes(bytes: ByteArray, route: WriteRoute) {
+    private fun writeBytes(bytes: ByteArray, route: WriteRoute): WriteResult {
         val char = when (route) {
             WriteRoute.ZHIKE_MAIN -> zhikeMainWriteCharacteristic ?: writeCharacteristic
             WriteRoute.ZHIKE_AUX -> zhikeAuxWriteCharacteristic ?: writeCharacteristic
             WriteRoute.DEFAULT -> writeCharacteristic
-        } ?: return
+        }
+
+        if (char == null) {
+            AppLogger.w(TAG, "写入失败：特征值为 null，route=$route，数据已丢弃")
+            val result = WriteResult.Dropped("Characteristic is null for route $route")
+            _writeResults.tryEmit(result)
+            return result
+        }
 
         val writeType = when {
             (char.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0 ->
@@ -194,15 +296,24 @@ class BleManager(private val context: Context) {
             "发送 ${route.name} -> ${char.uuidString()} type=$writeType bytes=${bytes.size} hex=${bytes.toHexPreview()}"
         )
 
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            bluetoothGatt?.writeCharacteristic(char, bytes, writeType)
-        } else {
-            @Suppress("DEPRECATION")
-            char.writeType = writeType
-            @Suppress("DEPRECATION")
-            char.value = bytes
-            @Suppress("DEPRECATION")
-            bluetoothGatt?.writeCharacteristic(char)
+        return try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                bluetoothGatt?.writeCharacteristic(char, bytes, writeType)
+            } else {
+                @Suppress("DEPRECATION")
+                char.writeType = writeType
+                @Suppress("DEPRECATION")
+                char.value = bytes
+                @Suppress("DEPRECATION")
+                bluetoothGatt?.writeCharacteristic(char)
+            }
+            // Note: Actual result will be reported via onCharacteristicWrite callback
+            WriteResult.Success
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "写入异常 route=$route", e)
+            val result = WriteResult.Failed(-1)
+            _writeResults.tryEmit(result)
+            result
         }
     }
 
@@ -325,6 +436,12 @@ class BleManager(private val context: Context) {
                     "发现服务成功 services=${serviceIds.size} chars=${charIds.size} device=$identifiedName"
                 )
 
+                // Request MTU exchange for better throughput
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    AppLogger.d(TAG, "请求 MTU $GATT_MTU")
+                    gatt.requestMtu(GATT_MTU)
+                }
+
                 // Trigger Protocol Identification
                 ProtocolParser.selectProtocol(
                     deviceName = identifiedName,
@@ -353,14 +470,17 @@ class BleManager(private val context: Context) {
                     TAG,
                     "写特征 default=${writeCharacteristic?.uuidString()} zhikeMain=${zhikeMainWriteCharacteristic?.uuidString()} zhikeAux=${zhikeAuxWriteCharacteristic?.uuidString()} handshake=${zhikeHandshakeCharacteristic?.uuidString()}"
                 )
-                
+
                 selectNotifyCharacteristics(
                     protocolId = activeProtocolId,
                     candidates = notifyCharacteristics
                 ).forEach { char ->
                     enableNotifications(gatt, char)
                 }
-                
+
+                // Start polling only after setup is complete
+                startPolling()
+
                 if (activeProtocolId == "zhike") {
                     zhikeHandshakeCharacteristic?.let {
                         AppLogger.d(TAG, "尝试读取智科握手特征 ${it.uuidString()}")
@@ -375,6 +495,12 @@ class BleManager(private val context: Context) {
                         sendZhikeMainCommand("AA110001")
                     }, 900)
                 }
+            } else {
+                // Handle service discovery failure
+                AppLogger.e(TAG, "服务发现失败 status=$status device=${gatt.device.address}")
+                _connectionState.value = ConnectionState.Error("服务发现失败: status=$status")
+                // Attempt to disconnect and allow retry
+                gatt.disconnect()
             }
         }
 
@@ -453,6 +579,21 @@ class BleManager(private val context: Context) {
             )
         }
 
+        @Suppress("DEPRECATION")
+        override fun onCharacteristicWrite(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int
+        ) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                AppLogger.v(TAG, "写入成功 char=${characteristic.uuidString()}")
+                _writeResults.tryEmit(WriteResult.Success)
+            } else {
+                AppLogger.w(TAG, "写入失败 status=$status char=${characteristic.uuidString()}")
+                _writeResults.tryEmit(WriteResult.Failed(status))
+            }
+        }
+
         override fun onDescriptorWrite(
             gatt: BluetoothGatt,
             descriptor: BluetoothGattDescriptor,
@@ -486,6 +627,21 @@ class BleManager(private val context: Context) {
         return ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.BLUETOOTH_CONNECT
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun hasBluetoothScanPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            // For Android 11 and below, we need location permission
+            return ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+        // For Android 12+, we need BLUETOOTH_SCAN permission
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.BLUETOOTH_SCAN
         ) == PackageManager.PERMISSION_GRANTED
     }
 

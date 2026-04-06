@@ -13,6 +13,8 @@ import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.shawnrain.habe.ble.AutoConnectManager
+import com.shawnrain.habe.ble.AutoConnectState
 import com.shawnrain.habe.ble.BleManager
 import com.shawnrain.habe.ble.ConnectionState
 import com.shawnrain.habe.ble.ProtocolParser
@@ -33,6 +35,9 @@ import com.shawnrain.habe.data.RideSession
 import com.shawnrain.habe.data.VehicleProfile
 import com.shawnrain.habe.data.migration.LanBackupQrPayload
 import com.shawnrain.habe.data.migration.LanBackupTransfer
+import com.shawnrain.habe.data.sync.GoogleDriveSyncManager
+import com.shawnrain.habe.data.sync.BackupMetadata
+import com.shawnrain.habe.data.sync.SyncState
 import com.shawnrain.habe.data.history.RideHistoryRecord
 import com.shawnrain.habe.data.history.RideMetricSample
 import com.shawnrain.habe.data.history.RideTrackPoint
@@ -162,8 +167,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val bmsBleManager = BleManager(application)
     private val settingsRepository = SettingsRepository(application)
     private val lanBackupTransfer = LanBackupTransfer()
+    private val driveSyncManager = GoogleDriveSyncManager(application)
     val gpsTracker = GpsTracker(application)
     private val headingTracker = HeadingTracker(application)
+    private val autoConnectManager = AutoConnectManager(
+        context = application,
+        bleManager = bleManager,
+        scope = viewModelScope
+    )
 
     private val _currentRpm = MutableStateFlow(0f)
     private val _controllerReportedSpeed = MutableStateFlow(0f)
@@ -203,6 +214,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var _speedTestMaxSpeed = 0f
     private var _speedTestTargetLabel = ""
     private var _speedTestTargetSpeedKmh = 0f
+    // Track elapsed time when we pass standard tiers during the run
+    private val speedTestTierTimes = mutableMapOf<Float, Long>()
+    private val speedTestTierOptions = listOf(25f, 50f, 60f, 100f)
     private val speedTestTrackPoints = mutableListOf<SpeedTestTrackPoint>()
 
     private val _isRideActive = MutableStateFlow(false)
@@ -482,7 +496,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         wheelCircumferenceMm: Float
     ): Float {
         if (rpm <= 0f || wheelCircumferenceMm <= 0f) return 0f
-        return ((rpm * wheelCircumferenceMm * 60f) / 1_000_000f).coerceIn(0f, 160f)
+        // 智科 RPM 已是轮速 RPM（已除以极对数），直接计算
+        // 不做极速限制，适配不同电机/轮径组合
+        return (rpm * wheelCircumferenceMm * 60f) / 1_000_000f
     }
 
     private fun resolveControllerSpeed(
@@ -685,12 +701,383 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val lanBackupMessage: StateFlow<String?> = _lanBackupMessage.asStateFlow()
     fun clearLanBackupMessage() { _lanBackupMessage.value = null }
     fun showLanBackupMessage(message: String) { _lanBackupMessage.value = message }
+
+    // ======== Auto-Connect State ========
+    val autoConnectState: StateFlow<AutoConnectState> = autoConnectManager.state
+
+    /**
+     * User manually connects to a specific device.
+     */
+    fun connectToDevice(address: String, name: String? = null, protocolId: String? = null) {
+        autoConnectManager.connectTo(address)
+    }
+
+    /**
+     * User manually disconnects.
+     */
+    fun disconnectDevice() {
+        autoConnectManager.stop()
+        bleManager.disconnect()
+    }
+
+    // ======== Google Drive Sync State ========
+    private val _driveSyncState = MutableStateFlow<SyncState>(SyncState.SignedOut)
+    val driveSyncState: StateFlow<SyncState> = _driveSyncState.asStateFlow()
+
+    fun checkDriveSignInStatus(): kotlinx.coroutines.Job = viewModelScope.launch {
+        if (driveSyncManager.isSignedIn()) {
+            val account = driveSyncManager.getCurrentAccount()
+            val previous = _driveSyncState.value as? SyncState.SignedIn
+            _driveSyncState.value = SyncState.SignedIn(
+                email = account?.email ?: "Unknown",
+                lastSyncTime = previous?.lastSyncTime,
+                availableBackups = previous?.availableBackups.orEmpty(),
+                hasRemoteUpdate = false,
+                remoteDeviceName = previous?.remoteDeviceName
+            )
+            // Load available backups
+            loadDriveBackups()
+            maybeStartAutoDriveSync()
+        } else {
+            _driveSyncState.value = SyncState.SignedOut
+        }
+    }
+
+    fun startDriveSignIn() {
+        _driveSyncState.value = SyncState.SigningIn
+    }
+
+    fun completeDriveSignIn() {
+        viewModelScope.launch {
+            try {
+                val account = driveSyncManager.getCurrentAccount()
+                _driveSyncState.value = SyncState.SignedIn(
+                    email = account?.email ?: "Unknown"
+                )
+                loadDriveBackups()
+                maybeStartAutoDriveSync(force = true)
+            } catch (e: Exception) {
+                _driveSyncState.value = SyncState.Error(e.message ?: "登录失败")
+            }
+        }
+    }
+
+    fun signOutOfDrive() {
+        viewModelScope.launch {
+            driveSyncManager.signOut()
+            autoSyncJob?.cancel()
+            hasAutoSyncedThisSession = false
+            _driveSyncState.value = SyncState.SignedOut
+        }
+    }
+
+    fun syncDriveNow(): kotlinx.coroutines.Job = viewModelScope.launch {
+        runDriveSmartSync(showState = true, showMessage = true)
+    }
+
+    fun uploadToDrive(): kotlinx.coroutines.Job = viewModelScope.launch {
+        _driveSyncState.value = SyncState.Syncing
+        try {
+            val backupJson = settingsRepository.exportBackupJson()
+            val result = driveSyncManager.uploadBackup(backupJson)
+            result.fold(
+                onSuccess = { metadata ->
+                    val currentState = _driveSyncState.value
+                    if (currentState is SyncState.SignedIn) {
+                        _driveSyncState.value = currentState.copy(
+                            lastSyncTime = System.currentTimeMillis()
+                        )
+                    }
+                    _driveSyncState.value = SyncState.Synced(uploaded = true, downloaded = false)
+                    _driveSyncMessage.value = "备份已上传到 Google Drive"
+                    loadDriveBackups()
+                },
+                onFailure = { error ->
+                    _driveSyncState.value = SyncState.Error(error.message ?: "上传失败")
+                    _driveSyncMessage.value = "上传失败：${error.message}"
+                }
+            )
+        } catch (e: Exception) {
+            _driveSyncState.value = SyncState.Error(e.message ?: "上传异常")
+            _driveSyncMessage.value = "上传异常：${e.message}"
+        }
+    }
+
+    fun downloadFromDrive(fileId: String): kotlinx.coroutines.Job = viewModelScope.launch {
+        _driveSyncState.value = SyncState.Syncing
+        try {
+            val result = driveSyncManager.downloadBackup(fileId)
+            result.fold(
+                onSuccess = { backupJson ->
+                    val count = settingsRepository.importBackupJson(backupJson)
+                    _driveSyncState.value = SyncState.Synced(uploaded = false, downloaded = true)
+                    _driveSyncMessage.value = "恢复完成：已应用 $count 项资料"
+                    loadDriveBackups()
+                },
+                onFailure = { error ->
+                    _driveSyncState.value = SyncState.Error(error.message ?: "下载失败")
+                    _driveSyncMessage.value = "下载失败：${error.message}"
+                }
+            )
+        } catch (e: Exception) {
+            _driveSyncState.value = SyncState.Error(e.message ?: "下载异常")
+            _driveSyncMessage.value = "下载异常：${e.message}"
+        }
+    }
+
+    fun loadDriveBackups() {
+        viewModelScope.launch {
+            val result = driveSyncManager.listBackups()
+            result.fold(
+                onSuccess = { backups ->
+                    val currentState = _driveSyncState.value
+                    if (currentState is SyncState.SignedIn) {
+                        _driveSyncState.value = currentState.copy(
+                            availableBackups = backups,
+                            remoteDeviceName = backups.firstOrNull()?.deviceName
+                        )
+                    }
+                },
+                onFailure = {
+                    AppLogger.w(TAG, "Failed to load Drive backups: ${it.message}")
+                }
+            )
+        }
+    }
+
+    fun deleteDriveBackup(fileId: String) {
+        viewModelScope.launch {
+            val result = driveSyncManager.deleteBackup(fileId)
+            result.fold(
+                onSuccess = { loadDriveBackups() },
+                onFailure = {
+                    AppLogger.w(TAG, "Failed to delete Drive backup: ${it.message}")
+                }
+            )
+        }
+    }
+
+    private val _driveSyncMessage = MutableStateFlow<String?>(null)
+    val driveSyncMessage: StateFlow<String?> = _driveSyncMessage.asStateFlow()
+    fun clearDriveSyncMessage() { _driveSyncMessage.value = null }
+
+    // ======== Auto Sync Detection ========
+    private var lastKnownRemoteTimestamp: Long = 0L
+    private var autoSyncJob: kotlinx.coroutines.Job? = null
+    private var hasAutoSyncedThisSession: Boolean = false
+
+    private fun currentDriveEmail(): String {
+        val signedIn = _driveSyncState.value as? SyncState.SignedIn
+        if (signedIn != null) return signedIn.email
+        return driveSyncManager.getCurrentAccount()?.email ?: "Unknown"
+    }
+
+    private suspend fun mergeRemoteAndUploadLocal(): Pair<Int, List<BackupMetadata>> {
+        val backups = driveSyncManager.listBackups().getOrElse { throw it }
+        var mergedCount = 0
+        val latestRemote = backups.firstOrNull()
+        if (latestRemote != null) {
+            val remoteJson = driveSyncManager.downloadBackup(latestRemote.fileId).getOrElse { throw it }
+            mergedCount = settingsRepository.mergeBackupJson(remoteJson)
+            if (latestRemote.createdAt > lastKnownRemoteTimestamp) {
+                lastKnownRemoteTimestamp = latestRemote.createdAt
+            }
+        }
+
+        val localBackupJson = settingsRepository.exportBackupJson()
+        driveSyncManager.uploadBackup(localBackupJson).getOrElse { throw it }
+        val refreshedBackups = driveSyncManager.listBackups().getOrElse { backups }
+        return mergedCount to refreshedBackups
+    }
+
+    private suspend fun runDriveSmartSync(showState: Boolean, showMessage: Boolean) {
+        if (!driveSyncManager.isSignedIn()) {
+            _driveSyncState.value = SyncState.SignedOut
+            if (showMessage) {
+                _driveSyncMessage.value = "请先登录 Google 账号"
+            }
+            return
+        }
+
+        val email = currentDriveEmail()
+        if (showState) {
+            _driveSyncState.value = SyncState.Syncing
+        }
+
+        try {
+            val (mergedCount, backups) = mergeRemoteAndUploadLocal()
+            hasAutoSyncedThisSession = true
+            val now = System.currentTimeMillis()
+            _driveSyncState.value = SyncState.SignedIn(
+                email = email,
+                lastSyncTime = now,
+                availableBackups = backups,
+                hasRemoteUpdate = false,
+                remoteDeviceName = backups.firstOrNull()?.deviceName
+            )
+            if (showMessage) {
+                _driveSyncMessage.value = if (mergedCount > 0) {
+                    "同步完成：已合并 $mergedCount 项并更新云端"
+                } else {
+                    "同步完成：云端与本地已对齐"
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Drive smart sync failed: ${e.message}")
+            _driveSyncState.value = SyncState.SignedIn(
+                email = email
+            )
+            loadDriveBackups()
+            if (showState || showMessage) {
+                _driveSyncState.value = SyncState.Error(e.message ?: "同步失败")
+                _driveSyncMessage.value = "同步失败：${e.message}"
+            }
+        }
+    }
+
+    private fun maybeStartAutoDriveSync(force: Boolean = false) {
+        if (!driveSyncManager.isSignedIn()) return
+        if (!force && hasAutoSyncedThisSession) return
+        if (autoSyncJob?.isActive == true) return
+        autoSyncJob = viewModelScope.launch {
+            runDriveSmartSync(showState = false, showMessage = false)
+        }
+    }
+
+    /**
+     * Check for remote updates once (no background polling).
+     * Called on app start and when user opens sync settings.
+     */
+    fun checkForRemoteUpdates() {
+        viewModelScope.launch {
+            try {
+                val result = driveSyncManager.listBackups()
+                result.fold(
+                    onSuccess = { backups ->
+                        if (backups.isNotEmpty()) {
+                            val latest = backups.first()
+                            val hasNewUpdate = latest.createdAt > lastKnownRemoteTimestamp
+                            lastKnownRemoteTimestamp = latest.createdAt
+
+                            if (hasNewUpdate && backups.size > 1) {
+                                val currentState = _driveSyncState.value
+                                if (currentState is SyncState.SignedIn) {
+                                    _driveSyncState.value = currentState.copy(
+                                        hasRemoteUpdate = true,
+                                        remoteDeviceName = latest.deviceName,
+                                        availableBackups = backups
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    onFailure = { /* silently fail */ }
+                )
+            } catch (e: Exception) {
+                // Ignore background sync errors
+            }
+        }
+    }
+
+    /**
+     * Download and MERGE remote backup (not overwrite).
+     * Merges vehicle profiles and takes newer settings.
+     */
+    fun downloadAndMergeFromDrive(fileId: String): kotlinx.coroutines.Job = viewModelScope.launch {
+        _driveSyncState.value = SyncState.Syncing
+        try {
+            val result = driveSyncManager.downloadBackup(fileId)
+            result.fold(
+                onSuccess = { remoteBackupJson ->
+                    // Use merge strategy instead of full overwrite
+                    val count = settingsRepository.mergeBackupJson(remoteBackupJson)
+                    lastKnownRemoteTimestamp = System.currentTimeMillis()
+                    _driveSyncState.value = SyncState.Synced(uploaded = false, downloaded = true)
+                    _driveSyncMessage.value = "合并完成：已同步 $count 项资料"
+                    loadDriveBackups()
+                },
+                onFailure = { error ->
+                    _driveSyncState.value = SyncState.Error(error.message ?: "合并失败")
+                    _driveSyncMessage.value = "合并失败：${error.message}"
+                }
+            )
+        } catch (e: Exception) {
+            _driveSyncState.value = SyncState.Error(e.message ?: "合并异常")
+            _driveSyncMessage.value = "合并异常：${e.message}"
+        }
+    }
+
+    /**
+     * Clear remote update flag after user action.
+     */
+    fun clearRemoteUpdateFlag() {
+        val currentState = _driveSyncState.value
+        if (currentState is SyncState.SignedIn) {
+            _driveSyncState.value = currentState.copy(
+                hasRemoteUpdate = false,
+                remoteDeviceName = null
+            )
+        }
+    }
+
     val gpsCalibrationState: StateFlow<GpsCalibrationState> = autoCalibrator.state
     val activeProtocolLabel: StateFlow<String> = ProtocolParser.activeProtocolLabel
     val bmsActiveProtocolLabel: StateFlow<String> = BmsParser.activeProtocolLabel
     val bmsMetrics: StateFlow<BmsMetrics> = BmsParser.metrics
 
     init {
+        // Load known controllers from settings and start auto-connect
+        viewModelScope.launch {
+            val lastAddress = lastControllerDeviceAddress.value
+            val lastName = lastControllerDeviceName.value
+            val lastProtocol = lastControllerProtocolId.value
+
+            if (!lastAddress.isNullOrBlank()) {
+                autoConnectManager.registerController(
+                    address = lastAddress,
+                    name = lastName,
+                    protocolId = lastProtocol,
+                    lastConnectedAt = System.currentTimeMillis()
+                )
+                AppLogger.i(TAG, "启动自动连接：$lastName ($lastAddress)")
+            }
+
+            // Start auto-connect (will immediately try to connect to last known device)
+            autoConnectManager.start()
+        }
+
+        // Wire BLE connection state to auto-connect manager
+        bleManager.connectionState.onEach { state ->
+            when (state) {
+                is ConnectionState.Connected -> {
+                    autoConnectManager.onConnected(
+                        address = state.device.address,
+                        name = state.device.name
+                    )
+                }
+                is ConnectionState.Disconnected -> {
+                    val lastAddress = lastControllerDeviceAddress.value
+                    if (lastAddress != null) {
+                        autoConnectManager.onDisconnected(lastAddress)
+                    }
+                }
+                is ConnectionState.Error -> {
+                    val lastAddress = lastControllerDeviceAddress.value
+                    if (lastAddress != null) {
+                        autoConnectManager.onDisconnected(lastAddress)
+                    }
+                }
+                else -> {}
+            }
+        }.launchIn(viewModelScope)
+
+        // Check for remote updates on app start (one-time, no polling)
+        settingsRepository.currentVehicleId.onEach { _ ->
+            if (driveSyncManager.isSignedIn()) {
+                checkDriveSignInStatus()
+            }
+        }.launchIn(viewModelScope)
+
         settingsRepository.dashboardItems.onEach { items ->
             if (_dashboardItems.value.isEmpty()) {
                 _dashboardItems.value = items.filterNot { it == com.shawnrain.habe.data.MetricType.MOTOR_TEMP }
@@ -1047,36 +1434,82 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         if (speedKmh >= _speedTestTargetSpeedKmh) {
-            val record = SpeedTestRecord(
-                id = UUID.randomUUID().toString(),
-                label = _speedTestTargetLabel,
-                targetSpeedKmh = _speedTestTargetSpeedKmh,
-                timeMs = now - _speedTestStartedAtMs,
-                timestampMs = now,
-                maxSpeedKmh = _speedTestMaxSpeed,
-                peakPowerKw = _speedTestPeakPowerKw,
-                peakBusCurrentA = _speedTestPeakBusCurrentA,
-                minVoltage = _speedTestMinVoltage,
-                distanceMeters = _speedTestDistanceMeters,
-                trackPoints = speedTestTrackPoints.toList()
+            val elapsedMs = now - _speedTestStartedAtMs
+            // Record time for the main target
+            speedTestTierTimes[_speedTestTargetSpeedKmh] = elapsedMs
+
+            // Save the main record
+            val mainRecord = createSpeedTestRecord(
+                _speedTestTargetLabel, _speedTestTargetSpeedKmh, elapsedMs
             )
-            val updated = listOf(record) + _speedTestHistory.value
-            _speedTestHistory.value = updated.take(HISTORY_LIMIT)
+            
+            // Check for other tiers reached during this run
+            val updatedHistory = _speedTestHistory.value.toMutableList()
+            
+            // Add or update records for all reached tiers
+            speedTestTierTimes.forEach { (tier, time) ->
+                // Check if we already have a record for this tier
+                val existingIndex = updatedHistory.indexOfFirst { it.targetSpeedKmh == tier }
+                if (existingIndex != -1) {
+                    // Update if this run is faster
+                    val existing = updatedHistory[existingIndex]
+                    if (time < existing.timeMs) {
+                        updatedHistory[existingIndex] = createSpeedTestRecord(
+                            "0-${tier.toInt()}", tier, time
+                        )
+                    }
+                } else {
+                    // Add new tier record
+                    updatedHistory.add(createSpeedTestRecord("0-${tier.toInt()}", tier, time))
+                }
+            }
+            
+            _speedTestHistory.value = updatedHistory.sortedByDescending { it.timestampMs }.take(HISTORY_LIMIT)
             viewModelScope.launch {
                 settingsRepository.saveSpeedTestHistory(_speedTestHistory.value)
             }
             _speedTestSession.value = _speedTestSession.value.copy(
                 isActive = false,
-                elapsedMs = record.timeMs,
+                elapsedMs = mainRecord.timeMs,
                 currentSpeedKmh = speedKmh,
                 maxSpeedKmh = _speedTestMaxSpeed,
                 peakPowerKw = _speedTestPeakPowerKw,
                 peakBusCurrentA = _speedTestPeakBusCurrentA,
                 minVoltage = _speedTestMinVoltage,
                 distanceMeters = _speedTestDistanceMeters,
-                statusText = "完成 ${record.label}，成绩 ${formatDuration(record.timeMs)}"
+                statusText = "完成 ${mainRecord.label}，成绩 ${formatDuration(mainRecord.timeMs)}"
             )
+        } else {
+            // Not finished yet, check if we passed any lower tiers to track them
+            val currentElapsed = now - _speedTestStartedAtMs
+            speedTestTierOptions.forEach { tier ->
+                if (tier < _speedTestTargetSpeedKmh && speedKmh >= tier) {
+                    if (speedTestTierTimes[tier] == null) {
+                        speedTestTierTimes[tier] = currentElapsed
+                    }
+                }
+            }
         }
+    }
+
+    private fun createSpeedTestRecord(
+        label: String,
+        targetSpeedKmh: Float,
+        timeMs: Long
+    ): SpeedTestRecord {
+        return SpeedTestRecord(
+            id = UUID.randomUUID().toString(),
+            label = label,
+            targetSpeedKmh = targetSpeedKmh,
+            timeMs = timeMs,
+            timestampMs = System.currentTimeMillis(),
+            maxSpeedKmh = _speedTestMaxSpeed,
+            peakPowerKw = _speedTestPeakPowerKw,
+            peakBusCurrentA = _speedTestPeakBusCurrentA,
+            minVoltage = _speedTestMinVoltage,
+            distanceMeters = _speedTestDistanceMeters,
+            trackPoints = speedTestTrackPoints.toList()
+        )
     }
 
     private fun startRideInternal(mode: RideStartMode) {
@@ -1681,6 +2114,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _speedTestTargetSpeedKmh = targetSpeedKmh
         _speedTestLastLocation = null
         speedTestTrackPoints.clear()
+        speedTestTierTimes.clear()
         _speedTestSession.value = SpeedTestSessionUiState(
             isActive = true,
             isStandby = true,

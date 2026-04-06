@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.0.0"
 }
 
 val releaseStoreFile = System.getenv("HABE_RELEASE_STORE_FILE")
@@ -99,4 +100,9 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+
+    // Google Drive Sync
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
 }

@@ -41,6 +41,17 @@
 -keep class com.shawnrain.habe.ble.protocols.** { *; }
 -keep class com.shawnrain.habe.ble.bms.protocols.** { *; }
 
+# Keep Data sync (Google Drive)
+-keep class com.shawnrain.habe.data.sync.** { *; }
+
+# Keep Google Play Services Auth
+-keep class com.google.android.gms.auth.** { *; }
+-keep class com.google.android.gms.common.** { *; }
+
+# Keep OkHttp / Okio
+-dontwarn okhttp3.**
+-dontwarn okio.**
+
 # Keep model/data classes
 -keep class com.shawnrain.habe.data.** { *; }
 

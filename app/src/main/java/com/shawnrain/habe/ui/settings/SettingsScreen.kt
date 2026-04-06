@@ -40,6 +40,8 @@ import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -67,6 +69,8 @@ import com.shawnrain.habe.data.SpeedSource
 import com.shawnrain.habe.data.VehicleProfile
 import com.shawnrain.habe.data.WheelPresets
 import com.shawnrain.habe.data.migration.LanBackupQrPayload
+import com.shawnrain.habe.data.sync.GoogleDriveAuth
+import com.shawnrain.habe.data.sync.SyncState
 import com.shawnrain.habe.debug.AppLogLevel
 import com.shawnrain.habe.ui.navigation.ApplyDialogWindowBlurEffect
 import com.shawnrain.habe.ui.navigation.BlurredAlertDialog
@@ -105,7 +109,7 @@ fun SettingsScreen(
     val gpsCalibrationState by viewModel.gpsCalibrationState.collectAsState()
     val lanBackupShare by viewModel.lanBackupShare.collectAsState()
     val lanBackupRestoring by viewModel.lanBackupRestoring.collectAsState()
-    val lanBackupMessage by viewModel.lanBackupMessage.collectAsState()
+    val driveSyncState by viewModel.driveSyncState.collectAsState()
 
     var expandSpeedSource by remember { mutableStateOf(false) }
     var expandBattSource by remember { mutableStateOf(false) }
@@ -118,6 +122,7 @@ fun SettingsScreen(
     var lanRestoreCode by remember { mutableStateOf("") }
     var showLanQrDialog by remember { mutableStateOf(false) }
     var showLanScannerDialog by remember { mutableStateOf(false) }
+    var showDriveSignOutConfirm by remember { mutableStateOf(false) }
     val qrPayload = remember(lanBackupShare) { viewModel.currentLanBackupQrPayload() }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -128,69 +133,89 @@ fun SettingsScreen(
             viewModel.showLanBackupMessage("未授予相机权限，无法扫码迁移")
         }
     }
-    val snackbarHostState = remember { SnackbarHostState() }
-    LaunchedEffect(lanBackupMessage) {
-        val message = lanBackupMessage ?: return@LaunchedEffect
-        snackbarHostState.currentSnackbarData?.dismiss()
-        snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
-        viewModel.clearLanBackupMessage()
+
+    // Google Drive sign-in launcher
+    val appContext = LocalContext.current
+    val driveSignInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val account = GoogleDriveAuth(appContext).getCurrentAccount()
+            if (account != null) {
+                viewModel.completeDriveSignIn()
+            } else {
+                viewModel.checkDriveSignInStatus()
+            }
+        } else {
+            viewModel.checkDriveSignInStatus()
+        }
     }
+
+    // Direct sign-in handler (no LaunchedEffect needed)
+    val handleDriveSignIn = {
+        val intent = GoogleDriveAuth(appContext).getSignInIntent()
+        driveSignInLauncher.launch(intent)
+    }
+
     LaunchedEffect(lanBackupShare.isSharing) {
         if (!lanBackupShare.isSharing) {
             showLanQrDialog = false
         }
     }
+    LaunchedEffect(Unit) {
+        viewModel.checkDriveSignInStatus()
+    }
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
-        contentWindowInsets = WindowInsets(0.dp),
-        snackbarHost = {
-            SnackbarHost(
-                hostState = snackbarHostState,
-                modifier = Modifier.padding(16.dp)
-            )
-        }
+        contentWindowInsets = WindowInsets(0.dp)
     ) { innerPadding ->
-        Column(
+        PullToRefreshBox(
+            isRefreshing = driveSyncState is SyncState.Syncing,
+            onRefresh = { viewModel.syncDriveNow() },
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
                 .padding(innerPadding)
         ) {
-            P2PageHeader(
-                title = "设置",
-                subtitle = "当前活跃车辆「${currentVehicle.name}」",
-                modifier = Modifier.fillMaxWidth()
-            )
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp)
+                    .background(MaterialTheme.colorScheme.background)
             ) {
-            Spacer(modifier = Modifier.height(8.dp))
-
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                P2PageHeader(
+                    title = "设置",
+                    subtitle = "当前活跃车辆「${currentVehicle.name}」",
+                    modifier = Modifier.fillMaxWidth()
+                )
                 Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 24.dp)
                 ) {
-                    Text("车辆档案", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                    Text(
-                        "按车辆隔离行程记录和最近连接控制器，车辆参数统一放在档案详情里维护。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = MaterialTheme.shapes.large
-                    ) {
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                         Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
+                            Text("车辆档案", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                "按车辆隔离行程记录和最近连接控制器，车辆参数统一放在档案详情里维护。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                shape = MaterialTheme.shapes.large
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
                             Text(
                                 currentVehicle.name,
                                 style = MaterialTheme.typography.titleMedium,
@@ -717,6 +742,162 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
+            // Google Drive Cloud Sync Section
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Google Drive 云同步", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "开启后自动双向同步并智能合并云端/本地数据。通常无需手动上传或恢复。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    // Auto-reset Synced/Error state back to SignedIn after delay
+                    LaunchedEffect(driveSyncState) {
+                        when (driveSyncState) {
+                            is com.shawnrain.habe.data.sync.SyncState.Synced -> {
+                                kotlinx.coroutines.delay(3000)
+                                viewModel.checkDriveSignInStatus()
+                            }
+                            is com.shawnrain.habe.data.sync.SyncState.Error -> {
+                                kotlinx.coroutines.delay(5000)
+                                viewModel.checkDriveSignInStatus()
+                            }
+                            else -> {}
+                        }
+                    }
+
+                    AnimatedContent(
+                        targetState = driveSyncState,
+                        transitionSpec = {
+                            (fadeIn(tween(250)) + slideInVertically { it / 4 }).togetherWith(
+                                fadeOut(tween(200)) + slideOutVertically { -it / 4 }
+                            ).using(SizeTransform(clip = false))
+                        },
+                        label = "DriveSyncStateTransition"
+                    ) { state ->
+                        when (state) {
+                            is com.shawnrain.habe.data.sync.SyncState.SignedOut -> {
+                                Button(
+                                    onClick = handleDriveSignIn,
+                                    shape = bezierPillShape()
+                                ) {
+                                    Text("登录 Google 账号")
+                                }
+                            }
+                            is com.shawnrain.habe.data.sync.SyncState.SigningIn -> {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    Text("正在跳转登录…", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                            is com.shawnrain.habe.data.sync.SyncState.SignedIn -> {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Button(
+                                            onClick = { viewModel.syncDriveNow() },
+                                            shape = bezierPillShape(),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("同步")
+                                        }
+                                        Button(
+                                            onClick = { showDriveSignOutConfirm = true },
+                                            shape = bezierPillShape(),
+                                            modifier = Modifier.weight(1f),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                                contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                        ) {
+                                            Text("退出登录")
+                                        }
+                                    }
+                                    Text(
+                                        "自动同步已开启。仅在异常情况下手动触发同步。",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        "已登录：${state.email}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    val latest = state.availableBackups.firstOrNull()
+                                    if (latest != null) {
+                                        Text(
+                                            latest.deviceName,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    val syncTime = state.lastSyncTime ?: latest?.createdAt
+                                    if (syncTime != null) {
+                                        Text(
+                                            "上次同步：${java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(syncTime)}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    if (state.availableBackups.isNotEmpty()) {
+                                        val displayCount = state.availableBackups.size
+                                        val maxRetained = 10
+                                        val suffix = if (displayCount >= maxRetained) "（已自动清理旧备份）" else ""
+                                        Text(
+                                            "可用备份：${displayCount.coerceAtMost(maxRetained)} 个$suffix",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                            is com.shawnrain.habe.data.sync.SyncState.Syncing -> {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                    Text("同步中…", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                            is com.shawnrain.habe.data.sync.SyncState.Synced -> {
+                                val msg = when {
+                                    state.uploaded && state.downloaded -> "已上传并恢复"
+                                    state.uploaded -> "上传成功"
+                                    state.downloaded -> "恢复成功"
+                                    else -> "同步完成"
+                                }
+                                Text(
+                                    msg,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            is com.shawnrain.habe.data.sync.SyncState.Error -> {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = MaterialTheme.shapes.medium,
+                                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                                ) {
+                                    Text(
+                                        "❌ ${state.message}",
+                                        modifier = Modifier.padding(10.dp),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.large,
@@ -735,6 +916,7 @@ fun SettingsScreen(
                 }
             }
             }
+        }
         }
     }
 
@@ -803,6 +985,34 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { deletingVehicle = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    if (showDriveSignOutConfirm) {
+        BlurredAlertDialog(
+            onDismissRequest = { showDriveSignOutConfirm = false },
+            title = { Text("退出 Google Drive") },
+            text = {
+                Text("退出后将停止自动同步，本地数据会保留。需要重新登录后才会继续同步。")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.signOutOfDrive()
+                        showDriveSignOutConfirm = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("确认退出")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDriveSignOutConfirm = false }) {
                     Text("取消")
                 }
             }

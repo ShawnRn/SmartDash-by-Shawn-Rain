@@ -28,6 +28,8 @@ __APP__.wxapkg
 /Habe Dashboard-latest.apk
 app/build/outputs/apk/debug/*.apk
 app/build/outputs/apk/release/*.apk
+app/build/outputs/apk/devRelease/*.apk
+app/build/outputs/apk/fastDevRelease/*.apk
 
 # Signing materials must stay local / iCloud only, never GitHub
 *.jks

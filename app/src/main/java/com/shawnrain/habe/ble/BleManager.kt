@@ -164,60 +164,72 @@ class BleManager(private val context: Context) {
     }
 
     fun connect(device: BluetoothDevice) {
-        if (!hasBluetoothConnectPermission()) {
-            AppLogger.w(TAG, "缺少 BLUETOOTH_CONNECT 权限，无法连接 ${device.address}")
-            return
-        }
-        val resolvedName = safeDeviceName(device)
-        // Don't override hint if already set
-        if (pendingDeviceNameHint == null) {
-            pendingDeviceNameHint = resolvedName
-        }
-        stopPolling()
-        stopScan() // Stop any active scan before connecting
-        ProtocolParser.reset()
-        
-        // Properly disconnect before reconnecting
-        val existingGatt = bluetoothGatt
-        if (existingGatt != null) {
-            AppLogger.d(TAG, "断开现有连接后再重新连接")
-            existingGatt.disconnect()
-            // Don't close yet - let the callback handle it
-        }
-        
-        _connectionState.value = ConnectionState.Connecting
-        AppLogger.i(TAG, "连接设备: ${resolvedName ?: "Unknown"} (${device.address})")
-        try {
-            bluetoothGatt = device.connectGatt(context, false, gattCallback)
-            // Polling will start after service discovery
-        } catch (error: SecurityException) {
-            AppLogger.e(TAG, "连接失败：缺少蓝牙权限 ${device.address}", error)
-            _connectionState.value = ConnectionState.Disconnected
-        }
+        connectToDevice(device.address, safeDeviceName(device), pendingProtocolIdHint)
     }
 
-    fun connect(address: String, nameHint: String? = null, protocolIdHint: String? = null): Boolean {
+    /**
+     * Connects to a device by address. Returns true if connection initiated successfully.
+     */
+    fun connect(
+        address: String,
+        nameHint: String? = null,
+        protocolIdHint: String? = null
+    ): Boolean {
+        return connectToDevice(address, nameHint, protocolIdHint)
+    }
+
+    private fun connectToDevice(
+        address: String,
+        nameHint: String?,
+        protocolIdHint: String?
+    ): Boolean {
         val adapter = bluetoothAdapter ?: run {
-            AppLogger.w(TAG, "蓝牙适配器不可用，无法自动重连 $address")
+            AppLogger.w(TAG, "蓝牙适配器不可用，无法连接 $address")
             return false
         }
         if (!hasBluetoothConnectPermission()) {
-            AppLogger.w(TAG, "缺少 BLUETOOTH_CONNECT 权限，无法自动重连 $address")
+            AppLogger.w(TAG, "缺少 BLUETOOTH_CONNECT 权限，无法连接 $address")
             return false
         }
         val device = try {
             adapter.getRemoteDevice(address)
         } catch (error: IllegalArgumentException) {
-            AppLogger.e(TAG, "设备地址无效，无法重连 $address", error)
+            AppLogger.e(TAG, "设备地址无效: $address", error)
             return false
         } catch (error: SecurityException) {
-            AppLogger.e(TAG, "缺少蓝牙权限，无法自动重连 $address", error)
+            AppLogger.e(TAG, "缺少蓝牙权限: $address", error)
             return false
         }
         pendingDeviceNameHint = nameHint?.takeIf { it.isNotBlank() }
         pendingProtocolIdHint = protocolIdHint?.takeIf { it.isNotBlank() }
-        connect(device)
+        connectDeviceInternal(device)
         return true
+    }
+
+    private fun connectDeviceInternal(device: BluetoothDevice) {
+        stopPolling()
+        stopScan()
+        ProtocolParser.reset()
+
+        val existingGatt = bluetoothGatt
+        if (existingGatt != null) {
+            AppLogger.d(TAG, "断开现有连接后再重新连接")
+            existingGatt.disconnect()
+        }
+
+        val resolvedName = safeDeviceName(device) ?: pendingDeviceNameHint
+        if (pendingDeviceNameHint == null) {
+            pendingDeviceNameHint = resolvedName
+        }
+
+        _connectionState.value = ConnectionState.Connecting
+        AppLogger.i(TAG, "连接设备: ${resolvedName ?: "Unknown"} (${device.address})")
+        try {
+            bluetoothGatt = device.connectGatt(context, false, gattCallback)
+        } catch (error: SecurityException) {
+            AppLogger.e(TAG, "连接失败：缺少蓝牙权限 ${device.address}", error)
+            _connectionState.value = ConnectionState.Disconnected
+        }
     }
 
     fun disconnect() {

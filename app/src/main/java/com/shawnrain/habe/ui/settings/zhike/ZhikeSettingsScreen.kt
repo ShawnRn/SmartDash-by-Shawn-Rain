@@ -78,8 +78,6 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     var currentPassword by remember { mutableStateOf("8888") }
     var isSyncing by remember { mutableStateOf(false) }
     var authError by remember { mutableStateOf<String?>(null) }
-    val snackbarHostState = remember { SnackbarHostState() }
-    val syncMessage by viewModel.calibrationMessage.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.zhikeSettings.collect {
@@ -92,19 +90,11 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
         }
     }
 
-    LaunchedEffect(syncMessage) {
-        syncMessage?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
-            viewModel.clearCalibrationMessage()
-        }
-    }
-
     val visibleGroups = remember(settings.loadedFromController) {
         ZhikeParameterCatalog.groups
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             SecondaryScreenTopBar(
                 title = "智科调校",

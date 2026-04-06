@@ -62,6 +62,8 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedButton
@@ -585,6 +587,10 @@ fun MainScreen(
     val configuration = LocalConfiguration.current
     val pipEnabled by viewModel.overlayEnabled.collectAsState()
     val pendingRideStop by viewModel.pendingRideStop.collectAsState()
+    val calibrationMessage by viewModel.calibrationMessage.collectAsState()
+    val lanBackupMessage by viewModel.lanBackupMessage.collectAsState()
+    val driveSyncMessage by viewModel.driveSyncMessage.collectAsState()
+    val globalSnackbarHostState = remember { SnackbarHostState() }
 
     DisposableEffect(viewModel) {
         val lifecycle = ProcessLifecycleOwner.get().lifecycle
@@ -603,6 +609,27 @@ fun MainScreen(
 
     LaunchedEffect(pipEnabled) {
         onPipPreferenceChanged(pipEnabled)
+    }
+
+    LaunchedEffect(calibrationMessage) {
+        val message = calibrationMessage ?: return@LaunchedEffect
+        globalSnackbarHostState.currentSnackbarData?.dismiss()
+        globalSnackbarHostState.showSnackbar(message)
+        viewModel.clearCalibrationMessage()
+    }
+
+    LaunchedEffect(lanBackupMessage) {
+        val message = lanBackupMessage ?: return@LaunchedEffect
+        globalSnackbarHostState.currentSnackbarData?.dismiss()
+        globalSnackbarHostState.showSnackbar(message)
+        viewModel.clearLanBackupMessage()
+    }
+
+    LaunchedEffect(driveSyncMessage) {
+        val message = driveSyncMessage ?: return@LaunchedEffect
+        globalSnackbarHostState.currentSnackbarData?.dismiss()
+        globalSnackbarHostState.showSnackbar(message)
+        viewModel.clearDriveSyncMessage()
     }
 
     val items = listOf(
@@ -643,6 +670,12 @@ fun MainScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = {
+            SnackbarHost(
+                hostState = globalSnackbarHostState,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp)
+            )
+        },
         bottomBar = {
             if (!isDashboardLandscape) {
                 Surface(

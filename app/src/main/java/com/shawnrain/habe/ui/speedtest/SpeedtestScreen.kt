@@ -113,6 +113,7 @@ import com.shawnrain.habe.data.history.RideHistoryRecord
 import com.shawnrain.habe.data.history.RideMetricSample
 import com.shawnrain.habe.data.history.RideTrackPoint
 import com.shawnrain.habe.data.speedtest.SpeedTestRecord
+import com.shawnrain.habe.data.sync.SyncState
 import com.shawnrain.habe.ui.dashboard.BaselineMetricValue
 import com.shawnrain.habe.ui.navigation.ApplyDialogWindowBlurEffect
 import com.shawnrain.habe.ui.navigation.BlurredAlertDialog
@@ -132,6 +133,7 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 
 private data class SpeedTestOption(
     val label: String,
@@ -180,6 +182,7 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val speedTestSession by viewModel.speedTestSession.collectAsState()
     val speedTestHistory by viewModel.speedTestHistory.collectAsState()
     val rideHistory by viewModel.rideHistory.collectAsState()
+    val driveSyncState by viewModel.driveSyncState.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -325,56 +328,62 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                     }
 
                     SpeedPageTab.RIDE_HISTORY -> {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        PullToRefreshBox(
+                            isRefreshing = driveSyncState is SyncState.Syncing,
+                            onRefresh = { viewModel.syncDriveNow() },
+                            modifier = Modifier.fillMaxSize()
                         ) {
-                            item {
-                                SectionHeader(
-                                    "自动行程记录",
-                                    "骑行中会自动记录路线、速度、电压、电流、温度、功率和能耗走势"
-                                )
-                            }
-                            if (rideHistory.isEmpty()) {
-                                item { EmptyCard("还没有行程记录", "开始骑行后系统会自动创建记录，停车一段时间后自动归档") }
-                            } else {
-                                items(rideHistory, key = { it.id }) { record ->
-                                    RideHistoryCard(
-                                        record = record,
-                                        selectionMode = rideSelectionMode,
-                                        selected = record.id in selectedRideIds,
-                                        onOpen = {
-                                            if (rideSelectionMode) {
-                                                selectedRideIds = if (record.id in selectedRideIds) {
-                                                    selectedRideIds - record.id
-                                                } else {
-                                                    selectedRideIds + record.id
-                                                }
-                                            } else {
-                                                selectedRideRecord = record
-                                            }
-                                        },
-                                        onLongPress = {
-                                            selectedRideIds = selectedRideIds + record.id
-                                        },
-                                        onShare = {
-                                            context.startActivity(viewModel.createRideShareIntent(record))
-                                        },
-                                        onSaveToAlbum = {
-                                            runCatching { viewModel.saveRidePosterToGallery(record) }
-                                                .onSuccess { fileName ->
-                                                    scope.launch { snackbarHostState.showSnackbar("已保存到相册: $fileName") }
-                                                }
-                                                .onFailure {
-                                                    scope.launch { snackbarHostState.showSnackbar("保存到相册失败") }
-                                                }
-                                        },
-                                        onExportCsv = {
-                                            context.startActivity(viewModel.createRideCsvShareIntent(record))
-                                        },
-                                        onDelete = { viewModel.deleteRideHistoryRecord(record.id) }
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                item {
+                                    SectionHeader(
+                                        "自动行程记录",
+                                        "下滑可同步云端最新行程记录。骑行中会自动记录路线、速度、电压、电流、温度、功率和能耗走势"
                                     )
+                                }
+                                if (rideHistory.isEmpty()) {
+                                    item { EmptyCard("还没有行程记录", "开始骑行后系统会自动创建记录，停车一段时间后自动归档") }
+                                } else {
+                                    items(rideHistory, key = { it.id }) { record ->
+                                        RideHistoryCard(
+                                            record = record,
+                                            selectionMode = rideSelectionMode,
+                                            selected = record.id in selectedRideIds,
+                                            onOpen = {
+                                                if (rideSelectionMode) {
+                                                    selectedRideIds = if (record.id in selectedRideIds) {
+                                                        selectedRideIds - record.id
+                                                    } else {
+                                                        selectedRideIds + record.id
+                                                    }
+                                                } else {
+                                                    selectedRideRecord = record
+                                                }
+                                            },
+                                            onLongPress = {
+                                                selectedRideIds = selectedRideIds + record.id
+                                            },
+                                            onShare = {
+                                                context.startActivity(viewModel.createRideShareIntent(record))
+                                            },
+                                            onSaveToAlbum = {
+                                                runCatching { viewModel.saveRidePosterToGallery(record) }
+                                                    .onSuccess { fileName ->
+                                                        scope.launch { snackbarHostState.showSnackbar("已保存到相册: $fileName") }
+                                                    }
+                                                    .onFailure {
+                                                        scope.launch { snackbarHostState.showSnackbar("保存到相册失败") }
+                                                    }
+                                            },
+                                            onExportCsv = {
+                                                context.startActivity(viewModel.createRideCsvShareIntent(record))
+                                            },
+                                            onDelete = { viewModel.deleteRideHistoryRecord(record.id) }
+                                        )
+                                    }
                                 }
                             }
                         }

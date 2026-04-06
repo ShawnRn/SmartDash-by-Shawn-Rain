@@ -54,7 +54,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.core.view.WindowCompat
 import com.shawnrain.habe.MainViewModel
+import com.shawnrain.habe.ble.AutoConnectState
 import com.shawnrain.habe.ble.ConnectionState
+import com.shawnrain.habe.ble.displayName
 import com.shawnrain.habe.ble.VehicleMetrics
 import com.shawnrain.habe.data.MetricType
 import com.shawnrain.habe.debug.AppLogger
@@ -122,6 +124,7 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val dashboardItems by viewModel.dashboardItems.collectAsState()
     val activeProtocol by viewModel.activeProtocolLabel.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
+    val autoConnectState by viewModel.autoConnectState.collectAsState()
     val haptic = LocalHapticFeedback.current
     val view = LocalView.current
     val context = LocalContext.current
@@ -149,21 +152,17 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val isRegen = metrics.busCurrent < 0
     val ringColor = if (isRegen) Color(0xFF10B981) else MaterialTheme.colorScheme.primary
     val isControllerConnected = connectionState is ConnectionState.Connected
-    val connectionStatusLabel = when (connectionState) {
-        ConnectionState.Connecting -> "连接中"
-        is ConnectionState.Connected -> activeProtocol
-        ConnectionState.Disconnected -> "未连接"
-        is ConnectionState.Error -> "连接错误"
-    }
 
-    // Auto-calibration / auto-config snackbar
-    val snackbarHostState = remember { SnackbarHostState() }
-    val calibrationMessage by viewModel.calibrationMessage.collectAsState()
-    LaunchedEffect(calibrationMessage) {
-        calibrationMessage?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
-            viewModel.clearCalibrationMessage()
-        }
+    // Use auto-connect state for natural status messages
+    val connectionStatusLabel = when {
+        connectionState is ConnectionState.Connected -> activeProtocol
+        autoConnectState is AutoConnectState.Connecting -> "正在连接 ${autoConnectState.displayName}…"
+        autoConnectState is AutoConnectState.Searching -> "搜索设备中…"
+        autoConnectState is AutoConnectState.NotFound -> "未找到已知设备"
+        autoConnectState is AutoConnectState.Error -> "连接失败"
+        connectionState is ConnectionState.Connecting -> "连接中"
+        connectionState is ConnectionState.Error -> "连接错误"
+        else -> "未连接"
     }
 
     val angle = if (isEditMode) {
@@ -361,13 +360,6 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                 }
             }
         }
-
-        // Calibration & auto-config notification
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
-        )
-
         val draggedType = draggingItem
         val startBounds = dragStartBounds
         if (draggedType != null && startBounds != null) {

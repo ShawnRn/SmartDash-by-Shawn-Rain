@@ -333,7 +333,8 @@ class ZhikeProtocol : ControllerProtocol {
         busCurrent: Float,
         rpm: Float
     ): Float {
-        val speed = candidateSpeedKmh.coerceIn(0f, 160f)
+        // 不限制极速（适配不同车型），仅通过变化率过滤异常跳变
+        val speed = candidateSpeedKmh.coerceAtLeast(0f)
         val previous = lastRealtimeMetrics ?: return speed
         val now = SystemClock.elapsedRealtime()
         val deltaMs = (now - lastRealtimeAtMs).coerceAtLeast(1L)
@@ -341,16 +342,20 @@ class ZhikeProtocol : ControllerProtocol {
         val lowLoad = abs(busCurrent) < 3f && abs(previous.busCurrent) < 3f
 
         if (speed < 0.6f) return 0f
+        // 极低负载下速度突增视为异常
         if (lowLoad && previous.speedKmH < 5f && speed > 20f) return 0f
-        if (speed > 100f && lowLoad) return previous.speedKmH.coerceAtMost(5f)
+        // 低速且无负载时，异常高值视为传感器噪声
+        if (speed > 80f && lowLoad && rpm < 200f) return previous.speedKmH.coerceAtMost(5f)
+        // RPM 与速度不匹配：有速度但 RPM 接近 0（控制器下电异常）
+        if (speed > 10f && rpm < 20f && lowLoad) {
+            return previous.speedKmH
+        }
+        // 变化率限制：400ms 内速度变化不应超过物理极限（~20km/h/s 加速极限）
         if (deltaMs < 400L) {
-            val maxAllowedDelta = if (lowLoad) 10f else 24f
+            val maxAllowedDelta = if (lowLoad) 8f else 25f
             if (speedDelta > maxAllowedDelta) {
                 return previous.speedKmH
             }
-        }
-        if (speed > 10f && rpm < 20f && lowLoad) {
-            return previous.speedKmH
         }
         return speed
     }

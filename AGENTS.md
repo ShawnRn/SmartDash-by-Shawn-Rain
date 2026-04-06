@@ -12,19 +12,69 @@
 ## 2. 技术栈与构建基线
 - `namespace` / `applicationId`: `com.shawnrain.habe`
 - Android Gradle Plugin: `8.5.0`
-- `compileSdk`: `35`
-- `targetSdk`: `35`
+- `compileSdk`: `36`（`gradle.properties` 中 `android.suppressUnsupportedCompileSdk=36` 压制警告）
+- `targetSdk`: `36`
 - `minSdk`: `26`
 - Kotlin JVM target: `17`
 - UI: Jetpack Compose + Material 3
 - 导航: `androidx.navigation:navigation-compose`
 - 存储: `DataStore Preferences`
 - BLE: 原生 `BluetoothGatt` / `BluetoothLeScanner`
+- 云同步: Google Drive REST API + Google Sign-In
+- 加密: AES-256-GCM（密码派生密钥，跨设备兼容）
 
 构建注意：
-- 当前 AGP `8.5.0` 对 `compileSdk = 35` 会有官方测试范围警告，但不阻塞 `assembleDebug`
+- 当前 AGP `8.5.0` 对 `compileSdk = 36` 会有官方测试范围警告，但不阻塞 `assembleDebug`
 - Java 17 是当前稳定构建前提
-- Gradle 已启用 daemon / parallel / build cache / configuration cache，用于缩短本地迭代构建时间
+- **编译前务必确认 `JAVA_HOME` 指向 JDK 17**，指向其他版本（如 AGP 内置 JDK 21）会导致 `JdkImageTransform` 失败
+- Gradle 已启用 daemon / parallel / build cache / configuration cache / R8 fullMode，用于缩短本地迭代构建时间
+- Release 构建已启用 `isMinifyEnabled = true` 和 `isShrinkResources = true`（R8 压缩）
+- `proguard-rules.pro` 位于 `app/` 根目录，保留 Compose、BLE、协议类、云同步类免于混淆
+
+### 编译速度保障
+
+**关键配置（`gradle.properties`）：**
+- `org.gradle.daemon=true` / `parallel=true` / `caching=true` / `configuration-cache=true`
+- `org.gradle.workers.max=4`（避免资源争用）
+- `kotlin.incremental=true` / `useClasspathSnapshot=true` / `usePreciseJavaTracking=true`
+- `kotlin.daemon.jvmargs=-Xmx2048m`（独立进程，避免 OOM）
+- `android.enableR8.fullMode=true` / `enableR8.desugaring=true`
+
+**典型编译耗时（M1/M2 Mac）：**
+
+| 场景 | 命令 | 热启动耗时 |
+|------|------|-----------|
+| 仅编译 Kotlin | `:app:compileDebugKotlin` | ~3-5s |
+| Debug APK | `:app:assembleDebug` | ~8-15s |
+| devRelease APK | `install-dev-release.sh` | ~15-30s |
+| fastDevRelease APK | `install-fast-dev-release.sh` | ~10-20s |
+| Release APK | `build-release.sh` | ~1-2min |
+
+**AI Agent 编译决策树：**
+- 用户说"装到手机上" → `.agents/scripts/install-dev-release.sh`（不二次确认）
+- 用户说"出个包" → `.agents/scripts/build-release.sh`
+- 用户说"编译验证" → `./gradlew :app:compileDebugKotlin --console plain`
+- 用户说"改 UI 看效果" → `./gradlew :app:assembleDebug && adb install -r ...`
+
+**推荐的低干扰 devRelease 构建方式：**
+- 当目标是“编一个可覆盖安装的联调包”，优先使用输出节流版命令，避免终端刷屏拖慢桌面响应：
+
+```bash
+cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vibe-Coding/habe_android" \
+  && export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
+  && set -o pipefail \
+  && .agents/scripts/build-dev-release.sh 2>&1 | tail -5
+```
+
+- 这条命令的约定含义：
+  - `build-dev-release.sh`：继续使用 release 签名，可直接覆盖用户现有安装
+  - `JAVA_HOME` 显式固定到 JDK 17，避免 `JdkImageTransform` / `jlink` 走错 JVM
+  - `tail -5`：只保留构建尾部关键信息，减少桌面终端渲染压力
+  - `set -o pipefail`：即使最后接了 `tail`，也不会吞掉构建失败状态
+
+- 若用户只是要“出一个真机联调 APK”而不是最终交付包，优先采用上面这条方式，而不是直接跑全量 `release`
+
+详见：`.agents/workflows/build-performance.md`
 
 推荐环境变量：
 - `ANDROID_HOME=/Users/shawnrain/android-sdk`
@@ -79,11 +129,22 @@ Release 签名约定：
 ## 3. 当前代码结构
 核心目录：
 - `app/src/main/java/com/shawnrain/habe/MainActivity.kt`: 主导航与页面装配
-- `app/src/main/java/com/shawnrain/habe/MainViewModel.kt`: 应用级状态、BLE 数据汇总、设置与调参动作
+- `app/src/main/java/com/shawnrain/habe/MainViewModel.kt`: 应用级状态、BLE 数据汇总、设置与调参动作、云同步
 - `app/src/main/java/com/shawnrain/habe/ble/`: BLE 引擎、协议路由、控制器解析
+  - `BleManager.kt`: 扫描、连接、通知、写入、轮询
+  - `ProtocolParser.kt`: 协议识别与路由
+  - `protocols/`: 控制器协议实现
+  - `bms/protocols/`: BMS 协议实现（注意：`ble/bms/protocols/` 为正确拼写）
 - `app/src/main/java/com/shawnrain/habe/data/`: DataStore、GPS、校准、骑行会话
+  - `sync/`: Google Drive 云同步
+    - `BackupModels.kt`: 数据模型（EncryptedBackup, BackupMetadata, SyncState）
+    - `EncryptionService.kt`: AES-256-GCM 加密（v1 设备绑定 / v2 密码派生）
+    - `GoogleDriveAuth.kt`: Google Sign-In OAuth 认证
+    - `GoogleDriveSyncManager.kt`: Drive 上传/下载/列表/删除
+  - `migration/`: LAN 备份传输
 - `app/src/main/java/com/shawnrain/habe/ui/navigation/PredictiveBackMotion.kt`: 预测性返回动画公共 helper
 - `app/src/main/java/com/shawnrain/habe/ui/navigation/DialogWindowEffects.kt`: Dialog / sheet / overlay 窗口模糊与透明系统栏 helper
+- `app/src/main/java/com/shawnrain/habe/ui/navigation/P2PageHeader.kt`: 二级页公共头部组件
 - `app/src/main/java/com/shawnrain/habe/ui/`: 仪表、连接、设置、BMS、测速界面
 - `app/src/main/java/com/shawnrain/habe/debug/`: 应用内日志系统
 - `.agents/scripts/`: 可执行脚本
@@ -199,6 +260,38 @@ Release 签名约定：
   - 顶层 Tab 使用轻量级切页动效
   - 二级页返回保留单独的返回过渡
 
+### 4.8 Google Drive 云同步
+- 已实现基于 Google Drive REST API 的跨设备数据同步
+- 使用 Google Sign-In OAuth 认证，最小权限 `drive.appdata`（仅访问应用专属文件夹）
+- 加密方案：AES-256-GCM，密码派生密钥（Google 账号 email SHA-256），同账号跨设备可解密
+- 同步策略：润物细无声的 iCloud 式体验
+  - App 启动时静默检查一次 Drive 更新（无后台轮询）
+  - 发现其他设备更新时，上传按钮显示小圆点角标 + 小字提示
+  - 点击合并不弹窗，直接静默合并
+  - 合并逻辑：车辆档案 union（新增+按 lastModified 更新），设置 last-write-wins
+  - 上传/合并成功后 3 秒自动恢复初始状态
+  - 错误状态 5 秒后自动恢复
+- 备份版本管理：文件名含时间戳，Drive 列表按时间倒序
+- 降级兼容：v1 设备绑定密钥（旧设备）→ v2 密码派生密钥（新设备）自动识别版本解密
+
+### 4.9 BLE 可靠性增强
+- `writeBytes()` 不再静默丢弃：返回 `WriteResult`，特征为 null 时记录警告
+- 已实现 `onCharacteristicWrite` 回调，写入状态通过 `SharedFlow<WriteResult>` 暴露
+- 扫描优化：
+  - 10 秒超时自动停止
+  - Service UUID 过滤器（`0000FFE0`）减少回调噪声
+  - 权限检查：Android 12+ 检查 `BLUETOOTH_SCAN`，Android 11 检查 `ACCESS_FINE_LOCATION`
+  - 去重使用 `Set<String>` O(1) 查找
+- 服务发现失败路径：转换到 `ConnectionState.Error` 并自动断开
+- `MainViewModel.onCleared()` 中断开 BLE 连接，防止 GATT 对象泄漏
+- 断开前禁用通知（写 `DISABLE_NOTIFICATION_VALUE` 到 CCCD）
+- MTU 协商：服务发现后请求 247 字节 MTU（智科设备）
+- 速度异常过滤：
+  - 移除固定极速上限（适配多车型）
+  - 增强变化率过滤：400ms 内变化不超过 8km/h（低负载）或 25km/h（正常）
+  - RPM 与速度不匹配检测：有速度但 RPM 接近 0 时使用前值
+  - 防止控制器断连/下电时出现异常高值（如 80km/h 假值）
+
 ## 5. 当前迁移状态
 - [x] Android 原生基础架构
 - [x] Compose 仪表主界面
@@ -208,6 +301,9 @@ Release 签名约定：
 - [x] GPS 轮径校准
 - [x] 应用内日志与分享
 - [x] 后台 `PiP` 三指标 HUD
+- [x] Google Drive 云同步（跨设备、合并、加密）
+- [x] BLE 写入可观测性、扫描超时、权限检查
+- [x] Release 构建启用 R8 压缩与资源压缩
 - [ ] 智科调参项与小程序完全对齐
 - [ ] 智科实车联调闭环验证完全稳定
 - [ ] BMS 多品牌迁移完成
@@ -215,13 +311,16 @@ Release 签名约定：
 - [ ] 本地单元测试覆盖
 
 ## 6. 已知问题与风险
-- 智科“可连接但数据全 0”问题仍需依赖真机日志继续定位
+- 智科"可连接但数据全 0"问题仍需依赖真机日志继续定位
 - 智科调参页目前只是基础子集，尚未达到小程序同等级别的丰富参数矩阵
 - 当前仓库本地单元测试仍为 `NO-SOURCE`
 - 后台小窗已改为原生 `PiP`，仅在支持 `Picture-in-Picture` 的系统路径下生效
 - `devRelease` 首次构建或 Gradle 脚本变更后，configuration cache 需要重建，首包时间会明显高于后续热构建
 - 当前 AGP 8.5.0 在 `devRelease` / `release` 上偶发 dex 中间产物重复问题；清理对应 `project_dex_archive/<variant>` 后可恢复
 - `LocalLifecycleOwner` 目前使用 Compose 旧导入，会给出弃用警告，但不影响构建
+- Google Drive 同步依赖 Google Play Services，在无 GMS 设备（如华为鸿蒙）上不可用
+- OAuth 客户端 ID 需手动配置到 `GoogleDriveAuth.kt`，尚未实现动态注入
+- `VehicleProfile.lastModified` 字段已添加但旧数据默认为 0L，首次合并时可能误判为较新
 
 ## 7. 智科协议归档
 
@@ -326,6 +425,16 @@ Release 签名约定：
 3. 首次构建或刚改过 `build.gradle.kts` / `gradle.properties` 时，首包会较慢；第二次开始会明显变快
 4. 只有在对外交付 APK、归档版本或最终验收时，再切回 `.agents/scripts/build-release.sh`
 5. 用户只要明确表达“装到手机上”，就把安装视为默认动作，不要再额外确认
+6. 若只是先产出 `devRelease` 包，不急着安装，优先使用低干扰 shell 方式：
+
+```bash
+cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vibe-Coding/habe_android" \
+  && export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
+  && set -o pipefail \
+  && .agents/scripts/build-dev-release.sh 2>&1 | tail -5
+```
+
+7. 对 Codex / 桌面代理尤其推荐上面这种“尾部输出”模式，能明显减少终端刷屏导致的系统卡顿感
 
 ### 9.5 本地个人极速迭代
 1. 需要最快的真机覆盖安装时，优先跑 `.agents/scripts/install-fast-dev-release.sh`
@@ -333,15 +442,31 @@ Release 签名约定：
 3. 若脚本检测到 `project_dex_archive/<variant>` 重复类问题，会自动清理脏 dex 并重试一次
 4. 对外交付前仍应至少再跑一次正式 `.agents/scripts/build-release.sh`
 
-### 9.6 智科专项排查
+### 9.6 Google Drive 云同步
+1. 设置 → 数据迁移 → Google Drive 云同步
+2. 首次使用需登录 Google 账号并授权 `drive.appdata` 权限
+3. OAuth 客户端 ID 已内置：`8447150714-6g8ef28e8n2k7n01ek1816kqulpngu45.apps.googleusercontent.com`
+4. 点击"上传备份"上传当前设备数据到 Drive
+5. 另一台设备打开 app 时会自动检测更新（启动时一次），显示小圆点角标
+6. 点击角标提示或"合并最新备份"按钮即可静默合并
+7. 加密方案：使用 Google 账号 email 的 SHA-256 哈希派生密钥，同账号跨设备可解密
+8. 旧设备 v1 备份（设备绑定密钥）仍可解密，新备份使用 v2 密码派生密钥
+
+### 9.7 智科专项排查
 1. app 设置页将日志级别切到 `VERBOSE`
 2. 跑 `.agents/scripts/logcat-habe.sh --clear`
 3. 复现“扫描 / 连接 / 调参 / 全 0”问题
 4. 从设置页分享日志，并结合 adb logcat 一起分析
 
-### 9.7 同步 GitHub
+### 9.8 同步 GitHub
 1. 确认 `.gitignore` 已排除本地参考与构建产物
 2. 跑 `.agents/scripts/sync-github.sh "<commit message>"`
+
+### 9.9 编译性能排查
+1. 检查 `JAVA_HOME` 是否指向 JDK 17：`echo $JAVA_HOME`
+2. 检查 Gradle Daemon 状态：`./gradlew --status`
+3. 查看构建耗时报告：`./gradlew :app:assembleDebug --profile`
+4. 清理 configuration cache：`rm -rf .gradle/configuration-cache/`
 
 ## 10. Git 与版本控制约束
 - 不要提交 `zhike_source/`、`habe_miniprogram/`、`tools/unveilr/`
@@ -358,6 +483,7 @@ Release 签名约定：
   - `.agents/scripts/`
   - `.agents/workflows/`
   - `app/src/main/` 下实际功能代码
+  - `app/proguard-rules.pro`
 
 ## 11. 维护建议
 - 后续若继续迁移智科调参项，优先扩展 `ZhikeSettings.rawWords` 的映射表，而不是新增零散硬编码
@@ -366,5 +492,9 @@ Release 签名约定：
 - 后续新增二级页面、自定义 Dialog、全屏 overlay、页面内自绘 sheet 时，默认必须适配 `PredictiveBackHandler`，优先复用 `app/src/main/java/com/shawnrain/habe/ui/navigation/PredictiveBackMotion.kt`
 - 若使用 `ModalBottomSheet` 等平台组件且系统默认预测性返回动画不足，应补充应用内跟手缩放 / 位移预览，而不是回退为无预测性返回
 - 后续新增任何弹窗、sheet、overlay 时，默认必须复用 `app/src/main/java/com/shawnrain/habe/ui/navigation/DialogWindowEffects.kt`，为窗口背后铺设模糊并保持透明系统栏
-- 行程详情页点击参数卡片进入横屏全屏图表时，必须提供非线性进入/退出动画（建议 `FastOutSlowIn` 进入 + `FastOutLinearIn` 退出），并保证所有关闭路径（返回手势/遮罩点击/按钮/下拉）走同一条“从哪来回哪去”的回收动画
-- 行程详情页概览卡片编辑交互约定为：长按任一卡片直接进入编辑并开始拖拽；正常态不显示“编辑卡片”按钮，仅在编辑态显示“完成/添加卡片”
+- 行程详情页点击参数卡片进入横屏全屏图表时，必须提供非线性进入/退出动画（建议 `FastOutSlowIn` 进入 + `FastOutLinearIn` 退出），并保证所有关闭路径（返回手势/遮罩点击/按钮/下拉）走同一条"从哪来回哪去"的回收动画
+- 行程详情页概览卡片编辑交互约定为：长按任一卡片直接进入编辑并开始拖拽；正常态不显示"编辑卡片"按钮，仅在编辑态显示"完成/添加卡片"
+- Google Drive 同步加密使用密码派生密钥（v2），禁止使用 Android KeyStore 设备绑定密钥（v1 已废弃），确保跨设备兼容
+- 云同步 UI 状态切换必须使用 `AnimatedContent`，禁止硬切；成功/失败提示使用 Material Icon（`Icons.Default.Check` / `Icons.Default.Error`），禁止使用 emoji
+- 速度过滤逻辑不得添加固定极速上限（`coerceIn(max)`），因项目支持多车型 profile；应使用变化率过滤（`speedDelta > maxAllowedDelta`）
+- `proguard-rules.pro` 更新后需验证 release 构建：跑 `.agents/scripts/build-release.sh` 并安装到真机测试

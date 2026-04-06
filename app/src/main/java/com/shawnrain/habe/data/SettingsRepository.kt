@@ -93,6 +93,28 @@ class SettingsRepository(private val context: Context) {
     private fun <T> Preferences.safeGet(key: Preferences.Key<T>): T? =
         runCatching { this[key] }.getOrNull()
 
+    private fun normalizedProfile(
+        profile: VehicleProfile,
+        updatedAt: Long? = null
+    ): VehicleProfile {
+        val resolvedLastModified = updatedAt ?: profile.lastModified.takeIf { it > 0L } ?: System.currentTimeMillis()
+        return profile.copy(
+            name = profile.name.trim().ifBlank { "未命名车辆" },
+            macAddress = profile.macAddress.trim(),
+            batterySeries = profile.batterySeries.coerceAtLeast(1),
+            batteryCapacityAh = profile.batteryCapacityAh.coerceAtLeast(1f),
+            wheelCircumferenceMm = profile.wheelCircumferenceMm.coerceIn(500f, 5000f),
+            wheelRimSize = profile.wheelRimSize.trim().ifBlank { "10寸" },
+            tireSpecLabel = profile.tireSpecLabel.trim(),
+            polePairs = profile.polePairs.coerceAtLeast(1),
+            totalMileageKm = profile.totalMileageKm.coerceAtLeast(0f),
+            learnedInternalResistanceOhm = profile.learnedInternalResistanceOhm.coerceAtLeast(0f),
+            learnedEfficiencyWhKm = profile.learnedEfficiencyWhKm.coerceAtLeast(0f),
+            learnedUsableEnergyRatio = profile.learnedUsableEnergyRatio.coerceIn(0.72f, 0.98f),
+            lastModified = resolvedLastModified
+        )
+    }
+
     private val preferencesFlow: Flow<Preferences> = context.dataStore.data
         .catch { emit(emptyPreferences()) }
 
@@ -243,22 +265,7 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveVehicleProfiles(profiles: List<VehicleProfile>) {
         val sanitized = profiles
-            .map { profile ->
-                profile.copy(
-                    name = profile.name.trim().ifBlank { "未命名车辆" },
-                    macAddress = profile.macAddress.trim(),
-                    batterySeries = profile.batterySeries.coerceAtLeast(1),
-                    batteryCapacityAh = profile.batteryCapacityAh.coerceAtLeast(1f),
-                    wheelCircumferenceMm = profile.wheelCircumferenceMm.coerceIn(500f, 5000f),
-                    wheelRimSize = profile.wheelRimSize.trim().ifBlank { "10寸" },
-                    tireSpecLabel = profile.tireSpecLabel.trim(),
-                    polePairs = profile.polePairs.coerceAtLeast(1),
-                    totalMileageKm = profile.totalMileageKm.coerceAtLeast(0f),
-                    learnedInternalResistanceOhm = profile.learnedInternalResistanceOhm.coerceAtLeast(0f),
-                    learnedEfficiencyWhKm = profile.learnedEfficiencyWhKm.coerceAtLeast(0f),
-                    learnedUsableEnergyRatio = profile.learnedUsableEnergyRatio.coerceIn(0.72f, 0.98f)
-                )
-            }
+            .map { profile -> normalizedProfile(profile) }
             .distinctBy { it.id }
             .ifEmpty { listOf(VehicleProfile.default()) }
         context.dataStore.edit { pref ->
@@ -270,20 +277,7 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun upsertVehicleProfile(profile: VehicleProfile) {
         val current = vehicleProfiles.first().toMutableList()
-        val normalized = profile.copy(
-            name = profile.name.trim().ifBlank { "未命名车辆" },
-            macAddress = profile.macAddress.trim(),
-            batterySeries = profile.batterySeries.coerceAtLeast(1),
-            batteryCapacityAh = profile.batteryCapacityAh.coerceAtLeast(1f),
-            wheelCircumferenceMm = profile.wheelCircumferenceMm.coerceIn(500f, 5000f),
-            wheelRimSize = profile.wheelRimSize.trim().ifBlank { "10寸" },
-            tireSpecLabel = profile.tireSpecLabel.trim(),
-            polePairs = profile.polePairs.coerceAtLeast(1),
-            totalMileageKm = profile.totalMileageKm.coerceAtLeast(0f),
-            learnedInternalResistanceOhm = profile.learnedInternalResistanceOhm.coerceAtLeast(0f),
-            learnedEfficiencyWhKm = profile.learnedEfficiencyWhKm.coerceAtLeast(0f),
-            learnedUsableEnergyRatio = profile.learnedUsableEnergyRatio.coerceIn(0.72f, 0.98f)
-        )
+        val normalized = normalizedProfile(profile, updatedAt = System.currentTimeMillis())
         val existingIndex = current.indexOfFirst { it.id == normalized.id }
         if (existingIndex >= 0) {
             current[existingIndex] = normalized
@@ -303,7 +297,10 @@ class SettingsRepository(private val context: Context) {
         val currentId = currentVehicleId.first()
         val profiles = vehicleProfiles.first().toMutableList()
         val currentIndex = profiles.indexOfFirst { it.id == currentId }.takeIf { it >= 0 } ?: 0
-        profiles[currentIndex] = transform(profiles[currentIndex])
+        profiles[currentIndex] = normalizedProfile(
+            transform(profiles[currentIndex]),
+            updatedAt = System.currentTimeMillis()
+        )
         saveVehicleProfiles(profiles)
     }
 
@@ -447,7 +444,10 @@ class SettingsRepository(private val context: Context) {
         if (index < 0) return
         val existing = profiles[index]
         if (existing.macAddress == address) return
-        profiles[index] = existing.copy(macAddress = address)
+        profiles[index] = normalizedProfile(
+            existing.copy(macAddress = address),
+            updatedAt = System.currentTimeMillis()
+        )
         pref[VEHICLE_LIST] = VehicleProfile.listToJson(profiles)
     }
 
@@ -521,6 +521,119 @@ class SettingsRepository(private val context: Context) {
             ensureVehiclePreferences(pref)
         }
         return imported
+    }
+
+    /**
+     * Merges remote backup with local data (iCloud-style sync).
+     * - Vehicle profiles: union merge (add new ones, update existing by ID)
+     * - Settings: takes remote values (last-write-wins)
+     * Does NOT wipe local data first.
+     */
+    suspend fun mergeBackupJson(remoteJson: String): Int {
+        val remoteRoot = JSONObject(remoteJson)
+        val remotePrefs = remoteRoot.optJSONObject("prefs") ?: remoteRoot
+
+        // Parse remote entries
+        val remoteEntries = mutableListOf<BackupEntry>()
+        val remoteKeys = remotePrefs.keys()
+        while (remoteKeys.hasNext()) {
+            val name = remoteKeys.next()?.trim().orEmpty()
+            if (name.isBlank()) continue
+            val node = remotePrefs.opt(name)
+            parseBackupEntry(name, node)?.let { remoteEntries += it }
+        }
+
+        if (remoteEntries.isEmpty()) return 0
+
+        var mergedCount = 0
+        context.dataStore.edit { localPref ->
+            // Merge vehicle profiles
+            val localProfiles = loadVehicleProfiles(localPref.safeGet(VEHICLE_LIST))
+            val remoteProfilesJson = remoteEntries.find { it.name == "vehicle_list_json" }?.value as? String
+            var mergedProfiles = localProfiles
+            if (remoteProfilesJson != null) {
+                val remoteProfiles = loadVehicleProfiles(remoteProfilesJson)
+                mergedProfiles = mergeVehicleProfiles(localProfiles, remoteProfiles)
+                localPref[VEHICLE_LIST] = VehicleProfile.listToJson(mergedProfiles)
+                mergedCount++
+            }
+
+            // Merge other settings (last-write-wins from remote)
+            remoteEntries.forEach { entry ->
+                if (entry.name != "vehicle_list_json") {
+                    writeBackupEntry(localPref, entry)
+                    mergedCount++
+                }
+            }
+
+            val remoteCurrentVehicleId = (remoteEntries.find { it.name == CURRENT_VEHICLE_ID.name }?.value as? String)
+                ?.takeIf { remoteId -> mergedProfiles.any { it.id == remoteId } }
+            if (remoteCurrentVehicleId != null) {
+                localPref[CURRENT_VEHICLE_ID] = remoteCurrentVehicleId
+            }
+
+            // Ensure current vehicle is valid
+            ensureVehiclePreferences(localPref)
+        }
+        return mergedCount
+    }
+
+    /**
+     * Merges local and remote vehicle profiles with field-level intelligence.
+     * - Adds remote profiles not in local
+     * - For existing profiles, merges individual fields:
+     *   - learned* fields: always take the higher (more riding = more accurate)
+     *   - totalMileageKm: take the higher
+     *   - lastModified: take the higher
+     *   - Other fields: prefer remote if remote is newer by lastModified
+     */
+    private fun mergeVehicleProfiles(
+        local: List<VehicleProfile>,
+        remote: List<VehicleProfile>
+    ): List<VehicleProfile> {
+        val merged = local.associateBy { it.id }.toMutableMap()
+        remote.forEach { remoteProfile ->
+            val localProfile = merged[remoteProfile.id]
+            if (localProfile == null) {
+                // New profile from remote
+                merged[remoteProfile.id] = remoteProfile
+            } else {
+                // Existing profile on both sides - merge intelligently
+                merged[remoteProfile.id] = localProfile.copy(
+                    // Learned fields: higher value wins (more riding = more accurate)
+                    learnedInternalResistanceOhm = maxOf(
+                        localProfile.learnedInternalResistanceOhm,
+                        remoteProfile.learnedInternalResistanceOhm
+                    ).takeIf { it > 0f } ?: localProfile.learnedInternalResistanceOhm.takeIf { it > 0f }
+                        ?: remoteProfile.learnedInternalResistanceOhm,
+                    learnedEfficiencyWhKm = maxOf(
+                        localProfile.learnedEfficiencyWhKm,
+                        remoteProfile.learnedEfficiencyWhKm
+                    ).takeIf { it > 0f } ?: localProfile.learnedEfficiencyWhKm.takeIf { it > 0f }
+                        ?: remoteProfile.learnedEfficiencyWhKm,
+                    learnedUsableEnergyRatio = maxOf(
+                        localProfile.learnedUsableEnergyRatio,
+                        remoteProfile.learnedUsableEnergyRatio
+                    ).takeIf { it in 0.72f..0.98f }
+                        ?: localProfile.learnedUsableEnergyRatio.takeIf { it in 0.72f..0.98f }
+                        ?: remoteProfile.learnedUsableEnergyRatio,
+                    // Total mileage: higher wins
+                    totalMileageKm = maxOf(localProfile.totalMileageKm, remoteProfile.totalMileageKm),
+                    // lastModified: take higher
+                    lastModified = maxOf(localProfile.lastModified, remoteProfile.lastModified),
+                    // Other fields: use remote if it's newer
+                    name = if (remoteProfile.lastModified >= localProfile.lastModified) remoteProfile.name else localProfile.name,
+                    macAddress = if (remoteProfile.lastModified >= localProfile.lastModified) remoteProfile.macAddress else localProfile.macAddress,
+                    batterySeries = if (remoteProfile.lastModified >= localProfile.lastModified) remoteProfile.batterySeries else localProfile.batterySeries,
+                    batteryCapacityAh = if (remoteProfile.lastModified >= localProfile.lastModified) remoteProfile.batteryCapacityAh else localProfile.batteryCapacityAh,
+                    wheelCircumferenceMm = if (remoteProfile.lastModified >= localProfile.lastModified) remoteProfile.wheelCircumferenceMm else localProfile.wheelCircumferenceMm,
+                    wheelRimSize = if (remoteProfile.lastModified >= localProfile.lastModified) remoteProfile.wheelRimSize else localProfile.wheelRimSize,
+                    tireSpecLabel = if (remoteProfile.lastModified >= localProfile.lastModified) remoteProfile.tireSpecLabel else localProfile.tireSpecLabel,
+                    polePairs = if (remoteProfile.lastModified >= localProfile.lastModified) remoteProfile.polePairs else localProfile.polePairs
+                )
+            }
+        }
+        return merged.values.toList()
     }
 
     private fun parseBackupEntry(name: String, node: Any?): BackupEntry? {

@@ -17,7 +17,8 @@ data class VehicleProfile(
     val totalMileageKm: Float = 0f,
     val learnedInternalResistanceOhm: Float = 0f,
     val learnedEfficiencyWhKm: Float = 0f,
-    val learnedUsableEnergyRatio: Float = 0.9f
+    val learnedUsableEnergyRatio: Float = 0.9f,
+    val lastModified: Long = 0L
 ) {
     fun toJson(): JSONObject {
         return JSONObject()
@@ -34,6 +35,7 @@ data class VehicleProfile(
             .put("learnedInternalResistanceOhm", learnedInternalResistanceOhm.toDouble())
             .put("learnedEfficiencyWhKm", learnedEfficiencyWhKm.toDouble())
             .put("learnedUsableEnergyRatio", learnedUsableEnergyRatio.toDouble())
+            .put("lastModified", lastModified)
     }
 
     companion object {
@@ -84,7 +86,8 @@ data class VehicleProfile(
                 learnedInternalResistanceOhm = json.optDouble("learnedInternalResistanceOhm", 0.0).toFloat().coerceAtLeast(0f),
                 learnedEfficiencyWhKm = json.optDouble("learnedEfficiencyWhKm", 0.0).toFloat().coerceAtLeast(0f),
                 learnedUsableEnergyRatio = json.optDouble("learnedUsableEnergyRatio", 0.9).toFloat()
-                    .coerceIn(0.72f, 0.98f)
+                    .coerceIn(0.72f, 0.98f),
+                lastModified = json.optLong("lastModified", 0L)
             )
         }
 

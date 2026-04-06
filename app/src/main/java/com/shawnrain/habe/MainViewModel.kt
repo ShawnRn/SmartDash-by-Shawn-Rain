@@ -133,6 +133,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val AUTO_RIDE_STOP_COUNTDOWN_MS = 15_000L
         private const val AUTO_DISCONNECT_STOP_COUNTDOWN_MS = 4000L
         private const val RIDE_SAMPLE_INTERVAL_MS = 1000L
+        private const val DISTANCE_FALLBACK_MIN_SPEED_KMH = 1.2f
+        private const val DISTANCE_FALLBACK_MIN_RPM = 30f
+        private const val DISTANCE_FALLBACK_MIN_CURRENT_A = 1.2f
+        private const val DISTANCE_FALLBACK_MAX_DT_SECONDS = 3f
+        private const val GPS_DISTANCE_PAIR_MAX_GAP_MS = 12_000L
         private const val SPEED_TEST_SAMPLE_INTERVAL_MS = 120L
         private const val HISTORY_LIMIT = 30
         private const val AUTO_RECONNECT_SCAN_WINDOW_MS = 5000L
@@ -146,6 +151,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val RANGE_BASE_ACCESSORY_POWER_W = 34f
         private const val RANGE_AGGRESSIVE_CURRENT_A = 28f
         private const val RANGE_DISPLAY_UPDATE_STEP_KM = 1f
+        private const val HISTORY_BACKFILL_MIN_SPEED_KMH = 0.8f
+        private const val HISTORY_BACKFILL_MIN_RPM = 30f
+        private const val HISTORY_BACKFILL_MIN_CURRENT_A = 1.0f
+        private const val HISTORY_BACKFILL_APPLY_MIN_DISTANCE_METERS = 3f
         private const val MAX_SOC_SOURCE_DEVIATION_PERCENT = 28f
     }
 
@@ -175,6 +184,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var _rideRecoveredEnergyWh = 0f
     private var _rideMaxControllerTemp = 0f
     private var _rideLastEnergyUpdateAtMs = 0L
+    private var _rideLastDistanceUpdateAtMs = 0L
+    private var _rideDistanceUsingFallback = false
     private val rideTrackPoints = mutableListOf<RideTrackPoint>()
     private val rideSamples = mutableListOf<RideMetricSample>()
     private var rideStartMode: RideStartMode? = null
@@ -701,7 +712,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }.launchIn(viewModelScope)
 
         settingsRepository.rideHistory.onEach { history ->
-            _rideHistory.value = history
+            val normalized = normalizeRideHistoryDistance(history)
+            _rideHistory.value = normalized
+            if (normalized != history) {
+                viewModelScope.launch {
+                    settingsRepository.saveRideHistory(normalized)
+                }
+            }
         }.launchIn(viewModelScope)
 
         currentVehicle.onEach { profile ->
@@ -852,8 +869,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (_isRideActive.value && !isRidePausedForStop()) {
             val lastRideLocation = _lastRideLocation
             if (lastRideLocation != null) {
-                _tripDistanceMeters += lastRideLocation.distanceTo(location).toDouble()
+                val gapMs = (location.time - lastRideLocation.time).coerceAtLeast(0L)
+                if (!_rideDistanceUsingFallback && gapMs in 1L..GPS_DISTANCE_PAIR_MAX_GAP_MS) {
+                    _tripDistanceMeters += lastRideLocation.distanceTo(location).toDouble()
+                }
             }
+            _rideDistanceUsingFallback = false
             _lastRideLocation = location
             val point = RideTrackPoint(location.latitude, location.longitude)
             if (rideTrackPoints.lastOrNull() != point) {
@@ -895,6 +916,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun updateRideSession(metrics: VehicleMetrics, now: Long) {
         val speed = metrics.speedKmH
+        if (_rideLastDistanceUpdateAtMs <= 0L) {
+            _rideLastDistanceUpdateAtMs = now
+        } else {
+            val dtSeconds = ((now - _rideLastDistanceUpdateAtMs).coerceAtLeast(0L) / 1000f)
+                .coerceAtMost(DISTANCE_FALLBACK_MAX_DT_SECONDS)
+            if (dtSeconds > 0f && !isRecentGpsAvailable(now)) {
+                val canIntegrateDistance = speed >= DISTANCE_FALLBACK_MIN_SPEED_KMH &&
+                    (abs(metrics.rpm) >= DISTANCE_FALLBACK_MIN_RPM ||
+                        abs(metrics.busCurrent) >= DISTANCE_FALLBACK_MIN_CURRENT_A)
+                if (canIntegrateDistance) {
+                    _tripDistanceMeters += ((speed / 3.6f) * dtSeconds).toDouble()
+                    _rideDistanceUsingFallback = true
+                }
+            }
+            _rideLastDistanceUpdateAtMs = now
+        }
+
         if (_pendingRideStop.value != null) {
             if (speed >= AUTO_RIDE_START_SPEED_KMH) {
                 _rideStopCandidateAtMs = null
@@ -1059,6 +1097,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _rideRecoveredEnergyWh = 0f
         _rideMaxControllerTemp = 0f
         _rideLastEnergyUpdateAtMs = _sessionStartTime
+        _rideLastDistanceUpdateAtMs = _sessionStartTime
+        _rideDistanceUsingFallback = false
         _rideLastSampleAtMs = 0L
         _rideStopCandidateAtMs = null
         clearPendingRideStopState()
@@ -1139,6 +1179,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         rideStartMode = null
         rideStartSocPercent = Float.NaN
         lastRangeDisplayCommitDistanceKm = Float.NaN
+        _rideLastDistanceUpdateAtMs = 0L
+        _rideDistanceUsingFallback = false
         return shouldPersist
     }
 
@@ -1156,6 +1198,163 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return true
         }
         return false
+    }
+
+    private fun normalizeRideHistoryDistance(records: List<RideHistoryRecord>): List<RideHistoryRecord> {
+        if (records.isEmpty()) return records
+        val profile = currentVehicle.value
+        var changedCount = 0
+        val normalized = records.map { record ->
+            backfillRideDistanceFromSamples(
+                record = record,
+                wheelCircumferenceMm = profile.wheelCircumferenceMm,
+                polePairs = profile.polePairs
+            ).also { updated ->
+                if (updated != record) changedCount += 1
+            }
+        }
+        if (changedCount > 0) {
+            AppLogger.i(TAG, "Ride history distance normalized for $changedCount record(s)")
+        }
+        return normalized
+    }
+
+    private fun backfillRideDistanceFromSamples(
+        record: RideHistoryRecord,
+        wheelCircumferenceMm: Float,
+        polePairs: Int
+    ): RideHistoryRecord {
+        val samples = record.samples
+        if (samples.size < 2) return record
+
+        val hasMovementEvidence = record.maxSpeedKmh >= HISTORY_BACKFILL_MIN_SPEED_KMH ||
+            samples.any { sample ->
+                sample.speedKmH >= HISTORY_BACKFILL_MIN_SPEED_KMH ||
+                    sample.rpm >= HISTORY_BACKFILL_MIN_RPM ||
+                    abs(sample.busCurrent) >= HISTORY_BACKFILL_MIN_CURRENT_A
+            }
+        if (!hasMovementEvidence) return record
+
+        val rpmToSpeedRatio = inferRpmSpeedRatio(
+            record = record,
+            samples = samples,
+            wheelCircumferenceMm = wheelCircumferenceMm,
+            polePairs = polePairs
+        )
+
+        val fallbackIntervalSeconds = when {
+            record.durationMs > 0L && samples.size > 1 -> {
+                (record.durationMs / (samples.size - 1).toFloat() / 1000f).coerceIn(0.2f, DISTANCE_FALLBACK_MAX_DT_SECONDS)
+            }
+            else -> 1f
+        }
+
+        var integratedDistanceMeters = maxOf(samples.first().distanceMeters, 0f)
+        val rebuiltSamples = buildList(samples.size) {
+            add(samples.first().copy(distanceMeters = maxOf(samples.first().distanceMeters, 0f)))
+            for (index in 1 until samples.size) {
+                val prev = samples[index - 1]
+                val cur = samples[index]
+                val deltaByElapsed = (cur.elapsedMs - prev.elapsedMs) / 1000f
+                val deltaByTimestamp = (cur.timestampMs - prev.timestampMs) / 1000f
+                val dtSeconds = when {
+                    deltaByElapsed > 0f -> deltaByElapsed
+                    deltaByTimestamp > 0f -> deltaByTimestamp
+                    else -> fallbackIntervalSeconds
+                }.coerceIn(0f, DISTANCE_FALLBACK_MAX_DT_SECONDS)
+
+                val prevSpeed = sampleSpeedKmH(prev, rpmToSpeedRatio)
+                val curSpeed = sampleSpeedKmH(cur, rpmToSpeedRatio)
+                val avgSpeed = ((prevSpeed + curSpeed) * 0.5f).coerceAtLeast(0f)
+                if (dtSeconds > 0f && avgSpeed >= HISTORY_BACKFILL_MIN_SPEED_KMH) {
+                    integratedDistanceMeters += ((avgSpeed / 3.6f) * dtSeconds)
+                }
+                val rebuiltDistance = maxOf(integratedDistanceMeters, cur.distanceMeters)
+                add(cur.copy(distanceMeters = rebuiltDistance))
+            }
+        }
+
+        val sampleMaxDistance = samples.maxOfOrNull { it.distanceMeters } ?: 0f
+        val rebuiltTotalDistance = maxOf(
+            record.distanceMeters,
+            sampleMaxDistance,
+            rebuiltSamples.last().distanceMeters
+        )
+        if (rebuiltTotalDistance < HISTORY_BACKFILL_APPLY_MIN_DISTANCE_METERS) return record
+
+        val rebuiltAvgEfficiency = if (rebuiltTotalDistance > 20f && record.totalEnergyWh > 0.01f) {
+            (record.totalEnergyWh / (rebuiltTotalDistance / 1000f)).coerceAtLeast(0f)
+        } else {
+            record.avgEfficiencyWhKm
+        }
+        val rebuiltAvgSpeed = if (record.durationMs > 0L && rebuiltTotalDistance > 1f) {
+            ((rebuiltTotalDistance / 1000f) / (record.durationMs / 3_600_000f)).coerceAtLeast(0f)
+        } else {
+            record.avgSpeedKmh
+        }
+        if (abs(rebuiltTotalDistance - record.distanceMeters) < 0.5f &&
+            abs(rebuiltAvgSpeed - record.avgSpeedKmh) < 0.05f &&
+            rebuiltSamples == samples
+        ) {
+            return record
+        }
+        return record.copy(
+            distanceMeters = rebuiltTotalDistance,
+            avgSpeedKmh = rebuiltAvgSpeed,
+            avgEfficiencyWhKm = rebuiltAvgEfficiency,
+            samples = rebuiltSamples
+        )
+    }
+
+    private fun sampleSpeedKmH(
+        sample: RideMetricSample,
+        rpmToSpeedRatio: Float
+    ): Float {
+        if (sample.speedKmH >= HISTORY_BACKFILL_MIN_SPEED_KMH) {
+            return sample.speedKmH
+        }
+        return if (sample.rpm >= HISTORY_BACKFILL_MIN_RPM) {
+            (sample.rpm * rpmToSpeedRatio).coerceAtLeast(0f)
+        } else {
+            0f
+        }
+    }
+
+    private fun inferRpmSpeedRatio(
+        record: RideHistoryRecord,
+        samples: List<RideMetricSample>,
+        wheelCircumferenceMm: Float,
+        polePairs: Int
+    ): Float {
+        val correlatedRatios = samples.mapNotNull { sample ->
+            if (sample.speedKmH >= HISTORY_BACKFILL_MIN_SPEED_KMH && sample.rpm >= HISTORY_BACKFILL_MIN_RPM) {
+                (sample.speedKmH / sample.rpm).takeIf { !it.isNaN() && !it.isInfinite() && it > 0f }
+            } else {
+                null
+            }
+        }
+        if (correlatedRatios.isNotEmpty()) {
+            val sorted = correlatedRatios.sorted()
+            return sorted[sorted.size / 2].coerceIn(0.0005f, 0.6f)
+        }
+
+        val maxSampleRpm = samples.maxOfOrNull { it.rpm } ?: 0f
+        if (record.maxSpeedKmh >= HISTORY_BACKFILL_MIN_SPEED_KMH && maxSampleRpm >= HISTORY_BACKFILL_MIN_RPM) {
+            return (record.maxSpeedKmh / maxSampleRpm).coerceIn(0.0005f, 0.6f)
+        }
+
+        val directRatio = (wheelCircumferenceMm.coerceIn(500f, 5000f) * 60f) / 1_000_000f
+        val poleAdjustedRatio = if (polePairs > 0) directRatio / polePairs else directRatio
+        if (maxSampleRpm >= HISTORY_BACKFILL_MIN_RPM && record.maxSpeedKmh > 0f) {
+            val directError = abs((maxSampleRpm * directRatio) - record.maxSpeedKmh)
+            val poleError = abs((maxSampleRpm * poleAdjustedRatio) - record.maxSpeedKmh)
+            return if (directError <= poleError) {
+                directRatio.coerceIn(0.0005f, 0.6f)
+            } else {
+                poleAdjustedRatio.coerceIn(0.0005f, 0.6f)
+            }
+        }
+        return directRatio.coerceIn(0.0005f, 0.6f)
     }
 
     private fun maybePersistVehicleSnapshot(now: Long) {

@@ -316,10 +316,15 @@ private fun PermissionBootstrapGate(
         !firstLaunchPrefs.getBoolean("migration_assistant_suggested", false)
     }
     val requiredPermissions = remember { requiredRuntimePermissions() }
+    val requiresBackgroundLocation = remember { Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q }
     var hasAllPermissions by remember {
         mutableStateOf(hasAllRuntimePermissions(context, requiredPermissions))
     }
+    var hasBackgroundLocation by remember {
+        mutableStateOf(hasBackgroundLocationPermission(context))
+    }
     var launchRequested by remember { mutableStateOf(false) }
+    var backgroundLaunchRequested by remember { mutableStateOf(false) }
     var showMigrationSuggestion by remember { mutableStateOf(false) }
     var suggestionEntranceScheduled by remember { mutableStateOf(false) }
 
@@ -327,12 +332,29 @@ private fun PermissionBootstrapGate(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) {
         hasAllPermissions = hasAllRuntimePermissions(context, requiredPermissions)
+        hasBackgroundLocation = hasBackgroundLocationPermission(context)
+    }
+    val backgroundPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) {
+        hasBackgroundLocation = hasBackgroundLocationPermission(context)
     }
 
     LaunchedEffect(hasAllPermissions, launchRequested, requiredPermissions) {
         if (requiredPermissions.isNotEmpty() && !hasAllPermissions && !launchRequested) {
             launchRequested = true
             permissionLauncher.launch(requiredPermissions.toTypedArray())
+        }
+    }
+    LaunchedEffect(hasAllPermissions, hasBackgroundLocation, requiresBackgroundLocation, backgroundLaunchRequested) {
+        if (
+            hasAllPermissions &&
+            requiresBackgroundLocation &&
+            !hasBackgroundLocation &&
+            !backgroundLaunchRequested
+        ) {
+            backgroundLaunchRequested = true
+            backgroundPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
         }
     }
     LaunchedEffect(hasAllPermissions, shouldSuggestMigration) {
@@ -343,7 +365,10 @@ private fun PermissionBootstrapGate(
         }
     }
 
-    if (hasAllPermissions || requiredPermissions.isEmpty()) {
+    val readyForMainContent =
+        (hasAllPermissions || requiredPermissions.isEmpty()) &&
+            (!requiresBackgroundLocation || hasBackgroundLocation)
+    if (readyForMainContent) {
         Box(modifier = Modifier.fillMaxSize()) {
             content()
             AnimatedVisibility(
@@ -455,18 +480,29 @@ private fun PermissionBootstrapGate(
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "为避免换机恢复后闪退，应用启动时会一次性申请蓝牙、定位和相机权限。",
+                text = "应用需要蓝牙、相机、定位与后台定位权限，以支持后台/熄屏继续记录行程。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(24.dp))
-            Button(
-                onClick = { permissionLauncher.launch(requiredPermissions.toTypedArray()) },
-                modifier = Modifier.fillMaxWidth(0.9f)
-            ) {
-                Text("重新请求权限")
+            if (requiredPermissions.isNotEmpty() && !hasAllPermissions) {
+                Button(
+                    onClick = { permissionLauncher.launch(requiredPermissions.toTypedArray()) },
+                    modifier = Modifier.fillMaxWidth(0.9f)
+                ) {
+                    Text("重新请求基础权限")
+                }
+                Spacer(modifier = Modifier.height(10.dp))
             }
-            Spacer(modifier = Modifier.height(10.dp))
+            if (requiresBackgroundLocation && !hasBackgroundLocation) {
+                Button(
+                    onClick = { backgroundPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION) },
+                    modifier = Modifier.fillMaxWidth(0.9f)
+                ) {
+                    Text("请求“始终允许位置”")
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            }
             OutlinedButton(
                 onClick = {
                     val intent = Intent(
@@ -479,7 +515,7 @@ private fun PermissionBootstrapGate(
                 },
                 modifier = Modifier.fillMaxWidth(0.9f)
             ) {
-                Text("前往系统设置授权")
+                Text("前往系统设置授权（含后台定位）")
             }
         }
     }
@@ -501,6 +537,14 @@ private fun hasAllRuntimePermissions(context: Context, permissions: List<String>
     return permissions.all { permission ->
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
     }
+}
+
+private fun hasBackgroundLocationPermission(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
+    return ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_BACKGROUND_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
 }
 
 private data class RouteRequest(

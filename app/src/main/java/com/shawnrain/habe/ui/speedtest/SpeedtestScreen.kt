@@ -6,9 +6,9 @@
 
 package com.shawnrain.habe.ui.speedtest
 
-import android.graphics.Paint
 import android.content.Context
 import android.content.Intent
+import android.graphics.Paint
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -396,8 +396,8 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         ) {
             Surface(
                 shape = bezierRoundedShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.94f),
-                tonalElevation = 6.dp,
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp,
                 shadowElevation = 0.dp
             ) {
                 Row(
@@ -703,16 +703,27 @@ private fun RideHistoryCard(
     var showShareActions by remember(record.id) { mutableStateOf(false) }
     var isRemoving by remember(record.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val summaryMetrics = remember(record.id) {
-        listOf(
-            "里程" to metricOf(record.distanceMeters / 1000f, "km"),
-            "最高速度" to metricOf(record.maxSpeedKmh, "km/h"),
-            "平均速度" to metricOf(record.avgSpeedKmh, "km/h"),
-            "峰值功率" to metricOf(record.peakPowerKw, "kW"),
-            "能耗" to metricOf(record.avgEfficiencyWhKm, "Wh/km"),
-            "采样点" to metricOf(record.samples.size.toString())
+    val displayDistanceMeters = remember(record.distanceMeters, record.samples) {
+        max(
+            record.distanceMeters,
+            record.samples.maxOfOrNull { it.distanceMeters } ?: 0f
         )
     }
+    val displayAvgSpeedKmh = remember(record.avgSpeedKmh, displayDistanceMeters, record.durationMs) {
+        if (record.durationMs > 0L && displayDistanceMeters > 1f) {
+            ((displayDistanceMeters / 1000f) / (record.durationMs / 3_600_000f)).coerceAtLeast(0f)
+        } else {
+            record.avgSpeedKmh
+        }
+    }
+    val summaryMetrics = listOf(
+        "里程" to metricOf(displayDistanceMeters / 1000f, "km"),
+        "最高速度" to metricOf(record.maxSpeedKmh, "km/h"),
+        "平均速度" to metricOf(displayAvgSpeedKmh, "km/h"),
+        "峰值功率" to metricOf(record.peakPowerKw, "kW"),
+        "能耗" to metricOf(record.avgEfficiencyWhKm, "Wh/km"),
+        "采样点" to metricOf(record.samples.size.toString())
+    )
 
     AnimatedVisibility(
         visible = !isRemoving,
@@ -1073,9 +1084,9 @@ private fun RideHistoryDetailLayer(
                     ) {
                         Surface(
                             shape = bezierRoundedShape(24.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.62f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.36f)),
-                            tonalElevation = 8.dp,
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                            tonalElevation = 10.dp,
                             shadowElevation = 0.dp
                         ) {
                             Row(

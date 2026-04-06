@@ -26,8 +26,8 @@ class RideEnergyEstimator {
         private const val EMA_ALPHA = 0.12f
         private const val CURRENT_STEP_THRESHOLD_A = 10f
         private const val STATIONARY_CURRENT_THRESHOLD_A = 1f
-        private const val STATIONARY_RECALIBRATION_MS = 2 * 60 * 1000L
-        private const val STATIONARY_STRONG_RECALIBRATION_MS = 4 * 60 * 1000L
+        private const val STATIONARY_RECALIBRATION_MS = 45_000L
+        private const val STATIONARY_STRONG_RECALIBRATION_MS = 120_000L
         private const val RANGE_WINDOW_DISTANCE_KM = 2.0
         private const val MIN_RANGE_WINDOW_DISTANCE_KM = 0.2
     }
@@ -122,12 +122,17 @@ class RideEnergyEstimator {
         val fusedSoc = ((socByAhPercent * wAh) + (socByOcvPercent * wOcv)).coerceIn(0f, 100f)
 
         val targetSoc = when {
-            abs(filteredCurrent) > 8f -> socByAhPercent
+            abs(filteredCurrent) > 12f -> socByAhPercent
             else -> fusedSoc
         }.coerceIn(0f, 100f)
+        val lowLoadAdjustedTargetSoc = if (abs(filteredCurrent) <= 1.5f) {
+            ((targetSoc * 0.6f) + (socByOcvPercent * 0.4f)).coerceIn(0f, 100f)
+        } else {
+            targetSoc
+        }
         displayedSocPercent = updateDisplayedSoc(
             previousSoc = displayedSocPercent,
-            targetSoc = targetSoc,
+            targetSoc = lowLoadAdjustedTargetSoc,
             absCurrent = abs(filteredCurrent),
             current = filteredCurrent,
             dtSeconds = dtSeconds,
@@ -192,10 +197,11 @@ class RideEnergyEstimator {
         return when {
             absCurrent < STATIONARY_CURRENT_THRESHOLD_A &&
                 stationarySinceMs > 0L &&
-                nowMs - stationarySinceMs >= STATIONARY_RECALIBRATION_MS -> 0f to 1f
-            absCurrent <= 5f -> 0.92f to 0.08f
-            absCurrent <= 15f -> 0.97f to 0.03f
-            else -> 0.995f to 0.005f
+                nowMs - stationarySinceMs >= STATIONARY_RECALIBRATION_MS -> 0.30f to 0.70f
+            absCurrent <= 2f -> 0.62f to 0.38f
+            absCurrent <= 5f -> 0.78f to 0.22f
+            absCurrent <= 15f -> 0.92f to 0.08f
+            else -> 0.985f to 0.015f
         }
     }
 

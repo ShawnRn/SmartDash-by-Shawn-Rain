@@ -14,6 +14,9 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStore
 import com.shawnrain.habe.data.history.RideHistoryRecord
 import com.shawnrain.habe.data.speedtest.SpeedTestRecord
+import com.shawnrain.habe.data.sync.BackupPreview
+import com.shawnrain.habe.data.sync.BackupPreviewRide
+import com.shawnrain.habe.data.sync.BackupPreviewVehicle
 import com.shawnrain.habe.debug.AppLogLevel
 import org.json.JSONArray
 import org.json.JSONObject
@@ -58,6 +61,7 @@ enum class DataSource(val title: String) {
 
 class SettingsRepository(private val context: Context) {
     companion object {
+        private const val SYNC_META_PREFIX = "__sync_mtime__"
         val CURRENT_VEHICLE_ID = stringPreferencesKey("current_vehicle_id")
         val VEHICLE_LIST = stringPreferencesKey("vehicle_list_json")
         val LAST_CONTROLLER_DEVICE_ADDRESS = stringPreferencesKey("last_controller_device_address")
@@ -82,6 +86,9 @@ class SettingsRepository(private val context: Context) {
         const val K_LAST_CONTROLLER_PROTOCOL_ID = "last_controller_protocol_id"
         val LOG_LEVEL = stringPreferencesKey("log_level")
         val OVERLAY_ENABLED = booleanPreferencesKey("overlay_enabled")
+
+        private fun syncMetaName(name: String): String = "$SYNC_META_PREFIX$name"
+        private fun syncMetaKey(name: String) = longPreferencesKey(syncMetaName(name))
     }
 
     private fun loadVehicleProfiles(raw: String?): List<VehicleProfile> {
@@ -92,6 +99,36 @@ class SettingsRepository(private val context: Context) {
 
     private fun <T> Preferences.safeGet(key: Preferences.Key<T>): T? =
         runCatching { this[key] }.getOrNull()
+
+    private fun markSyncedAt(
+        pref: androidx.datastore.preferences.core.MutablePreferences,
+        vararg names: String,
+        updatedAt: Long = System.currentTimeMillis()
+    ) {
+        names.distinct().forEach { name ->
+            pref[syncMetaKey(name)] = updatedAt
+        }
+    }
+
+    private fun readLocalModifiedAt(
+        pref: Preferences,
+        name: String
+    ): Long = pref.safeGet(syncMetaKey(name)) ?: 0L
+
+    private fun remoteModifiedAt(
+        remoteEntriesByName: Map<String, BackupEntry>,
+        name: String
+    ): Long {
+        val metaName = syncMetaName(name)
+        val meta = remoteEntriesByName[metaName] ?: return 0L
+        return when (meta.kind) {
+            BackupValueKind.LONG -> meta.value as Long
+            BackupValueKind.INT -> (meta.value as Int).toLong()
+            BackupValueKind.DOUBLE -> (meta.value as Double).toLong()
+            BackupValueKind.FLOAT -> (meta.value as Float).toLong()
+            else -> 0L
+        }
+    }
 
     private fun normalizedProfile(
         profile: VehicleProfile,
@@ -261,6 +298,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun saveCurrentVehicleId(id: String) = context.dataStore.edit { pref ->
         val profiles = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
         pref[CURRENT_VEHICLE_ID] = profiles.firstOrNull { it.id == id }?.id ?: profiles.first().id
+        markSyncedAt(pref, CURRENT_VEHICLE_ID.name)
     }
 
     suspend fun saveVehicleProfiles(profiles: List<VehicleProfile>) {
@@ -272,6 +310,7 @@ class SettingsRepository(private val context: Context) {
             pref[VEHICLE_LIST] = VehicleProfile.listToJson(sanitized)
             val currentId = pref.safeGet(CURRENT_VEHICLE_ID)
             pref[CURRENT_VEHICLE_ID] = sanitized.firstOrNull { it.id == currentId }?.id ?: sanitized.first().id
+            markSyncedAt(pref, VEHICLE_LIST.name, CURRENT_VEHICLE_ID.name)
         }
     }
 
@@ -320,7 +359,10 @@ class SettingsRepository(private val context: Context) {
     suspend fun saveWheelCircumference(value: Float) {
         val id = currentVehicleId.first()
         val normalized = value.coerceIn(500f, 5000f)
-        context.dataStore.edit { it[vKeyF(id, K_WHEEL)] = normalized }
+        context.dataStore.edit {
+            it[vKeyF(id, K_WHEEL)] = normalized
+            markSyncedAt(it, "v_${id}_$K_WHEEL")
+        }
         updateCurrentVehicle { profile ->
             profile.copy(wheelCircumferenceMm = normalized)
         }
@@ -329,7 +371,10 @@ class SettingsRepository(private val context: Context) {
     suspend fun savePolePairs(value: Int) {
         val id = currentVehicleId.first()
         val normalized = value.coerceAtLeast(1)
-        context.dataStore.edit { it[vKeyI(id, K_POLE)] = normalized }
+        context.dataStore.edit {
+            it[vKeyI(id, K_POLE)] = normalized
+            markSyncedAt(it, "v_${id}_$K_POLE")
+        }
         updateCurrentVehicle { profile ->
             profile.copy(polePairs = normalized)
         }
@@ -346,48 +391,73 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveControllerBrand(value: String) {
         val id = currentVehicleId.first()
-        context.dataStore.edit { it[vKey(id, K_BRAND)] = value }
+        context.dataStore.edit {
+            it[vKey(id, K_BRAND)] = value
+            markSyncedAt(it, "v_${id}_$K_BRAND")
+        }
     }
 
     suspend fun saveSpeedSource(source: SpeedSource) {
         val id = currentVehicleId.first()
-        context.dataStore.edit { it[vKey(id, K_SPEED_SRC)] = source.name }
+        context.dataStore.edit {
+            it[vKey(id, K_SPEED_SRC)] = source.name
+            markSyncedAt(it, "v_${id}_$K_SPEED_SRC")
+        }
     }
 
     suspend fun saveBattDataSource(source: DataSource) {
         val id = currentVehicleId.first()
-        context.dataStore.edit { it[vKey(id, K_BATT_SRC)] = source.name }
+        context.dataStore.edit {
+            it[vKey(id, K_BATT_SRC)] = source.name
+            markSyncedAt(it, "v_${id}_$K_BATT_SRC")
+        }
     }
 
     suspend fun saveDashboardItems(items: List<MetricType>) {
         val id = currentVehicleId.first()
         val sanitized = items.filterNot { it == MetricType.MOTOR_TEMP }
-        context.dataStore.edit { it[vKey(id, K_DASH_ITEMS)] = sanitized.joinToString(",") { it.name } }
+        context.dataStore.edit {
+            it[vKey(id, K_DASH_ITEMS)] = sanitized.joinToString(",") { item -> item.name }
+            markSyncedAt(it, "v_${id}_$K_DASH_ITEMS")
+        }
     }
 
     suspend fun saveRideOverviewItems(items: List<MetricType>) {
         val id = currentVehicleId.first()
         context.dataStore.edit {
             it[vKey(id, K_RIDE_OVERVIEW_ITEMS)] = items.joinToString(",") { item -> item.name }
+            markSyncedAt(it, "v_${id}_$K_RIDE_OVERVIEW_ITEMS")
         }
     }
 
     suspend fun saveSpeedTestHistory(records: List<SpeedTestRecord>) {
         val id = currentVehicleId.first()
-        context.dataStore.edit { it[vKey(id, K_SPEEDTEST_HISTORY)] = SpeedTestRecord.listToJson(records) }
+        context.dataStore.edit {
+            it[vKey(id, K_SPEEDTEST_HISTORY)] = SpeedTestRecord.listToJson(records)
+            markSyncedAt(it, "v_${id}_$K_SPEEDTEST_HISTORY")
+        }
     }
 
     suspend fun saveRideHistory(records: List<RideHistoryRecord>) {
         val id = currentVehicleId.first()
-        context.dataStore.edit { it[vKey(id, K_RIDE_HISTORY)] = RideHistoryRecord.listToJson(records) }
+        context.dataStore.edit {
+            it[vKey(id, K_RIDE_HISTORY)] = RideHistoryRecord.listToJson(records)
+            markSyncedAt(it, "v_${id}_$K_RIDE_HISTORY")
+        }
     }
 
     suspend fun saveLogLevel(level: AppLogLevel) {
-        context.dataStore.edit { it[LOG_LEVEL] = level.name }
+        context.dataStore.edit {
+            it[LOG_LEVEL] = level.name
+            markSyncedAt(it, LOG_LEVEL.name)
+        }
     }
 
     suspend fun saveOverlayEnabled(enabled: Boolean) {
-        context.dataStore.edit { it[OVERLAY_ENABLED] = enabled }
+        context.dataStore.edit {
+            it[OVERLAY_ENABLED] = enabled
+            markSyncedAt(it, OVERLAY_ENABLED.name)
+        }
     }
 
     suspend fun isOverlayEnabled(): Boolean {
@@ -404,14 +474,23 @@ class SettingsRepository(private val context: Context) {
             it[vKey(id, K_LAST_CONTROLLER_DEVICE_ADDRESS)] = address
             it[LAST_CONTROLLER_DEVICE_ADDRESS] = address
             updateVehicleMacAddressLocked(it, id, address)
+            val touchedKeys = mutableListOf(
+                "v_${id}_$K_LAST_CONTROLLER_DEVICE_ADDRESS",
+                LAST_CONTROLLER_DEVICE_ADDRESS.name
+            )
             if (!name.isNullOrBlank()) {
                 it[vKey(id, K_LAST_CONTROLLER_DEVICE_NAME)] = name
                 it[LAST_CONTROLLER_DEVICE_NAME] = name
+                touchedKeys += "v_${id}_$K_LAST_CONTROLLER_DEVICE_NAME"
+                touchedKeys += LAST_CONTROLLER_DEVICE_NAME.name
             }
             if (!protocolId.isNullOrBlank()) {
                 it[vKey(id, K_LAST_CONTROLLER_PROTOCOL_ID)] = protocolId
                 it[LAST_CONTROLLER_PROTOCOL_ID] = protocolId
+                touchedKeys += "v_${id}_$K_LAST_CONTROLLER_PROTOCOL_ID"
+                touchedKeys += LAST_CONTROLLER_PROTOCOL_ID.name
             }
+            markSyncedAt(it, *touchedKeys.toTypedArray())
         }
     }
 
@@ -424,6 +503,15 @@ class SettingsRepository(private val context: Context) {
             it.remove(LAST_CONTROLLER_DEVICE_ADDRESS)
             it.remove(LAST_CONTROLLER_DEVICE_NAME)
             it.remove(LAST_CONTROLLER_PROTOCOL_ID)
+            markSyncedAt(
+                it,
+                "v_${id}_$K_LAST_CONTROLLER_DEVICE_ADDRESS",
+                "v_${id}_$K_LAST_CONTROLLER_DEVICE_NAME",
+                "v_${id}_$K_LAST_CONTROLLER_PROTOCOL_ID",
+                LAST_CONTROLLER_DEVICE_ADDRESS.name,
+                LAST_CONTROLLER_DEVICE_NAME.name,
+                LAST_CONTROLLER_PROTOCOL_ID.name
+            )
         }
     }
 
@@ -449,6 +537,7 @@ class SettingsRepository(private val context: Context) {
             updatedAt = System.currentTimeMillis()
         )
         pref[VEHICLE_LIST] = VehicleProfile.listToJson(profiles)
+        markSyncedAt(pref, VEHICLE_LIST.name)
     }
 
     suspend fun exportBackupJson(): String {
@@ -491,6 +580,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun importBackupJson(rawJson: String): Int {
         val root = JSONObject(rawJson)
         val prefsJson = root.optJSONObject("prefs") ?: root
+        val localSnapshot = preferencesFlow.first()
         val staged = mutableListOf<BackupEntry>()
         var hasAppOwnedKey = false
         val keys = prefsJson.keys()
@@ -518,9 +608,95 @@ class SettingsRepository(private val context: Context) {
                 writeBackupEntry(pref, entry)
                 imported += 1
             }
+            val localProfiles = loadVehicleProfiles(localSnapshot.safeGet(VEHICLE_LIST))
+            val restoredProfiles = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
+            val mergedProfiles = mergeVehicleProfiles(localProfiles, restoredProfiles)
+            pref[VEHICLE_LIST] = VehicleProfile.listToJson(mergedProfiles)
+            markSyncedAt(pref, VEHICLE_LIST.name)
+
+            localSnapshot.asMap().keys.forEach { key ->
+                val name = key.name
+                when {
+                    name.endsWith("_$K_RIDE_HISTORY") -> {
+                        val restoredJson = pref.safeGet(stringPreferencesKey(name))
+                        val localJson = localSnapshot.safeGet(stringPreferencesKey(name))
+                        pref[stringPreferencesKey(name)] = mergeRideHistoryJson(localJson, restoredJson)
+                        markSyncedAt(pref, name)
+                    }
+                    name.endsWith("_$K_SPEEDTEST_HISTORY") -> {
+                        val restoredJson = pref.safeGet(stringPreferencesKey(name))
+                        val localJson = localSnapshot.safeGet(stringPreferencesKey(name))
+                        pref[stringPreferencesKey(name)] = mergeSpeedTestHistoryJson(localJson, restoredJson)
+                        markSyncedAt(pref, name)
+                    }
+                }
+            }
             ensureVehiclePreferences(pref)
         }
         return imported
+    }
+
+    fun previewBackupJson(rawJson: String): BackupPreview {
+        val root = JSONObject(rawJson)
+        val prefsJson = root.optJSONObject("prefs") ?: root
+        val exportedAt = root.optLong("exportedAt", 0L)
+        val parsedEntries = parseBackupEntries(prefsJson)
+        val entryMap = parsedEntries.associateBy { it.name }
+        val vehicles = loadVehicleProfiles(entryMap[VEHICLE_LIST.name]?.value as? String)
+        val rideGroups = parsedEntries
+            .filter { it.kind == BackupValueKind.STRING && it.name.endsWith("_$K_RIDE_HISTORY") }
+            .associate { entry ->
+                vehicleIdFromScopedKey(entry.name, K_RIDE_HISTORY) to
+                    RideHistoryRecord.listFromJson(entry.value as? String)
+            }
+        val speedTestGroups = parsedEntries
+            .filter { it.kind == BackupValueKind.STRING && it.name.endsWith("_$K_SPEEDTEST_HISTORY") }
+            .associate { entry ->
+                vehicleIdFromScopedKey(entry.name, K_SPEEDTEST_HISTORY) to
+                    SpeedTestRecord.listFromJson(entry.value as? String)
+            }
+        val allRides = rideGroups.values.flatten()
+            .sortedByDescending { it.startedAtMs }
+        val speedTests = speedTestGroups.values.flatten()
+        val previewVehicles = buildList {
+            val allVehicleIds = (vehicles.map { it.id } + rideGroups.keys + speedTestGroups.keys)
+                .filter { it.isNotBlank() }
+                .distinct()
+            allVehicleIds.forEach { vehicleId ->
+                val profile = vehicles.firstOrNull { it.id == vehicleId }
+                add(
+                    BackupPreviewVehicle(
+                        id = vehicleId,
+                        name = profile?.name ?: "车辆 ${vehicleId.takeLast(4)}",
+                        totalMileageKm = profile?.totalMileageKm ?: 0f,
+                        rideCount = rideGroups[vehicleId]?.size ?: 0
+                    )
+                )
+            }
+        }
+
+        return BackupPreview(
+            exportedAt = exportedAt,
+            vehicleCount = previewVehicles.size,
+            rideCount = allRides.size,
+            speedTestCount = speedTests.size,
+            vehicles = previewVehicles.sortedByDescending { it.rideCount },
+            recentRides = allRides.take(8).map { record ->
+                val ownerVehicleId = rideGroups.entries.firstOrNull { (_, rides) ->
+                    rides.any { it.id == record.id }
+                }?.key.orEmpty()
+                val owner = previewVehicles.firstOrNull { it.id == ownerVehicleId }
+                BackupPreviewRide(
+                    id = record.id,
+                    title = record.title,
+                    startedAtMs = record.startedAtMs,
+                    distanceKm = (record.distanceMeters / 1000f).coerceAtLeast(0f),
+                    durationMinutes = (record.durationMs / 60_000L).toInt(),
+                    vehicleId = owner?.id.orEmpty(),
+                    vehicleName = owner?.name ?: "未知车辆"
+                )
+            }
+        )
     }
 
     /**
@@ -534,14 +710,8 @@ class SettingsRepository(private val context: Context) {
         val remotePrefs = remoteRoot.optJSONObject("prefs") ?: remoteRoot
 
         // Parse remote entries
-        val remoteEntries = mutableListOf<BackupEntry>()
-        val remoteKeys = remotePrefs.keys()
-        while (remoteKeys.hasNext()) {
-            val name = remoteKeys.next()?.trim().orEmpty()
-            if (name.isBlank()) continue
-            val node = remotePrefs.opt(name)
-            parseBackupEntry(name, node)?.let { remoteEntries += it }
-        }
+        val remoteEntries = parseBackupEntries(remotePrefs)
+        val remoteEntriesByName = remoteEntries.associateBy { it.name }
 
         if (remoteEntries.isEmpty()) return 0
 
@@ -555,27 +725,204 @@ class SettingsRepository(private val context: Context) {
                 val remoteProfiles = loadVehicleProfiles(remoteProfilesJson)
                 mergedProfiles = mergeVehicleProfiles(localProfiles, remoteProfiles)
                 localPref[VEHICLE_LIST] = VehicleProfile.listToJson(mergedProfiles)
+                val localMtime = readLocalModifiedAt(localPref, VEHICLE_LIST.name)
+                val remoteMtime = remoteModifiedAt(remoteEntriesByName, VEHICLE_LIST.name)
+                markSyncedAt(localPref, VEHICLE_LIST.name, updatedAt = maxOf(localMtime, remoteMtime, System.currentTimeMillis()))
                 mergedCount++
             }
 
-            // Merge other settings (last-write-wins from remote)
+            // Merge other settings using per-field modification timestamps.
             remoteEntries.forEach { entry ->
-                if (entry.name != "vehicle_list_json") {
-                    writeBackupEntry(localPref, entry)
-                    mergedCount++
+                if (entry.name != "vehicle_list_json" && !isSyncMetadataKey(entry.name)) {
+                    when {
+                        entry.kind == BackupValueKind.STRING && entry.name.endsWith("_$K_RIDE_HISTORY") -> {
+                            val localJson = localPref.safeGet(stringPreferencesKey(entry.name))
+                            val mergedJson = mergeRideHistoryJson(localJson, entry.value as String)
+                            localPref[stringPreferencesKey(entry.name)] = mergedJson
+                            val localMtime = readLocalModifiedAt(localPref, entry.name)
+                            val remoteMtime = remoteModifiedAt(remoteEntriesByName, entry.name)
+                            markSyncedAt(localPref, entry.name, updatedAt = maxOf(localMtime, remoteMtime, System.currentTimeMillis()))
+                            mergedCount++
+                        }
+                        entry.kind == BackupValueKind.STRING && entry.name.endsWith("_$K_SPEEDTEST_HISTORY") -> {
+                            val localJson = localPref.safeGet(stringPreferencesKey(entry.name))
+                            val mergedJson = mergeSpeedTestHistoryJson(localJson, entry.value as String)
+                            localPref[stringPreferencesKey(entry.name)] = mergedJson
+                            val localMtime = readLocalModifiedAt(localPref, entry.name)
+                            val remoteMtime = remoteModifiedAt(remoteEntriesByName, entry.name)
+                            markSyncedAt(localPref, entry.name, updatedAt = maxOf(localMtime, remoteMtime, System.currentTimeMillis()))
+                            mergedCount++
+                        }
+                        else -> {
+                            if (mergeBackupEntryByTimestamp(localPref, remoteEntriesByName, entry)) {
+                                mergedCount++
+                            }
+                        }
+                    }
                 }
             }
 
-            val remoteCurrentVehicleId = (remoteEntries.find { it.name == CURRENT_VEHICLE_ID.name }?.value as? String)
+            val remoteCurrentVehicleId = (remoteEntriesByName[CURRENT_VEHICLE_ID.name]?.value as? String)
                 ?.takeIf { remoteId -> mergedProfiles.any { it.id == remoteId } }
-            if (remoteCurrentVehicleId != null) {
+            val remoteCurrentVehicleMtime = remoteModifiedAt(remoteEntriesByName, CURRENT_VEHICLE_ID.name)
+            val localCurrentVehicleMtime = readLocalModifiedAt(localPref, CURRENT_VEHICLE_ID.name)
+            if (remoteCurrentVehicleId != null && remoteCurrentVehicleMtime >= localCurrentVehicleMtime) {
                 localPref[CURRENT_VEHICLE_ID] = remoteCurrentVehicleId
+                markSyncedAt(localPref, CURRENT_VEHICLE_ID.name, updatedAt = maxOf(remoteCurrentVehicleMtime, localCurrentVehicleMtime, System.currentTimeMillis()))
             }
 
             // Ensure current vehicle is valid
             ensureVehiclePreferences(localPref)
         }
         return mergedCount
+    }
+
+    suspend fun restoreRideFromBackupJson(rawJson: String, rideId: String): Boolean {
+        val root = JSONObject(rawJson)
+        val prefsJson = root.optJSONObject("prefs") ?: root
+        val parsedEntries = parseBackupEntries(prefsJson)
+        val entryMap = parsedEntries.associateBy { it.name }
+        val remoteProfiles = loadVehicleProfiles(entryMap[VEHICLE_LIST.name]?.value as? String)
+        val matchedEntry = parsedEntries.firstOrNull { entry ->
+            entry.kind == BackupValueKind.STRING &&
+                entry.name.endsWith("_$K_RIDE_HISTORY") &&
+                RideHistoryRecord.listFromJson(entry.value as? String).any { it.id == rideId }
+        } ?: return false
+        val matchedVehicleId = vehicleIdFromScopedKey(matchedEntry.name, K_RIDE_HISTORY)
+        val matchedProfile = remoteProfiles.firstOrNull { it.id == matchedVehicleId }
+            ?: VehicleProfile(
+                id = matchedVehicleId.ifBlank { VehicleProfile.DEFAULT_ID },
+                name = "恢复的车辆"
+            )
+        val targetRide = RideHistoryRecord.listFromJson(
+            matchedEntry.value as? String
+        ).firstOrNull { it.id == rideId } ?: return false
+
+        context.dataStore.edit { localPref ->
+            val localProfiles = loadVehicleProfiles(localPref.safeGet(VEHICLE_LIST))
+            val mergedProfiles = mergeVehicleProfiles(localProfiles, listOf(matchedProfile))
+            localPref[VEHICLE_LIST] = VehicleProfile.listToJson(mergedProfiles)
+            markSyncedAt(localPref, VEHICLE_LIST.name)
+
+            val rideKey = vKey(matchedProfile.id, K_RIDE_HISTORY)
+            val localRideJson = localPref.safeGet(rideKey)
+            val mergedRideJson = mergeRideHistoryJson(
+                localRideJson,
+                RideHistoryRecord.listToJson(listOf(targetRide))
+            )
+            localPref[rideKey] = mergedRideJson
+            markSyncedAt(localPref, rideKey.name)
+            ensureVehiclePreferences(localPref)
+        }
+        return true
+    }
+
+    private fun parseBackupEntries(prefsJson: JSONObject): List<BackupEntry> {
+        val parsed = mutableListOf<BackupEntry>()
+        val keys = prefsJson.keys()
+        while (keys.hasNext()) {
+            val name = keys.next()?.trim().orEmpty()
+            if (name.isBlank()) continue
+            parseBackupEntry(name, prefsJson.opt(name))?.let { parsed += it }
+        }
+        return parsed
+    }
+
+    private fun vehicleIdFromScopedKey(name: String, suffix: String): String {
+        val prefix = "v_"
+        val suffixToken = "_$suffix"
+        if (!name.startsWith(prefix) || !name.endsWith(suffixToken)) return ""
+        return name.removePrefix(prefix).removeSuffix(suffixToken)
+    }
+
+    private fun mergeRideHistoryJson(localJson: String?, remoteJson: String?): String {
+        val merged = linkedMapOf<String, RideHistoryRecord>()
+
+        RideHistoryRecord.listFromJson(localJson).forEach { record ->
+            merged[rideHistoryMergeKey(record)] = record
+        }
+        RideHistoryRecord.listFromJson(remoteJson).forEach { record ->
+            val key = rideHistoryMergeKey(record)
+            val existing = merged[key]
+            merged[key] = if (existing == null) {
+                record
+            } else {
+                preferRideHistoryRecord(existing, record)
+            }
+        }
+
+        return RideHistoryRecord.listToJson(
+            merged.values
+                .sortedByDescending { it.startedAtMs }
+        )
+    }
+
+    private fun rideHistoryMergeKey(record: RideHistoryRecord): String {
+        return record.id.takeIf { it.isNotBlank() }
+            ?: "${record.startedAtMs}_${record.endedAtMs}_${record.title}"
+    }
+
+    private fun preferRideHistoryRecord(
+        local: RideHistoryRecord,
+        remote: RideHistoryRecord
+    ): RideHistoryRecord {
+        val localScore = rideHistoryCompletenessScore(local)
+        val remoteScore = rideHistoryCompletenessScore(remote)
+        return when {
+            remoteScore > localScore -> remote
+            remoteScore < localScore -> local
+            remote.endedAtMs > local.endedAtMs -> remote
+            remote.startedAtMs > local.startedAtMs -> remote
+            else -> local
+        }
+    }
+
+    private fun rideHistoryCompletenessScore(record: RideHistoryRecord): Long {
+        return (record.samples.size.toLong() * 1_000_000L) +
+            (record.trackPoints.size.toLong() * 10_000L) +
+            record.durationMs +
+            record.distanceMeters.toLong()
+    }
+
+    private fun mergeSpeedTestHistoryJson(localJson: String?, remoteJson: String?): String {
+        val merged = linkedMapOf<String, SpeedTestRecord>()
+
+        SpeedTestRecord.listFromJson(localJson).forEach { record ->
+            merged[speedTestMergeKey(record)] = record
+        }
+        SpeedTestRecord.listFromJson(remoteJson).forEach { record ->
+            val key = speedTestMergeKey(record)
+            val existing = merged[key]
+            merged[key] = if (existing == null) {
+                record
+            } else {
+                preferSpeedTestRecord(existing, record)
+            }
+        }
+
+        return SpeedTestRecord.listToJson(
+            merged.values
+                .sortedByDescending { it.timestampMs }
+        )
+    }
+
+    private fun speedTestMergeKey(record: SpeedTestRecord): String {
+        return record.id.takeIf { it.isNotBlank() }
+            ?: "${record.label}_${record.targetSpeedKmh}_${record.timestampMs}"
+    }
+
+    private fun preferSpeedTestRecord(
+        local: SpeedTestRecord,
+        remote: SpeedTestRecord
+    ): SpeedTestRecord {
+        val localScore = (local.trackPoints.size * 1_000) + local.distanceMeters.toInt()
+        val remoteScore = (remote.trackPoints.size * 1_000) + remote.distanceMeters.toInt()
+        return when {
+            remoteScore > localScore -> remote
+            remoteScore < localScore -> local
+            remote.timestampMs > local.timestampMs -> remote
+            else -> local
+        }
     }
 
     /**
@@ -662,11 +1009,117 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
+    private fun mergeBackupEntryByTimestamp(
+        pref: androidx.datastore.preferences.core.MutablePreferences,
+        remoteEntriesByName: Map<String, BackupEntry>,
+        entry: BackupEntry
+    ): Boolean {
+        val localModifiedAt = readLocalModifiedAt(pref, entry.name)
+        val remoteModifiedAt = remoteModifiedAt(remoteEntriesByName, entry.name)
+        val shouldApplyRemote = remoteModifiedAt > localModifiedAt
+        return when (entry.kind) {
+            BackupValueKind.STRING -> {
+                val key = stringPreferencesKey(entry.name)
+                val localValue = pref.safeGet(key)
+                val remoteValue = entry.value as String
+                if (localValue == null || shouldApplyRemote) {
+                    pref[key] = remoteValue
+                    markSyncedAt(pref, entry.name, updatedAt = maxOf(remoteModifiedAt, localModifiedAt, System.currentTimeMillis()))
+                    true
+                } else {
+                    false
+                }
+            }
+            BackupValueKind.INT -> {
+                val key = intPreferencesKey(entry.name)
+                val localValue = pref.safeGet(key)
+                if (localValue == null || shouldApplyRemote) {
+                    pref[key] = entry.value as Int
+                    markSyncedAt(pref, entry.name, updatedAt = maxOf(remoteModifiedAt, localModifiedAt, System.currentTimeMillis()))
+                    true
+                } else {
+                    false
+                }
+            }
+            BackupValueKind.FLOAT -> {
+                val key = floatPreferencesKey(entry.name)
+                val localValue = pref.safeGet(key)
+                if (localValue == null || shouldApplyRemote) {
+                    pref[key] = entry.value as Float
+                    markSyncedAt(pref, entry.name, updatedAt = maxOf(remoteModifiedAt, localModifiedAt, System.currentTimeMillis()))
+                    true
+                } else {
+                    false
+                }
+            }
+            BackupValueKind.BOOLEAN -> {
+                val key = booleanPreferencesKey(entry.name)
+                val localValue = pref.safeGet(key)
+                if (localValue == null || shouldApplyRemote) {
+                    pref[key] = entry.value as Boolean
+                    markSyncedAt(pref, entry.name, updatedAt = maxOf(remoteModifiedAt, localModifiedAt, System.currentTimeMillis()))
+                    true
+                } else {
+                    false
+                }
+            }
+            BackupValueKind.LONG -> {
+                val key = longPreferencesKey(entry.name)
+                val localValue = pref.safeGet(key)
+                if (localValue == null || shouldApplyRemote) {
+                    pref[key] = entry.value as Long
+                    markSyncedAt(pref, entry.name, updatedAt = maxOf(remoteModifiedAt, localModifiedAt, System.currentTimeMillis()))
+                    true
+                } else {
+                    false
+                }
+            }
+            BackupValueKind.DOUBLE -> {
+                val key = doublePreferencesKey(entry.name)
+                val localValue = pref.safeGet(key)
+                if (localValue == null || shouldApplyRemote) {
+                    pref[key] = entry.value as Double
+                    markSyncedAt(pref, entry.name, updatedAt = maxOf(remoteModifiedAt, localModifiedAt, System.currentTimeMillis()))
+                    true
+                } else {
+                    false
+                }
+            }
+            BackupValueKind.STRING_SET -> {
+                val key = stringSetPreferencesKey(entry.name)
+                val localValue = pref.safeGet(key).orEmpty()
+                val remoteValue = (entry.value as Set<*>).mapNotNull { it?.toString() }.toSet()
+                val merged = if (shouldApplyRemote) {
+                    remoteValue.filter { it.isNotBlank() }.toSet()
+                } else {
+                    (localValue + remoteValue).filter { it.isNotBlank() }.toSet()
+                }
+                if (merged != localValue) {
+                    pref[key] = merged
+                    markSyncedAt(pref, entry.name, updatedAt = maxOf(remoteModifiedAt, localModifiedAt, System.currentTimeMillis()))
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
     private fun ensureVehiclePreferences(pref: androidx.datastore.preferences.core.MutablePreferences) {
         val profiles = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
-        pref[VEHICLE_LIST] = VehicleProfile.listToJson(profiles)
+        val normalizedProfilesJson = VehicleProfile.listToJson(profiles)
+        val previousProfilesJson = pref.safeGet(VEHICLE_LIST)
+        pref[VEHICLE_LIST] = normalizedProfilesJson
         val currentId = pref.safeGet(CURRENT_VEHICLE_ID)
-        pref[CURRENT_VEHICLE_ID] = profiles.firstOrNull { it.id == currentId }?.id ?: profiles.first().id
+        val resolvedCurrentId = profiles.firstOrNull { it.id == currentId }?.id ?: profiles.first().id
+        pref[CURRENT_VEHICLE_ID] = resolvedCurrentId
+        val touched = buildList {
+            if (previousProfilesJson != normalizedProfilesJson) add(VEHICLE_LIST.name)
+            if (currentId != resolvedCurrentId) add(CURRENT_VEHICLE_ID.name)
+        }
+        if (touched.isNotEmpty()) {
+            markSyncedAt(pref, *touched.toTypedArray())
+        }
     }
 
     private fun kindFromType(name: String, declaredType: String): BackupValueKind? {
@@ -769,6 +1222,7 @@ class SettingsRepository(private val context: Context) {
     }
 
     private fun isAppOwnedPreferenceKey(name: String): Boolean {
+        if (isSyncMetadataKey(name)) return true
         if (name == CURRENT_VEHICLE_ID.name) return true
         if (name == VEHICLE_LIST.name) return true
         if (name == LAST_CONTROLLER_DEVICE_ADDRESS.name) return true
@@ -779,7 +1233,10 @@ class SettingsRepository(private val context: Context) {
         return name.startsWith("v_")
     }
 
+    private fun isSyncMetadataKey(name: String): Boolean = name.startsWith(SYNC_META_PREFIX)
+
     private fun expectedKindForKey(name: String): BackupValueKind? {
+        if (isSyncMetadataKey(name)) return BackupValueKind.LONG
         if (name == CURRENT_VEHICLE_ID.name) return BackupValueKind.STRING
         if (name == VEHICLE_LIST.name) return BackupValueKind.STRING
         if (name == LAST_CONTROLLER_DEVICE_ADDRESS.name) return BackupValueKind.STRING

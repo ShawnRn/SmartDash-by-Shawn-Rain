@@ -37,6 +37,7 @@ import com.shawnrain.habe.data.migration.LanBackupQrPayload
 import com.shawnrain.habe.data.migration.LanBackupTransfer
 import com.shawnrain.habe.data.sync.GoogleDriveSyncManager
 import com.shawnrain.habe.data.sync.BackupMetadata
+import com.shawnrain.habe.data.sync.BackupPreview
 import com.shawnrain.habe.data.sync.SyncState
 import com.shawnrain.habe.data.history.RideHistoryRecord
 import com.shawnrain.habe.data.history.RideMetricSample
@@ -91,6 +92,13 @@ data class LanBackupShareUiState(
     val host: String = "",
     val port: Int = 0,
     val code: String = ""
+)
+
+data class DriveBackupPreviewUiState(
+    val selectedBackup: BackupMetadata? = null,
+    val preview: BackupPreview? = null,
+    val isLoading: Boolean = false,
+    val errorMessage: String? = null
 )
 
 private data class PendingRideStopSnapshot(
@@ -403,7 +411,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _rideMaxControllerTemp = maxOf(_rideMaxControllerTemp, bleMetrics.controllerTemp)
         }
 
-        val distanceKm = _tripDistanceMeters / 1000.0
+        val liveTripDistanceMeters = authoritativeTripDistanceMeters()
+        val distanceKm = if (rideActive) {
+            liveTripDistanceMeters / 1000.0
+        } else {
+            0.0
+        }
         val fallbackSoc = selectFallbackSocPercent(
             voltage = volt,
             bmsSocPercent = if (bSource == DataSource.BMS) bmsMetrics.soc.takeIf { it in 1f..100f } else null,
@@ -420,7 +433,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             fallbackSocPercent = fallbackSoc,
             nowMs = now
         )
-        val currentTripEnergyWh = maxOf(_rideEnergyWh, _totalEnergyUsedWh.toFloat())
+        val currentTripEnergyWh = if (rideActive) {
+            maxOf(_rideEnergyWh, _totalEnergyUsedWh.toFloat())
+        } else {
+            0f
+        }
         val tripAverageEfficiencyWhKm = when {
             distanceKm > 0.02 && currentTripEnergyWh > 0.5f -> (currentTripEnergyWh / distanceKm).toFloat()
             else -> 0f
@@ -478,7 +495,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             soc = displaySocPercent,
             estimatedRangeKm = estimatedRangeKm,
             avgEfficiencyWhKm = avgEff,
-            totalEnergyWh = if (rideActive || _tripDistanceMeters > 0.0) currentTripEnergyWh else 0f,
+            totalEnergyWh = if (rideActive) currentTripEnergyWh else 0f,
             recoveredEnergyWh = if (rideActive) _rideRecoveredEnergyWh else 0f,
             peakRegenPowerKw = if (rideActive) _ridePeakRegenKw else 0f,
             maxControllerTemp = if (rideActive) _rideMaxControllerTemp else bleMetrics.controllerTemp
@@ -723,6 +740,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ======== Google Drive Sync State ========
     private val _driveSyncState = MutableStateFlow<SyncState>(SyncState.SignedOut)
     val driveSyncState: StateFlow<SyncState> = _driveSyncState.asStateFlow()
+    private val _driveBackupPreview = MutableStateFlow(DriveBackupPreviewUiState())
+    val driveBackupPreview: StateFlow<DriveBackupPreviewUiState> = _driveBackupPreview.asStateFlow()
 
     fun checkDriveSignInStatus(): kotlinx.coroutines.Job = viewModelScope.launch {
         if (driveSyncManager.isSignedIn()) {
@@ -854,6 +873,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     AppLogger.w(TAG, "Failed to delete Drive backup: ${it.message}")
                 }
             )
+        }
+    }
+
+    fun previewDriveBackup(metadata: BackupMetadata) {
+        viewModelScope.launch {
+            _driveBackupPreview.value = DriveBackupPreviewUiState(
+                selectedBackup = metadata,
+                isLoading = true
+            )
+            try {
+                val backupJson = driveSyncManager.downloadBackup(metadata.fileId).getOrElse { throw it }
+                val preview = settingsRepository.previewBackupJson(backupJson)
+                AppLogger.i(
+                    TAG,
+                    "Drive preview loaded file=${metadata.fileName} vehicles=${preview.vehicleCount} rides=${preview.rideCount} speedTests=${preview.speedTestCount}"
+                )
+                _driveBackupPreview.value = DriveBackupPreviewUiState(
+                    selectedBackup = metadata,
+                    preview = preview,
+                    isLoading = false
+                )
+            } catch (e: Exception) {
+                _driveBackupPreview.value = DriveBackupPreviewUiState(
+                    selectedBackup = metadata,
+                    isLoading = false,
+                    errorMessage = e.message ?: "预览失败"
+                )
+            }
+        }
+    }
+
+    fun clearDriveBackupPreview() {
+        _driveBackupPreview.value = DriveBackupPreviewUiState()
+    }
+
+    fun restoreSingleRideFromDriveBackup(fileId: String, rideId: String): kotlinx.coroutines.Job = viewModelScope.launch {
+        _driveSyncState.value = SyncState.Syncing
+        try {
+            val backupJson = driveSyncManager.downloadBackup(fileId).getOrElse { throw it }
+            val restored = settingsRepository.restoreRideFromBackupJson(backupJson, rideId)
+            if (restored) {
+                _driveSyncState.value = SyncState.Synced(uploaded = false, downloaded = true)
+                _driveSyncMessage.value = "已恢复这条行程，并同步对应车辆档案"
+            } else {
+                _driveSyncState.value = SyncState.Error("未在该历史版本中找到这条行程")
+                _driveSyncMessage.value = "恢复失败：未找到目标行程"
+            }
+            loadDriveBackups()
+        } catch (e: Exception) {
+            _driveSyncState.value = SyncState.Error(e.message ?: "单条恢复失败")
+            _driveSyncMessage.value = "恢复失败：${e.message}"
         }
     }
 
@@ -1361,35 +1431,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _rideMaxControllerTemp = maxOf(_rideMaxControllerTemp, metrics.controllerTemp)
 
         if (now - _rideLastSampleAtMs >= RIDE_SAMPLE_INTERVAL_MS) {
-            rideSamples.add(
-                RideMetricSample(
-                    elapsedMs = now - _rideStartedAtMs,
-                    timestampMs = now,
-                    speedKmH = metrics.speedKmH,
-                    powerKw = metrics.totalPowerW / 1000f,
-                    voltage = metrics.voltage,
-                    voltageSag = metrics.voltageSag,
-                    busCurrent = metrics.busCurrent,
-                    phaseCurrent = metrics.phaseCurrent,
-                    motorTemp = metrics.motorTemp,
-                    controllerTemp = metrics.controllerTemp,
-                    soc = metrics.soc,
-                    estimatedRangeKm = metrics.estimatedRangeKm,
-                    rpm = metrics.rpm,
-                    efficiencyWhKm = metrics.efficiencyWhKm,
-                    avgEfficiencyWhKm = metrics.avgEfficiencyWhKm,
-                    distanceMeters = _tripDistanceMeters.toFloat(),
-                    totalEnergyWh = metrics.totalEnergyWh,
-                    recoveredEnergyWh = metrics.recoveredEnergyWh,
-                    maxControllerTemp = metrics.maxControllerTemp,
-                    latitude = _lastRideLocation?.latitude,
-                    longitude = _lastRideLocation?.longitude
-                )
-            )
+            recordRideSample(metrics, now)
             _rideLastSampleAtMs = now
         }
 
         maybePersistVehicleSnapshot(now)
+    }
+
+    private fun recordRideSample(metrics: VehicleMetrics, timestampMs: Long) {
+        rideSamples.add(
+            RideMetricSample(
+                elapsedMs = timestampMs - _rideStartedAtMs,
+                timestampMs = timestampMs,
+                speedKmH = metrics.speedKmH,
+                powerKw = metrics.totalPowerW / 1000f,
+                voltage = metrics.voltage,
+                voltageSag = metrics.voltageSag,
+                busCurrent = metrics.busCurrent,
+                phaseCurrent = metrics.phaseCurrent,
+                motorTemp = metrics.motorTemp,
+                controllerTemp = metrics.controllerTemp,
+                soc = metrics.soc,
+                estimatedRangeKm = metrics.estimatedRangeKm,
+                rpm = metrics.rpm,
+                efficiencyWhKm = metrics.efficiencyWhKm,
+                avgEfficiencyWhKm = metrics.avgEfficiencyWhKm,
+                distanceMeters = authoritativeTripDistanceMeters().toFloat(),
+                totalEnergyWh = metrics.totalEnergyWh,
+                recoveredEnergyWh = metrics.recoveredEnergyWh,
+                maxControllerTemp = metrics.maxControllerTemp,
+                latitude = _lastRideLocation?.latitude,
+                longitude = _lastRideLocation?.longitude
+            )
+        )
+    }
+
+    private fun authoritativeTripDistanceMeters(): Double {
+        val sampledDistanceMeters = rideSamples.lastOrNull()?.distanceMeters?.toDouble() ?: 0.0
+        return maxOf(_tripDistanceMeters, sampledDistanceMeters).coerceAtLeast(0.0)
     }
 
     private fun updateSpeedTestSession(metrics: VehicleMetrics, now: Long) {
@@ -1556,18 +1635,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         clearPendingRideStopState()
         _isRideActive.value = false
         val endedAtMs = stopAtMs.coerceAtLeast(_sessionStartTime)
+        val finalMetrics = metrics.value
+        val shouldAppendFinalSample = rideSamples.isEmpty() ||
+            rideSamples.last().timestampMs < endedAtMs
+        if (shouldAppendFinalSample) {
+            recordRideSample(finalMetrics, endedAtMs)
+            _rideLastSampleAtMs = endedAtMs
+        }
+        val finalTripDistanceMeters = authoritativeTripDistanceMeters().toFloat()
         val durationMs = endedAtMs - _sessionStartTime
         val avgSpeed = if (_speedSamples > 0) _totalSpeedSum / _speedSamples else 0f
         val finalEnergyWh = maxOf(_rideEnergyWh, _totalEnergyUsedWh.toFloat())
-        val finalAvgEfficiencyWhKm = if (_tripDistanceMeters > 20.0) {
-            (finalEnergyWh / (_tripDistanceMeters / 1000.0)).toFloat()
+        val finalAvgEfficiencyWhKm = if (finalTripDistanceMeters > 20f) {
+            (finalEnergyWh / (finalTripDistanceMeters / 1000.0f)).toFloat()
         } else {
             0f
         }
         val dateText = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
         _lastRideSummary.value = RideSession(
             date = dateText,
-            distanceKm = _tripDistanceMeters / 1000.0,
+            distanceKm = finalTripDistanceMeters / 1000.0,
             durationMin = (durationMs / 60000).toInt(),
             maxSpeed = _maxSpeed,
             avgSpeed = avgSpeed,
@@ -1580,7 +1667,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             startedAtMs = _sessionStartTime,
             endedAtMs = endedAtMs,
             durationMs = durationMs,
-            distanceMeters = _tripDistanceMeters.toFloat(),
+            distanceMeters = finalTripDistanceMeters,
             maxSpeedKmh = _maxSpeed,
             avgSpeedKmh = avgSpeed,
             peakPowerKw = _ridePeakPowerKw,
@@ -1612,7 +1699,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         rideStartMode = null
         rideStartSocPercent = Float.NaN
         lastRangeDisplayCommitDistanceKm = Float.NaN
+        _tripDistanceMeters = 0.0
+        _rideEnergyWh = 0f
+        _rideRecoveredEnergyWh = 0f
+        _ridePeakPowerKw = 0f
+        _ridePeakRegenKw = 0f
+        _rideMaxControllerTemp = 0f
+        _totalEnergyUsedWh = 0.0
+        _maxSpeed = 0f
+        _totalSpeedSum = 0f
+        _speedSamples = 0
         _rideLastDistanceUpdateAtMs = 0L
+        _rideLastEnergyUpdateAtMs = 0L
+        _lastEnergyUpdateTime = 0L
         _rideDistanceUsingFallback = false
         return shouldPersist
     }

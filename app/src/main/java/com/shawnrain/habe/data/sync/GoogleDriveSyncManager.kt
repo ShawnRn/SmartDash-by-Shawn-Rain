@@ -37,7 +37,6 @@ class GoogleDriveSyncManager(private val context: Context) {
         private const val METADATA_FILE_NAME = "habe_metadata.json"
         private const val BACKUP_MIME_TYPE = "application/octet-stream"
         private const val MANIFEST_MIME_TYPE = "application/json"
-        private const val MAX_RETAINED_BACKUPS = 10
     }
 
     private val auth = GoogleDriveAuth(context)
@@ -143,7 +142,10 @@ class GoogleDriveSyncManager(private val context: Context) {
 
     /**
      * Lists all available backups from Google Drive appDataFolder.
-     * Automatically cleans up old backups beyond MAX_RETAINED_BACKUPS.
+     *
+     * Reliability takes priority over storage trimming here:
+     * we never auto-delete historical versions during listing because doing so
+     * can permanently remove the only recoverable copy of a ride/session.
      */
     suspend fun listBackups(): Result<List<BackupMetadata>> = withContext(Dispatchers.IO) {
         try {
@@ -166,16 +168,7 @@ class GoogleDriveSyncManager(private val context: Context) {
             val body = response.body?.string() ?: ""
             val backups = parseFileList(body)
 
-            // Auto-cleanup: delete oldest backups beyond the limit
-            if (backups.size > MAX_RETAINED_BACKUPS) {
-                val toDelete = backups.drop(MAX_RETAINED_BACKUPS)
-                AppLogger.i(TAG, "Auto-cleanup: deleting ${toDelete.size} old backups")
-                toDelete.forEach { old ->
-                    deleteBackup(old.fileId)
-                }
-            }
-
-            Result.success(backups.take(MAX_RETAINED_BACKUPS))
+            Result.success(backups)
         } catch (e: Exception) {
             AppLogger.e(TAG, "List backups failed", e)
             Result.failure(e)

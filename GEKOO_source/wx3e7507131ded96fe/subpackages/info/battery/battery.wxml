@@ -1,0 +1,91 @@
+<view class="battery-settings-page data-v-7f55b84c">
+    <view class="page-header data-v-7f55b84c">
+        <text class="header-title data-v-7f55b84c">电池参数设置</text>
+    </view>
+    <view class="tab-bar data-v-7f55b84c">
+        <view bindtap="__e" class="{{['tab-item','data-v-7f55b84c',currentTab===0?'active':'']}}" data-event-opts="{{[ [ 'tap',[ [ 'switchTab',[0] ] ] ] ]}}">电池1</view>
+        <view bindtap="__e" class="{{['tab-item','data-v-7f55b84c',currentTab===1?'active':'']}}" data-event-opts="{{[ [ 'tap',[ [ 'switchTab',[1] ] ] ] ]}}">电池2</view>
+    </view>
+    <view class="{{['content-panel','data-v-7f55b84c','battery1-bg']}}" wx:if="{{currentTab===0}}">
+        <view class="remark-container data-v-7f55b84c">
+            <text class="remark-label data-v-7f55b84c">备注名：</text>
+            <input bindinput="__e" class="remark-input data-v-7f55b84c" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '$0','remark','$event',[] ],['battery1'] ] ] ] ]}}" placeholder="请输入参数备注名" value="{{battery1.remark}}"></input>
+        </view>
+        <form class="param-form data-v-7f55b84c">
+            <view class="form-item data-v-7f55b84c">
+                <text class="param-label data-v-7f55b84c">母线电流：</text>
+                <input bindblur="__e" bindinput="__e" class="param-input data-v-7f55b84c" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '$0','busCurrent','$event',['number'] ],['battery1'] ] ] ],[ 'blur',[ ['$forceUpdate'] ] ] ]}}" placeholder="请输入母线电流" type="number" value="{{battery1.busCurrent}}"></input>
+            </view>
+            <view class="form-item data-v-7f55b84c">
+                <text class="param-label data-v-7f55b84c">相线电流：</text>
+                <input bindblur="__e" bindinput="__e" class="param-input data-v-7f55b84c" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '$0','phaseCurrent','$event',['number'] ],['battery1'] ] ] ],[ 'blur',[ ['$forceUpdate'] ] ] ]}}" placeholder="请输入相线电流" type="number" value="{{battery1.phaseCurrent}}"></input>
+            </view>
+            <view class="form-item data-v-7f55b84c">
+                <text class="param-label data-v-7f55b84c">弱磁电流：</text>
+                <input bindblur="__e" bindinput="__e" class="param-input data-v-7f55b84c" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '$0','weakMagnetCurrent','$event',['number'] ],['battery1'] ] ] ],[ 'blur',[ ['$forceUpdate'] ] ] ]}}" placeholder="请输入弱磁电流" type="number" value="{{battery1.weakMagnetCurrent}}"></input>
+            </view>
+            <view class="form-item data-v-7f55b84c">
+                <text class="param-label data-v-7f55b84c">过压点：</text>
+                <input bindblur="__e" bindinput="__e" class="param-input data-v-7f55b84c" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '$0','overVoltagePoint','$event',['number'] ],['battery1'] ] ] ],[ 'blur',[ ['$forceUpdate'] ] ] ]}}" placeholder="请输入过压点" type="number" value="{{battery1.overVoltagePoint}}"></input>
+            </view>
+            <view class="form-item data-v-7f55b84c">
+                <text class="param-label data-v-7f55b84c">欠压点：</text>
+                <input bindblur="__e" bindinput="__e" class="param-input data-v-7f55b84c" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '$0','underVoltagePoint','$event',['number'] ],['battery1'] ] ] ],[ 'blur',[ ['$forceUpdate'] ] ] ]}}" placeholder="请输入欠压点" type="number" value="{{battery1.underVoltagePoint}}"></input>
+            </view>
+            <view class="form-item data-v-7f55b84c">
+                <text class="param-label data-v-7f55b84c">降载起始电压：</text>
+                <input bindblur="__e" bindinput="__e" class="param-input data-v-7f55b84c" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '$0','loadReductionStartVoltage','$event',['number'] ],['battery1'] ] ] ],[ 'blur',[ ['$forceUpdate'] ] ] ]}}" placeholder="请输入降载起始电压" type="number" value="{{battery1.loadReductionStartVoltage}}"></input>
+            </view>
+            <view class="form-item data-v-7f55b84c">
+                <text class="param-label data-v-7f55b84c">降载截至电压：</text>
+                <input bindblur="__e" bindinput="__e" class="param-input data-v-7f55b84c" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '$0','loadReductionEndVoltage','$event',['number'] ],['battery1'] ] ] ],[ 'blur',[ ['$forceUpdate'] ] ] ]}}" placeholder="请输入降载截至电压" type="number" value="{{battery1.loadReductionEndVoltage}}"></input>
+            </view>
+        </form>
+        <view class="button-group data-v-7f55b84c">
+            <button bindtap="__e" class="btn reset-btn data-v-7f55b84c" data-event-opts="{{[ [ 'tap',[ [ 'resetToDefault',[0] ] ] ] ]}}">恢复默认</button>
+            <button bindtap="__e" class="btn confirm-btn data-v-7f55b84c" data-event-opts="{{[ [ 'tap',[ [ 'confirmSettings',[0] ] ] ] ]}}">确认</button>
+            <button bindtap="__e" class="btn cancel-btn data-v-7f55b84c" data-event-opts="{{[ [ 'tap',[ [ 'cancel',['$event'] ] ] ] ]}}">取消</button>
+        </view>
+    </view>
+    <view class="{{['content-panel','data-v-7f55b84c','battery2-bg']}}" wx:if="{{currentTab===1}}">
+        <view class="remark-container data-v-7f55b84c">
+            <text class="remark-label data-v-7f55b84c">备注名：</text>
+            <input bindinput="__e" class="remark-input data-v-7f55b84c" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '$0','remark','$event',[] ],['battery2'] ] ] ] ]}}" placeholder="请输入参数备注名" value="{{battery2.remark}}"></input>
+        </view>
+        <form class="param-form data-v-7f55b84c">
+            <view class="form-item data-v-7f55b84c">
+                <text class="param-label data-v-7f55b84c">母线电流：</text>
+                <input bindblur="__e" bindinput="__e" class="param-input data-v-7f55b84c" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '$0','busCurrent','$event',['number'] ],['battery2'] ] ] ],[ 'blur',[ ['$forceUpdate'] ] ] ]}}" placeholder="请输入母线电流" type="number" value="{{battery2.busCurrent}}"></input>
+            </view>
+            <view class="form-item data-v-7f55b84c">
+                <text class="param-label data-v-7f55b84c">相线电流：</text>
+                <input bindblur="__e" bindinput="__e" class="param-input data-v-7f55b84c" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '$0','phaseCurrent','$event',['number'] ],['battery2'] ] ] ],[ 'blur',[ ['$forceUpdate'] ] ] ]}}" placeholder="请输入相线电流" type="number" value="{{battery2.phaseCurrent}}"></input>
+            </view>
+            <view class="form-item data-v-7f55b84c">
+                <text class="param-label data-v-7f55b84c">弱磁电流：</text>
+                <input bindblur="__e" bindinput="__e" class="param-input data-v-7f55b84c" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '$0','weakMagnetCurrent','$event',['number'] ],['battery2'] ] ] ],[ 'blur',[ ['$forceUpdate'] ] ] ]}}" placeholder="请输入弱磁电流" type="number" value="{{battery2.weakMagnetCurrent}}"></input>
+            </view>
+            <view class="form-item data-v-7f55b84c">
+                <text class="param-label data-v-7f55b84c">过压点：</text>
+                <input bindblur="__e" bindinput="__e" class="param-input data-v-7f55b84c" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '$0','overVoltagePoint','$event',['number'] ],['battery2'] ] ] ],[ 'blur',[ ['$forceUpdate'] ] ] ]}}" placeholder="请输入过压点" type="number" value="{{battery2.overVoltagePoint}}"></input>
+            </view>
+            <view class="form-item data-v-7f55b84c">
+                <text class="param-label data-v-7f55b84c">欠压点：</text>
+                <input bindblur="__e" bindinput="__e" class="param-input data-v-7f55b84c" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '$0','underVoltagePoint','$event',['number'] ],['battery2'] ] ] ],[ 'blur',[ ['$forceUpdate'] ] ] ]}}" placeholder="请输入欠压点" type="number" value="{{battery2.underVoltagePoint}}"></input>
+            </view>
+            <view class="form-item data-v-7f55b84c">
+                <text class="param-label data-v-7f55b84c">降载起始电压：</text>
+                <input bindblur="__e" bindinput="__e" class="param-input data-v-7f55b84c" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '$0','loadReductionStartVoltage','$event',['number'] ],['battery2'] ] ] ],[ 'blur',[ ['$forceUpdate'] ] ] ]}}" placeholder="请输入降载起始电压" type="number" value="{{battery2.loadReductionStartVoltage}}"></input>
+            </view>
+            <view class="form-item data-v-7f55b84c">
+                <text class="param-label data-v-7f55b84c">降载截至电压：</text>
+                <input bindblur="__e" bindinput="__e" class="param-input data-v-7f55b84c" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '$0','loadReductionEndVoltage','$event',['number'] ],['battery2'] ] ] ],[ 'blur',[ ['$forceUpdate'] ] ] ]}}" placeholder="请输入降载截至电压" type="number" value="{{battery2.loadReductionEndVoltage}}"></input>
+            </view>
+        </form>
+        <view class="button-group data-v-7f55b84c">
+            <button bindtap="__e" class="btn reset-btn data-v-7f55b84c" data-event-opts="{{[ [ 'tap',[ [ 'resetToDefault',[1] ] ] ] ]}}">恢复默认</button>
+            <button bindtap="__e" class="btn confirm-btn data-v-7f55b84c" data-event-opts="{{[ [ 'tap',[ [ 'confirmSettings',[1] ] ] ] ]}}">确认</button>
+            <button bindtap="__e" class="btn cancel-btn data-v-7f55b84c" data-event-opts="{{[ [ 'tap',[ [ 'cancel',['$event'] ] ] ] ]}}">取消</button>
+        </view>
+    </view>
+</view>

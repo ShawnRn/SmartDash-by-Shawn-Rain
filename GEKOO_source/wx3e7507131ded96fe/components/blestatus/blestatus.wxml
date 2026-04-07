@@ -1,0 +1,14 @@
+<view class="status-container data-v-059db220">
+  <text
+    class="{{['bluetooth-icon','iconfont','icon-lanya','text-white','data-v-059db220',!ble_connect?'blinking':'']}}"
+  ></text>
+  <text
+    class="{{['status-icon','iconfont','text-xl','data-v-059db220',!isLock?'icon-jiesuo':'',isLock?'icon-suoding':'']}}"
+  ></text>
+  <text
+    class="{{['status-icon','iconfont','text-xl','data-v-059db220',!isNew?'icon-jiandingdashi':'',isNew?'icon-xinshourumen':'']}}"
+  ></text>
+  <text
+    class="{{['status-icon','text-xl','data-v-059db220',ble_r_ok?'cuIcon-roundcheck':'']}}"
+  ></text>
+</view>

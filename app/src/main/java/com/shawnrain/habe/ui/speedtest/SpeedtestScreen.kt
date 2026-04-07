@@ -33,10 +33,12 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoGraph
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Map
@@ -53,6 +55,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
@@ -918,6 +921,7 @@ private fun RideHistoryDetailLayer(
 ) {
     val scope = rememberCoroutineScope()
     var fullscreenMetric by remember(record.id) { mutableStateOf<RideChartMetric?>(null) }
+    var fullscreenRoute by remember(record.id) { mutableStateOf(false) }
     var multiCompareMetrics by remember(record.id) { mutableStateOf<List<RideChartMetric>>(emptyList()) }
     var selectedCompareMetrics by remember(record.id) { mutableStateOf<Set<RideChartMetric>>(emptySet()) }
     var showShareActions by remember(record.id) { mutableStateOf(false) }
@@ -1089,6 +1093,7 @@ private fun RideHistoryDetailLayer(
                                     selectedCompareMetrics + metric
                                 }
                             },
+                            onRouteClick = { fullscreenRoute = true },
                             onShowShare = { showShareActions = true },
                             onDismiss = ::requestDismiss
                         )
@@ -1168,6 +1173,14 @@ private fun RideHistoryDetailLayer(
         )
     }
 
+    if (fullscreenRoute) {
+        RouteFullscreenDialog(
+            record = record,
+            samples = samples,
+            onDismiss = { fullscreenRoute = false }
+        )
+    }
+
     if (multiCompareMetrics.isNotEmpty()) {
         RideMultiMetricCompareDialog(
             title = formatRideTitle(record.title),
@@ -1190,6 +1203,7 @@ private fun RideHistoryDetailBody(
     selectedCompareMetrics: Set<RideChartMetric>,
     onMetricClick: (RideChartMetric) -> Unit,
     onMetricLongPress: (RideChartMetric) -> Unit,
+    onRouteClick: () -> Unit,
     onShowShare: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1342,13 +1356,14 @@ private fun RideHistoryDetailBody(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
             ) {
                 Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text("GPS 轨迹路线", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("GPS 轨迹路线", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     if (heavySectionsReady) {
                         RoutePreview(
-                            points = record.trackPoints,
+                            record = record,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(220.dp)
+                                .height(220.dp),
+                            onClick = onRouteClick
                         )
                     } else {
                         Box(
@@ -1519,7 +1534,7 @@ private fun RideHistoryDetailSheet(
                     Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Text("GPS 轨迹路线", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         RoutePreview(
-                            points = record.trackPoints,
+                            record = record,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(220.dp)
@@ -2525,6 +2540,253 @@ private fun RideMetricFullscreenDialog(
     }
 }
 
+@Composable
+private fun RouteFullscreenDialog(
+    record: RideHistoryRecord,
+    samples: List<RideMetricSample>,
+    onDismiss: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var dismissDrag by remember { mutableFloatStateOf(0f) }
+    val enterDurationMs = 320
+    val exitDurationMs = 220
+    var isDialogVisible by remember { mutableStateOf(false) }
+    var dismissInFlight by remember { mutableStateOf(false) }
+    val routePoints = remember(record.id, record.samples, record.trackPoints) {
+        buildRoutePreviewPoints(record)
+    }
+
+    val entryProgress by animateFloatAsState(
+        targetValue = if (isDialogVisible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (isDialogVisible) enterDurationMs else exitDurationMs,
+            easing = if (isDialogVisible) FastOutSlowInEasing else FastOutLinearInEasing
+        ),
+        label = "RouteDialogEntry"
+    )
+
+    fun requestDismiss() {
+        if (dismissInFlight) return
+        dismissInFlight = true
+        isDialogVisible = false
+        scope.launch {
+            delay(exitDurationMs.toLong())
+            onDismiss()
+        }
+    }
+
+    LaunchedEffect(record.id) {
+        isDialogVisible = true
+    }
+
+    Dialog(
+        onDismissRequest = ::requestDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        ApplyDialogWindowBlurEffect(blurRadius = 34.dp, fullscreen = true)
+        val statusBarInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            PopupBackdropBlurLayer(
+                blurRadius = 34.dp,
+                scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.24f * entryProgress),
+                onDismissRequest = ::requestDismiss
+            )
+            val motion = rememberPredictiveBackMotion(
+                width = maxWidth,
+                onBack = ::requestDismiss,
+                maxHorizontalInset = 8.dp,
+                maxVerticalInset = 6.dp,
+                maxCorner = 20.dp,
+                maxScaleTravelFraction = 0.1f
+            )
+            val outerHorizontal = 4.dp + motion.insetHorizontal
+            val outerTop = statusBarInset + 10.dp + motion.insetVertical
+            val outerBottom = navigationBarInset + 10.dp + motion.insetVertical
+            val availableWidth = (maxWidth - outerHorizontal * 2).coerceAtLeast(240.dp)
+            val availableHeight = (maxHeight - outerTop - outerBottom).coerceAtLeast(360.dp)
+            val overlayDensity = LocalDensity.current
+            val entryTravelPx = with(overlayDensity) { (1f - entryProgress) * 64.dp.toPx() }
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = entryProgress
+                        translationY = entryTravelPx
+                    },
+                shape = bezierRoundedShape(32.dp + motion.corner),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Drag handle
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp, bottom = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(44.dp)
+                                .height(5.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                    shape = bezierPillShape()
+                                )
+                        )
+                    }
+                    // Title bar
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "轨迹路线",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Black
+                            )
+                            Text(
+                                text = formatRideTitle(record.title),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton(onClick = ::requestDismiss) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "关闭",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    // Route canvas
+                    if (routePoints.size >= 2) {
+                        Canvas(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            val projection = projectRoute(routePoints, size.width, size.height)
+                            if (projection == null) return@Canvas
+                            // Draw route segments
+                            for (index in 0 until projection.points.lastIndex) {
+                                val start = projection.points[index]
+                                val end = projection.points[index + 1]
+                                val segmentSpeed = ((start.speedKmh + end.speedKmh) * 0.5f).coerceAtLeast(0f)
+                                drawLine(
+                                    color = routeSpeedColor(
+                                        speedKmh = segmentSpeed,
+                                        minSpeedKmh = projection.minSpeedKmh,
+                                        maxSpeedKmh = projection.maxSpeedKmh
+                                    ),
+                                    start = start.offset,
+                                    end = end.offset,
+                                    strokeWidth = 10f,
+                                    cap = StrokeCap.Round
+                                )
+                            }
+                            // Start point
+                            drawCircle(color = Color(0xFF7DE38D), radius = 16f, center = projection.start.offset)
+                            drawCircle(
+                                color = Color.White,
+                                radius = 8f,
+                                center = projection.start.offset
+                            )
+                            // End point
+                            drawCircle(color = Color(0xFFFF9E9E), radius = 16f, center = projection.end.offset)
+                            drawCircle(
+                                color = Color.White,
+                                radius = 8f,
+                                center = projection.end.offset
+                            )
+                        }
+                        // Legend
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .background(Color(0xFF7DE38D), CircleShape)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text("起点", style = MaterialTheme.typography.labelMedium)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .background(Color(0xFFFF9E9E), CircleShape)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text("终点", style = MaterialTheme.typography.labelMedium)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .background(routeSpeedColor(0f, 0f, 60f), CircleShape)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text("低速", style = MaterialTheme.typography.labelMedium)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .background(routeSpeedColor(60f, 0f, 60f), CircleShape)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text("高速", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("暂无足够轨迹数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    // Bottom stats
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text(
+                            text = "总距离: ${"%.2f".format(record.distanceMeters / 1000)} km",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "时长: ${record.durationMs / 60000} 分钟",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 private fun formatAxisDuration(durationMs: Long): String {
     val minutes = durationMs / 60000
     val seconds = (durationMs % 60000) / 1000
@@ -2686,7 +2948,7 @@ private fun rideMetricSummaryValue(
     values: List<Float>
 ): Float {
     if (samples.isEmpty()) return 0f
-    val fallbackAverage = values.takeIf { it.isNotEmpty() }?.average()?.toFloat() ?: 0f
+    val fallbackAverage = robustRideMetricAverage(samples, metric, values)
     val last = samples.last()
     return when (metric) {
         RideChartMetric.AVG_EFFICIENCY -> when {
@@ -2703,6 +2965,75 @@ private fun rideMetricSummaryValue(
         RideChartMetric.MAX_CONTROLLER_TEMP -> maxOf(last.maxControllerTemp, last.controllerTemp)
         else -> fallbackAverage
     }
+}
+
+private fun isMeaningfulAverageSample(sample: RideMetricSample): Boolean {
+    return sample.speedKmH >= 2.5f ||
+        abs(sample.busCurrent) >= 2f ||
+        abs(sample.phaseCurrent) >= 4f ||
+        abs(sample.powerKw) >= 0.12f ||
+        sample.rpm >= 120f
+}
+
+private fun rideAverageSamples(samples: List<RideMetricSample>): List<RideMetricSample> {
+    val active = samples.filter(::isMeaningfulAverageSample)
+    if (active.isNotEmpty()) return active
+    val moving = samples.filter {
+        it.speedKmH >= 0.8f ||
+            abs(it.busCurrent) >= 0.8f ||
+            abs(it.powerKw) >= 0.04f ||
+            it.rpm >= 30f
+    }
+    return moving.ifEmpty { samples }
+}
+
+private fun robustAverage(values: List<Float>, trimFraction: Float = 0.08f): Float {
+    val clean = values.filter { it.isFinite() }
+    if (clean.isEmpty()) return 0f
+    if (clean.size < 5) return clean.average().toFloat()
+    val sorted = clean.sorted()
+    val trimCount = (sorted.size * trimFraction).toInt().coerceAtMost((sorted.size - 1) / 2)
+    val trimmed = sorted.subList(trimCount, sorted.size - trimCount)
+    return trimmed.average().toFloat()
+}
+
+private fun reliableEfficiencyValues(samples: List<RideMetricSample>): List<Float> {
+    val primary = rideAverageSamples(samples).mapNotNull { sample ->
+        val value = when {
+            sample.avgEfficiencyWhKm > 0.01f -> sample.avgEfficiencyWhKm
+            else -> sample.efficiencyWhKm
+        }
+        value.takeIf { it.isFinite() && it in 4f..140f }
+    }
+    if (primary.isNotEmpty()) return primary
+    return samples.mapNotNull { sample ->
+        val value = when {
+            sample.avgEfficiencyWhKm > 0.01f -> sample.avgEfficiencyWhKm
+            else -> sample.efficiencyWhKm
+        }
+        value.takeIf { it.isFinite() && it in 4f..140f }
+    }
+}
+
+private fun robustRideMetricAverage(
+    samples: List<RideMetricSample>,
+    metric: RideChartMetric,
+    values: List<Float>
+): Float {
+    if (values.isEmpty()) return 0f
+    val activePairs = samples.zip(values).filter { (sample, _) -> isMeaningfulAverageSample(sample) }
+    val candidateValues = when (metric) {
+        RideChartMetric.EFFICIENCY -> reliableEfficiencyValues(samples)
+        RideChartMetric.REGEN_POWER -> {
+            val filtered = activePairs.map { it.second }.filter { it.isFinite() && it >= 5f }
+            filtered.ifEmpty { values.filter { it.isFinite() && it >= 0f } }
+        }
+        else -> {
+            val filtered = activePairs.map { it.second }
+            filtered.ifEmpty { values.filter { it.isFinite() } }
+        }
+    }
+    return robustAverage(candidateValues)
 }
 
 private data class RideMetricReferenceLine(
@@ -2800,8 +3131,10 @@ private fun normalizeRideDetailSamples(record: RideHistoryRecord): List<RideMetr
             (energyOffsetWh + totalEnergyWh).coerceAtLeast(0f)
         )
         runningTotalEnergyWh = mergedTotalEnergyWh
+        // avgEfficiencyWhKm must stay consistent with normalized energy/distance.
+        // A ride is a whole data entity — per-sample avg_eff should always equal
+        // cumulative_energy / cumulative_distance to avoid mismatches in CSV export.
         val avgEfficiencyWhKm = when {
-            sample.avgEfficiencyWhKm > 0.01f -> sample.avgEfficiencyWhKm
             sample.distanceMeters > 10f && mergedTotalEnergyWh > 0.01f ->
                 mergedTotalEnergyWh / (sample.distanceMeters / 1000f)
             record.avgEfficiencyWhKm > 0.1f -> record.avgEfficiencyWhKm
@@ -2933,35 +3266,33 @@ private fun buildRideOverviewCards(
     if (samples.isEmpty()) return emptyList()
     val first = samples.first()
     val last = samples.last()
+    val averageSamples = rideAverageSamples(samples)
     val startSoc = samples.firstOrNull { it.soc > 1f }?.soc ?: first.soc.takeIf { it > 0.01f } ?: last.soc
     val startRangeKm = samples.firstOrNull { it.estimatedRangeKm > 0.1f }?.estimatedRangeKm
         ?: first.estimatedRangeKm.takeIf { it > 0.01f }
         ?: last.estimatedRangeKm
     val finalDistanceKm = ((last.distanceMeters.takeIf { it > 1f } ?: record.distanceMeters) / 1000f).coerceAtLeast(0f)
-    val avgPowerKw = samples.map { it.powerKw }.average().toFloat()
+    val avgPowerKw = robustAverage(averageSamples.map { it.powerKw })
     val peakPowerKw = samples.maxOf { it.powerKw }
     val peakRegenPowerKw = samples.maxOf { (-it.powerKw).coerceAtLeast(0f) }
-    val avgVoltage = samples.map { it.voltage }.average().toFloat()
+    val avgVoltage = robustAverage(averageSamples.map { it.voltage })
     val minVoltage = samples.minOf { it.voltage }
-    val avgVoltageSag = samples.map { it.voltageSag.coerceAtLeast(0f) }.average().toFloat()
+    val avgVoltageSag = robustAverage(averageSamples.map { it.voltageSag.coerceAtLeast(0f) })
     val peakVoltageSag = samples.maxOf { it.voltageSag.coerceAtLeast(0f) }
-    val avgBusCurrent = samples.map { kotlin.math.abs(it.busCurrent) }.average().toFloat()
+    val avgBusCurrent = robustAverage(averageSamples.map { kotlin.math.abs(it.busCurrent) })
     val peakBusCurrent = samples.maxOf { kotlin.math.abs(it.busCurrent) }
-    val avgPhaseCurrent = samples.map { kotlin.math.abs(it.phaseCurrent) }.average().toFloat()
+    val avgPhaseCurrent = robustAverage(averageSamples.map { kotlin.math.abs(it.phaseCurrent) })
     val peakPhaseCurrent = samples.maxOf { kotlin.math.abs(it.phaseCurrent) }
-    val avgControllerTemp = samples.map { it.controllerTemp }.average().toFloat()
+    val avgControllerTemp = robustAverage(averageSamples.map { it.controllerTemp })
     val peakControllerTemp = samples.maxOf { it.controllerTemp }
-    val avgSpeedKmh = samples.map { it.speedKmH }.average().toFloat()
+    val avgSpeedKmh = record.avgSpeedKmh.takeIf { it > 0.01f }
+        ?: robustAverage(averageSamples.map { it.speedKmH })
     val peakSpeedKmh = max(record.maxSpeedKmh, samples.maxOf { it.speedKmH })
-    val avgRpm = samples.map { it.rpm }.average().toFloat()
+    val avgRpm = robustAverage(averageSamples.map { it.rpm })
     val peakRpm = samples.maxOf { it.rpm }
-    val avgInstantEfficiency = samples.map { it.efficiencyWhKm }.average().toFloat()
-    val peakAverageEfficiency = samples.maxOf { sample ->
-        when {
-            sample.avgEfficiencyWhKm > 0.01f -> sample.avgEfficiencyWhKm
-            else -> sample.efficiencyWhKm
-        }
-    }
+    val avgInstantEfficiency = robustAverage(reliableEfficiencyValues(samples))
+    val peakAverageEfficiency = reliableEfficiencyValues(samples).maxOrNull()
+        ?: record.avgEfficiencyWhKm
     val recoveredEnergyWh = samples.maxOf { it.recoveredEnergyWh }.coerceAtLeast(last.recoveredEnergyWh)
     val cardsByType = linkedMapOf<MetricType, RideOverviewCard>(
         MetricType.SPEED to RideOverviewCard(
@@ -3085,33 +3416,70 @@ private fun buildRideOverviewCards(
 
 
 @Composable
-private fun RoutePreview(points: List<RideTrackPoint>, modifier: Modifier = Modifier) {
+private fun RoutePreview(
+    record: RideHistoryRecord,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null
+) {
+    val routePoints = remember(record.id, record.samples, record.trackPoints) {
+        buildRoutePreviewPoints(record)
+    }
+    val clickableModifier = onClick?.let {
+        Modifier
+            .clickable(onClick = it)
+            .then(modifier)
+    } ?: modifier
     Surface(
-        modifier = modifier,
+        modifier = clickableModifier,
         shape = bezierRoundedShape(22.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
     ) {
-        if (points.size < 2) {
+        if (routePoints.size < 2) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                 Text("暂无足够轨迹数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                val projection = projectRoute(points, size.width, size.height)
+                val projection = projectRoute(routePoints, size.width, size.height)
                 if (projection == null) return@Canvas
-                val path = Path()
-                projection.points.forEachIndexed { index, point ->
-                    val x = point.x
-                    val y = point.y
-                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                for (index in 0 until projection.points.lastIndex) {
+                    val start = projection.points[index]
+                    val end = projection.points[index + 1]
+                    val segmentSpeed = ((start.speedKmh + end.speedKmh) * 0.5f)
+                        .coerceAtLeast(0f)
+                    drawLine(
+                        color = routeSpeedColor(
+                            speedKmh = segmentSpeed,
+                            minSpeedKmh = projection.minSpeedKmh,
+                            maxSpeedKmh = projection.maxSpeedKmh
+                        ),
+                        start = start.offset,
+                        end = end.offset,
+                        strokeWidth = 8f,
+                        cap = StrokeCap.Round
+                    )
                 }
-                drawPath(path, color = Color(0xFF9FC0FF), style = Stroke(width = 8f, cap = StrokeCap.Round))
-                val startX = projection.start.x
-                val startY = projection.start.y
-                val endX = projection.end.x
-                val endY = projection.end.y
-                drawCircle(color = Color(0xFF7DE38D), radius = 12f, center = Offset(startX, startY))
-                drawCircle(color = Color(0xFFFF9E9E), radius = 12f, center = Offset(endX, endY))
+                drawCircle(color = Color(0xFF7DE38D), radius = 12f, center = projection.start.offset)
+                drawCircle(color = Color(0xFFFF9E9E), radius = 12f, center = projection.end.offset)
+            }
+            // Hint overlay on hover/touch
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(8.dp),
+                contentAlignment = Alignment.BottomEnd
+            ) {
+                Surface(
+                    shape = bezierPillShape(),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                ) {
+                    Text(
+                        "全屏查看",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.surface
+                    )
+                }
             }
         }
     }
@@ -3249,13 +3617,26 @@ private fun metricCompactStyle(
 
 private data class RouteProjection(
     val rect: androidx.compose.ui.geometry.Rect,
-    val points: List<Offset>,
-    val start: Offset,
-    val end: Offset
+    val points: List<ProjectedRoutePoint>,
+    val start: ProjectedRoutePoint,
+    val end: ProjectedRoutePoint,
+    val minSpeedKmh: Float,
+    val maxSpeedKmh: Float
+)
+
+private data class RoutePreviewPoint(
+    val latitude: Double,
+    val longitude: Double,
+    val speedKmh: Float
+)
+
+private data class ProjectedRoutePoint(
+    val offset: Offset,
+    val speedKmh: Float
 )
 
 private fun projectRoute(
-    points: List<RideTrackPoint>,
+    points: List<RoutePreviewPoint>,
     width: Float,
     height: Float
 ): RouteProjection? {
@@ -3280,17 +3661,161 @@ private fun projectRoute(
     val xOffset = plotRect.left + (plotRect.width - lonSpan.toFloat() * scale) / 2f
     val yOffset = plotRect.top + (plotRect.height - latSpan.toFloat() * scale) / 2f
     val projected = points.map { point ->
-        Offset(
-            x = xOffset + ((point.longitude - minLon).toFloat() * scale),
-            y = yOffset + (latSpan.toFloat() * scale) - ((point.latitude - minLat).toFloat() * scale)
+        ProjectedRoutePoint(
+            offset = Offset(
+                x = xOffset + ((point.longitude - minLon).toFloat() * scale),
+                y = yOffset + (latSpan.toFloat() * scale) - ((point.latitude - minLat).toFloat() * scale)
+            ),
+            speedKmh = point.speedKmh
         )
     }
+    val minSpeed = points.minOf { it.speedKmh }
+    val maxSpeed = points.maxOf { it.speedKmh }
     return RouteProjection(
         rect = plotRect,
         points = projected,
         start = projected.first(),
-        end = projected.last()
+        end = projected.last(),
+        minSpeedKmh = minSpeed,
+        maxSpeedKmh = maxSpeed
     )
+}
+
+private fun buildRoutePreviewPoints(record: RideHistoryRecord): List<RoutePreviewPoint> {
+    val sampled = buildRoutePreviewPointsFromSamples(record.samples)
+    if (sampled.size >= 2) return sampled
+    return record.trackPoints.map { point ->
+        RoutePreviewPoint(
+            latitude = point.latitude,
+            longitude = point.longitude,
+            speedKmh = 0f
+        )
+    }
+}
+
+private fun buildRoutePreviewPointsFromSamples(samples: List<RideMetricSample>): List<RoutePreviewPoint> {
+    val points = mutableListOf<RoutePreviewPoint>()
+    var previousValid: RideMetricSample? = null
+    var missingBetween = 0
+    samples.forEach { sample ->
+        val latitude = sample.latitude
+        val longitude = sample.longitude
+        if (latitude == null || longitude == null) {
+            if (previousValid != null) missingBetween += 1
+            return@forEach
+        }
+        if (previousValid == null) {
+            appendRoutePreviewPoint(
+                points,
+                RoutePreviewPoint(latitude, longitude, sample.speedKmH.coerceAtLeast(0f))
+            )
+            previousValid = sample
+            missingBetween = 0
+            return@forEach
+        }
+        appendInterpolatedRouteSegment(
+            target = points,
+            previous = previousValid!!,
+            next = sample,
+            missingBetween = missingBetween
+        )
+        previousValid = sample
+        missingBetween = 0
+    }
+    return points
+}
+
+private fun appendInterpolatedRouteSegment(
+    target: MutableList<RoutePreviewPoint>,
+    previous: RideMetricSample,
+    next: RideMetricSample,
+    missingBetween: Int
+) {
+    val previousLat = previous.latitude ?: return
+    val previousLon = previous.longitude ?: return
+    val nextLat = next.latitude ?: return
+    val nextLon = next.longitude ?: return
+    val directDistanceMeters = haversineMeters(previousLat, previousLon, nextLat, nextLon)
+    val sampledDistanceMeters = (next.distanceMeters - previous.distanceMeters).coerceAtLeast(0f)
+    val insertedPointCount = when {
+        missingBetween > 0 -> maxOf(
+            missingBetween,
+            (sampledDistanceMeters / 24f).roundToInt()
+        )
+        directDistanceMeters > 30.0 -> (directDistanceMeters / 24.0).roundToInt()
+        else -> 0
+    }.coerceIn(0, 24)
+    repeat(insertedPointCount) { index ->
+        val fraction = (index + 1f) / (insertedPointCount + 1f)
+        appendRoutePreviewPoint(
+            target,
+            RoutePreviewPoint(
+                latitude = lerpDouble(previousLat, nextLat, fraction),
+                longitude = lerpDouble(previousLon, nextLon, fraction),
+                speedKmh = lerpFloat(previous.speedKmH, next.speedKmH, fraction).coerceAtLeast(0f)
+            )
+        )
+    }
+    appendRoutePreviewPoint(
+        target,
+        RoutePreviewPoint(
+            latitude = nextLat,
+            longitude = nextLon,
+            speedKmh = next.speedKmH.coerceAtLeast(0f)
+        )
+    )
+}
+
+private fun appendRoutePreviewPoint(
+    target: MutableList<RoutePreviewPoint>,
+    point: RoutePreviewPoint
+) {
+    val previous = target.lastOrNull()
+    if (previous != null && haversineMeters(previous.latitude, previous.longitude, point.latitude, point.longitude) < 0.6) {
+        target[target.lastIndex] = point
+        return
+    }
+    target += point
+}
+
+private fun routeSpeedColor(
+    speedKmh: Float,
+    minSpeedKmh: Float,
+    maxSpeedKmh: Float
+): Color {
+    val normalized = if (maxSpeedKmh - minSpeedKmh < 1f) {
+        0.5f
+    } else {
+        ((speedKmh - minSpeedKmh) / (maxSpeedKmh - minSpeedKmh)).coerceIn(0f, 1f)
+    }
+    val hue = 120f * (1f - normalized)
+    return Color.hsv(hue = hue, saturation = 0.82f, value = 0.92f)
+}
+
+private fun haversineMeters(
+    startLat: Double,
+    startLon: Double,
+    endLat: Double,
+    endLon: Double
+): Double {
+    val earthRadiusMeters = 6_371_000.0
+    val dLat = Math.toRadians(endLat - startLat)
+    val dLon = Math.toRadians(endLon - startLon)
+    val startLatRad = Math.toRadians(startLat)
+    val endLatRad = Math.toRadians(endLat)
+    val a = kotlin.math.sin(dLat / 2.0) * kotlin.math.sin(dLat / 2.0) +
+        kotlin.math.cos(startLatRad) * kotlin.math.cos(endLatRad) *
+        kotlin.math.sin(dLon / 2.0) * kotlin.math.sin(dLon / 2.0)
+    val c = 2.0 * kotlin.math.atan2(kotlin.math.sqrt(a), kotlin.math.sqrt(1.0 - a))
+    return earthRadiusMeters * c
+}
+
+private fun lerpDouble(start: Double, end: Double, fraction: Float): Double {
+    return start + ((end - start) * fraction.toDouble())
+}
+
+private fun lerpFloat(start: Float, end: Float, fraction: Float): Float {
+    return start + ((end - start) * fraction)
 }
 
 @Composable

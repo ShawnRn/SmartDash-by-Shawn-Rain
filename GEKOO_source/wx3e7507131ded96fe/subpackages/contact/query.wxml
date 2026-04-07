@@ -1,0 +1,30 @@
+<view class="query-progress-page data-v-47a724ce">
+    <view class="query-header data-v-47a724ce">
+        <text class="data-v-47a724ce">查询进度</text>
+    </view>
+    <view class="query-form data-v-47a724ce">
+        <view class="form-item data-v-47a724ce">
+            <label class="data-v-47a724ce">寄件单号</label>
+            <input bindinput="__e" class="input data-v-47a724ce" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '','trackingNumber','$event',[] ] ] ] ] ]}}" placeholder="请输入寄件单号" type="text" value="{{trackingNumber}}"></input>
+        </view>
+        <view class="form-item data-v-47a724ce">
+            <label class="data-v-47a724ce">验证码</label>
+            <view class="captcha-container data-v-47a724ce">
+                <input bindinput="__e" class="input data-v-47a724ce" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '','captchaInput','$event',[] ] ] ] ] ]}}" placeholder="请输入验证码" type="text" value="{{captchaInput}}"></input>
+                <text class="captcha-text data-v-47a724ce">{{captchaText}}</text>
+            </view>
+        </view>
+        <button bindtap="__e" class="query-btn data-v-47a724ce" data-event-opts="{{[ [ 'tap',[ [ 'queryStatus',['$event'] ] ] ] ]}}">查询</button>
+    </view>
+    <view class="result-container data-v-47a724ce" wx:if="{{$root.g0>0}}">
+        <view class="result-item data-v-47a724ce" wx:for="{{queryResult}}" wx:key="index">
+            <view class="result-label data-v-47a724ce">寄件单号</view>
+            <view class="result-value data-v-47a724ce">{{item.jddh}}</view>
+            <view class="result-label data-v-47a724ce">返回单号</view>
+            <view class="result-value return-numbers data-v-47a724ce">{{item.fhdh}}</view>
+        </view>
+    </view>
+    <view class="bottom-tip data-v-47a724ce">
+        <text class="data-v-47a724ce">如果返回单号显示无地址电话，请主动打电话联系我们提供您的收件地址；如果提示未搜索到匹配项，可以先查询一下是否签收，如果显示已经签收，则说明还没进入维修流程，请耐心等待.</text>
+    </view>
+</view>

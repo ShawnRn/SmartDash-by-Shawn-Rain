@@ -1,0 +1,23 @@
+<view class="param-group-card data-v-3301c4b8">
+  <view
+    bindtap="__e"
+    class="card-header data-v-3301c4b8"
+    data-event-opts="{{[ [ 'tap',[ [ 'toggleExpand',['$event'] ] ] ] ]}}"
+  >
+    <view class="icon-container data-v-3301c4b8">
+      <text class="{{['icon-text','data-v-3301c4b8',iconClass]}}"></text>
+    </view>
+    <view class="title-container data-v-3301c4b8">
+      <view class="group-name data-v-3301c4b8">{{groupName}}</view>
+      <view class="group-intro data-v-3301c4b8">{{groupIntro}}</view>
+    </view>
+    <view class="arrow-container data-v-3301c4b8">
+      <text
+        class="{{['data-v-3301c4b8',isExpanded?'cuIcon-fold':'cuIcon-unfold']}}"
+      ></text>
+    </view>
+  </view>
+  <view class="card-content data-v-3301c4b8" wx:if="{{isExpanded}}">
+    <slot></slot>
+  </view>
+</view>

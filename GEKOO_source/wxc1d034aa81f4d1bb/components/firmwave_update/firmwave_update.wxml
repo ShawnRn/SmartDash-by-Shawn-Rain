@@ -1,0 +1,69 @@
+<view class="firmware-upgrade-container data-v-4c8f01a8">
+  <view class="version-info data-v-4c8f01a8">
+    <text
+      bindtap="__e"
+      class="data-v-4c8f01a8"
+      data-event-opts="{{[ [ 'tap',[ [ 'copyText',['$0'],['currentVersion'] ] ] ] ]}}"
+      >{{'当前固件版本: '+currentVersion+'<点击复制>'}}</text
+    >
+  </view>
+  <view
+    bindtap="__e"
+    class="version-info2 data-v-4c8f01a8"
+    data-event-opts="{{[ [ 'tap',[ [ 'getfirmwaveinfo',['$event'] ] ] ] ]}}"
+  >
+    <text class="data-v-4c8f01a8">{{'可升级至: '+targetVersion}}</text>
+    <text class="data-v-4c8f01a8" style="color: #2e2f81; font-size: 14px"
+      >（点击查询）</text
+    >
+  </view>
+  <view class="card-container data-v-4c8f01a8">
+    <view
+      bindtap="__e"
+      class="card data-v-4c8f01a8"
+      data-event-opts="{{[ [ 'tap',[ [ 'handleTutorialClick',['$event'] ] ] ] ]}}"
+    >
+      <text class="iconfont icon-shipin1 text-cyan data-v-4c8f01a8"></text>
+      <text class="text-white text-lg data-v-4c8f01a8">升级教程</text>
+    </view>
+    <view
+      bindtap="__e"
+      class="card data-v-4c8f01a8"
+      data-event-opts="{{[ [ 'tap',[ [ 'handleRecoveryClick',['$event'] ] ] ] ]}}"
+    >
+      <text class="iconfont icon-guzhang text-red data-v-4c8f01a8"></text>
+      <text class="text-white text-lg data-v-4c8f01a8">出错恢复</text>
+    </view>
+  </view>
+  <view class="progress-tip data-v-4c8f01a8">升级进度</view>
+  <view class="progress-container data-v-4c8f01a8">
+    <view class="cu-progress round striped active data-v-4c8f01a8">
+      <view
+        class="bg-green data-v-4c8f01a8"
+        style="{{'width:'+progress+'%'+';'}}"
+      ></view>
+    </view>
+  </view>
+  <button
+    bindtap="__e"
+    class="upgrade-button data-v-4c8f01a8"
+    data-event-opts="{{[ [ 'tap',[ [ 'handleUpgradeClick',['$event'] ] ] ] ]}}"
+  >
+    一键升级
+  </button>
+  <view class="notice-box data-v-4c8f01a8">
+    <text class="text-bold text-black data-v-4c8f01a8">注意事项：</text>
+    <text class="data-v-4c8f01a8">1：升级前先查看升级教程</text>
+    <text class="data-v-4c8f01a8"
+      >2：没有通讯，整车会下电的车型最好额外供电后再升级！不然很容易导致升级出错</text
+    >
+    <text class="data-v-4c8f01a8">3：保证控制器正常上电</text>
+    <text class="data-v-4c8f01a8">4：尽量让手机靠近控制器</text>
+    <text class="data-v-4c8f01a8">5：升级过程中不要切屏</text>
+    <text class="text-bold text-black data-v-4c8f01a8">升级出错不要慌</text>
+    <text class="data-v-4c8f01a8">1：先保证控制器完全下电10秒</text>
+    <text class="data-v-4c8f01a8">2：重启小程序并等待和控制器连接</text>
+    <text class="data-v-4c8f01a8">3：连接成功后，不要切换界面</text>
+    <text class="data-v-4c8f01a8">4：等待弹窗并依提示操作</text>
+  </view>
+</view>

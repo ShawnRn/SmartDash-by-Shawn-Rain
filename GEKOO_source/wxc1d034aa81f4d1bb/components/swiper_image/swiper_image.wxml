@@ -1,0 +1,46 @@
+<view>
+  <swiper
+    autoplay="{{true}}"
+    bindchange="__e"
+    circular="{{true}}"
+    class="{{['screen-swiper',dotStyle?'square-dot':'round-dot']}}"
+    data-event-opts="{{[ [ 'change',[ [ 'cardSwiper',['$event'] ] ] ] ]}}"
+    duration="500"
+    indicatorDots="{{true}}"
+    interval="3000"
+  >
+    <swiper-item
+      bindtap="__e"
+      data-event-opts="{{[ [ 'tap',[ [ 'handleClick',[index] ] ] ] ]}}"
+      wx:for="{{swiperList}}"
+      wx:key="index"
+    >
+      <view class="swiper-item-container">
+        <image
+          mode="aspectFill"
+          src="{{item.url}}"
+          wx:if="{{item.type=='image'}}"
+        ></image>
+        <video
+          autoplay="{{true}}"
+          controls="{{false}}"
+          loop="{{true}}"
+          muted="{{true}}"
+          objectFit="cover"
+          showPlayBtn="{{false}}"
+          src="{{item.url}}"
+          wx:if="{{item.type=='video'}}"
+        ></video>
+        <view
+          class="carousel-caption"
+          style="{{'background-color:'+(item.captionBgColor||'rgba(0,0,0,0.5)')+';'+'color:'+(item.captionColor||'#fff')+';'}}"
+        >
+          <view class="caption-title">{{item.title||'轮播图标题'}}</view>
+          <view class="caption-desc" wx:if="{{item.description}}"
+            >{{item.description}}</view
+          >
+        </view>
+      </view>
+    </swiper-item>
+  </swiper>
+</view>

@@ -1,0 +1,19 @@
+.user-agreement-container.data-v-46b94ff3 {
+  padding: 20px;
+}
+.agreement-title.data-v-46b94ff3 {
+  font-size: 24px;
+  margin-bottom: 20px;
+  text-align: center;
+}
+.section-title.data-v-46b94ff3 {
+  font-size: 18px;
+  margin-top: 20px;
+}
+.section-content.data-v-46b94ff3 {
+  line-height: 1.6;
+  margin-bottom: 10px;
+}
+.section-content-list.data-v-46b94ff3 {
+  padding-left: 20px;
+}

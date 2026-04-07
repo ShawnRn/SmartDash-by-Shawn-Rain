@@ -1,0 +1,18 @@
+<view class="grid-container data-v-d0a8b6b8">
+  <view class="grid-top-line data-v-d0a8b6b8"></view>
+  <view
+    bindtap="__e"
+    class="grid-item data-v-d0a8b6b8"
+    data-event-opts="{{[ [ 'tap',[ [ 'handleItemClick',['$0',index],[ [ ['gridData','',index] ] ] ] ] ] ]}}"
+    wx:for="{{gridData}}"
+    wx:key="index"
+  >
+    <view class="grid-item-image data-v-d0a8b6b8">
+      <text
+        class="{{['iconfont','grid-item-icon','','data-v-d0a8b6b8',item.image]}}"
+      ></text>
+    </view>
+    <text class="grid-item-text data-v-d0a8b6b8">{{item.text}}</text>
+  </view>
+  <view class="grid-bottom-line data-v-d0a8b6b8"></view>
+</view>

@@ -1,0 +1,127 @@
+.page {
+  height: 100vh;
+}
+.nav-list {
+  display: -webkit-flex;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  padding: 0 40rpx;
+}
+.nav-li {
+  background-image: url(https://cdn.nlark.com/yuque/0/2019/png/280374/1552996358352-assets/web-upload/cc3b1807-c684-4b83-8f80-80e5b8a6b975.png);
+  background-position: 50%;
+  background-size: cover;
+  border-radius: 12rpx;
+  margin: 0 2.5% 40rpx;
+  padding: 30rpx;
+  position: relative;
+  width: 45%;
+  z-index: 1;
+}
+.nav-li::after {
+  background-color: inherit;
+  border-radius: 10rpx;
+  bottom: -10%;
+  content: "";
+  height: 100%;
+  left: 0;
+  opacity: 0.2;
+  position: absolute;
+  transform: scale(0.9, 0.9);
+  width: 100%;
+  z-index: -1;
+}
+.nav-li.cur {
+  background: #5eb95e;
+  box-shadow: 4rpx 4rpx 6rpx rgba(94, 185, 94, 0.4);
+  color: #fff;
+}
+.nav-title {
+  font-size: 32rpx;
+  font-weight: 300;
+}
+.nav-title::first-letter {
+  font-size: 40rpx;
+  margin-right: 4rpx;
+}
+.nav-name {
+  font-size: 28rpx;
+  margin-top: 20rpx;
+  position: relative;
+  text-transform: Capitalize;
+}
+.nav-name::before {
+  height: 6rpx;
+  opacity: 0.5;
+  right: 0;
+  width: 40rpx;
+}
+.nav-name::after,
+.nav-name::before {
+  background: #fff;
+  bottom: 0;
+  content: "";
+  display: block;
+  position: absolute;
+}
+.nav-name::after {
+  height: 1px;
+  opacity: 0.3;
+  right: 40rpx;
+  width: 100rpx;
+}
+.nav-name::first-letter {
+  font-size: 36rpx;
+  font-weight: 700;
+  margin-right: 1px;
+}
+.nav-li text {
+  font-size: 52rpx;
+  height: 60rpx;
+  line-height: 60rpx;
+  position: absolute;
+  right: 30rpx;
+  text-align: center;
+  top: 30rpx;
+  width: 60rpx;
+}
+.text-light {
+  font-weight: 300;
+}
+@keyframes show {
+  0% {
+    transform: translateY(-50px);
+  }
+  60% {
+    transform: translateY(40rpx);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+@-webkit-keyframes show {
+  0% {
+    transform: translateY(-50px);
+  }
+  60% {
+    transform: translateY(40rpx);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+.content-display {
+  margin-top: 20px;
+  text-align: center;
+}
+.content-display image {
+  border-radius: 50%;
+  height: 200px;
+  overflow: hidden;
+  width: 200px;
+}
+.description {
+  color: #333;
+  font-size: 16px;
+}

@@ -1,0 +1,25 @@
+<view class="update-record-container data-v-4d133136">
+  <image
+    class="top-image data-v-4d133136"
+    mode="widthFix"
+    src="https://imgo.liulanqi.net/img2021/5/18/10/2021051803743616.jpg"
+  ></image>
+  <view class="title data-v-4d133136">小程序版本更新记录</view>
+  <view
+    class="record-item data-v-4d133136"
+    wx:for="{{updateRecords}}"
+    wx:for-item="record"
+    wx:key="index"
+  >
+    <view class="version data-v-4d133136">{{record.version}}</view>
+    <view class="content data-v-4d133136">
+      <view
+        class="content-item data-v-4d133136"
+        wx:for="{{record.content}}"
+        wx:for-index="i"
+        wx:key="i"
+        >{{'- '+item+''}}</view
+      >
+    </view>
+  </view>
+</view>

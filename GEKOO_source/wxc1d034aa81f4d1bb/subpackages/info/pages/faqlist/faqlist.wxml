@@ -1,0 +1,16 @@
+<view class="faq-list-page data-v-0bb5771d">
+  <view class="category-title data-v-0bb5771d">{{''+categoryName+''}}</view>
+  <view class="category-description data-v-0bb5771d"
+    >{{''+categoryDescription+''}}</view
+  >
+  <view
+    bindtap="__e"
+    class="question-item data-v-0bb5771d"
+    data-event-opts="{{[ [ 'tap',[ [ 'showSolution',['$0'],[ [ ['currentQuestionList','',qIndex] ] ] ] ] ] ]}}"
+    wx:for="{{currentQuestionList}}"
+    wx:for-index="qIndex"
+    wx:for-item="question"
+    wx:key="qIndex"
+    >{{''+question.question+''}}</view
+  >
+</view>

@@ -12,6 +12,7 @@ export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
 
 APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/debug/app-debug.apk"
 DEV_RELEASE_APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/devRelease/app-devRelease.apk"
+FAST_DEV_RELEASE_APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/fastDevRelease/app-fastDevRelease.apk"
 RELEASE_APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/release/app-release.apk"
 DEFAULT_RELEASE_KEYSTORE_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Secure/habe_android/signing"
 DEFAULT_RELEASE_KEYSTORE_FILE="$DEFAULT_RELEASE_KEYSTORE_DIR/habe-release.jks"
@@ -165,6 +166,7 @@ clean_variant_dex_intermediates() {
     debug) task_suffix="Debug" ;;
     release) task_suffix="Release" ;;
     devRelease) task_suffix="DevRelease" ;;
+    fastDevRelease) task_suffix="FastDevRelease" ;;
     *) task_suffix="$variant" ;;
   esac
   rm -rf \
@@ -181,6 +183,7 @@ variant_task_suffix() {
     debug) echo "Debug" ;;
     release) echo "Release" ;;
     devRelease) echo "DevRelease" ;;
+    fastDevRelease) echo "FastDevRelease" ;;
     *) echo "$variant" ;;
   esac
 }

@@ -1,0 +1,15 @@
+<view class="template-planet">
+    <custom-swiper bind:__l="__l" bind:cardSwiperChange="__e" data-event-opts="{{[ [ '^cardSwiperChange',[ ['handleSwiperChange'] ] ] ]}}" swiperList="{{yourSwiperList}}" vueId="8dd740cc-1"></custom-swiper>
+    <nine-grid bind:__l="__l" bind:gridItemClick="__e" data-event-opts="{{[ [ '^gridItemClick',[ ['handleGridClick'] ] ] ]}}" gridImages="{{imageList}}" gridTexts="{{textList}}" vueId="8dd740cc-2"></nine-grid>
+    <view wx:if="{{develop_version}}">
+        <view class="input-row">
+            <label class="text-cyan">CurrentVersion:</label>
+            <input bindinput="__e" class="input-with-border text-black" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '','currentVersion','$event',[] ] ] ] ] ]}}" placeholder=" " value="{{currentVersion}}"></input>
+            <label class="text-cyan">TargetVersion:</label>
+            <input bindinput="__e" class="input-with-border text-black" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '','targetVersion','$event',[] ] ] ] ] ]}}" placeholder=" " value="{{targetVersion}}"></input>
+            <label class="text-cyan">id:</label>
+            <input bindinput="__e" class="input-with-border text-black" data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '','id','$event',[] ] ] ] ] ]}}" placeholder=" " value="{{id}}"></input>
+        </view>
+        <button bindtap="__e" data-event-opts="{{[ [ 'tap',[ [ 'convertToNumber',['$event'] ] ] ] ]}}">转换为数值</button>
+    </view>
+</view>

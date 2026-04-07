@@ -18,12 +18,12 @@ import kotlinx.coroutines.flow.asSharedFlow
  */
 data class VehicleMetrics(
     val speedKmH: Float = 0f,
+    val controllerSpeedKmH: Float = 0f,
     val busCurrent: Float = 0f,
     val phaseCurrent: Float = 0f,
     val voltage: Float = 0f,
     val voltageSag: Float = 0f,
     val totalPowerW: Float = 0f,
-    val motorTemp: Float = 0f,
     val mosfetTemp: Float = 0f,
     val controllerTemp: Float = 0f,
     val soc: Float = 0f,

@@ -36,7 +36,6 @@ enum class MetricType(val title: String, val unit: String) {
     VOLTAGE_SAG("压降", "V"),
     BUS_CURRENT("母线电流", "A"),
     PHASE_CURRENT("相电流", "A"),
-    MOTOR_TEMP("电机温度", "°C"),
     POWER("实时功率", "kW"),
     TEMP("控制器温度", "°C"),
     MAX_CONTROLLER_TEMP("控制器最高温度", "°C"),
@@ -227,9 +226,7 @@ class SettingsRepository(private val context: Context) {
             } else {
                 raw.split(",").mapNotNull { try { MetricType.valueOf(it) } catch (e: Exception) { null } }
             }
-            resolved
-                .filterNot { it == MetricType.MOTOR_TEMP }
-                .ifEmpty { listOf(MetricType.SOC, MetricType.RANGE, MetricType.POWER, MetricType.EFFICIENCY) }
+            resolved.ifEmpty { listOf(MetricType.SOC, MetricType.RANGE, MetricType.POWER, MetricType.EFFICIENCY) }
         }
     }
 
@@ -421,9 +418,8 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveDashboardItems(items: List<MetricType>) {
         val id = currentVehicleId.first()
-        val sanitized = items.filterNot { it == MetricType.MOTOR_TEMP }
         context.dataStore.edit {
-            it[vKey(id, K_DASH_ITEMS)] = sanitized.joinToString(",") { item -> item.name }
+            it[vKey(id, K_DASH_ITEMS)] = items.joinToString(",") { item -> item.name }
             markSyncedAt(it, "v_${id}_$K_DASH_ITEMS")
         }
     }

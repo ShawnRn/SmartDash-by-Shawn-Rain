@@ -71,7 +71,6 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 private const val DRAG_LOG_TAG = "DashboardDrag"
-private val DASHBOARD_DISABLED_METRICS = setOf(MetricType.MOTOR_TEMP)
 
 private fun Offset.toLogString(): String = "(%.1f, %.1f)".format(x, y)
 
@@ -100,7 +99,6 @@ fun formatMetricValue(type: MetricType, metrics: VehicleMetrics): String {
         MetricType.VOLTAGE_SAG -> String.format("%.1f", metrics.voltageSag)
         MetricType.BUS_CURRENT -> String.format("%.1f", metrics.busCurrent)
         MetricType.PHASE_CURRENT -> String.format("%.1f", metrics.phaseCurrent)
-        MetricType.MOTOR_TEMP -> String.format("%.1f", metrics.motorTemp)
         MetricType.POWER -> String.format("%.1f", metrics.totalPowerW / 1000)
         MetricType.TEMP -> String.format("%.1f", metrics.controllerTemp)
         MetricType.MAX_CONTROLLER_TEMP -> String.format("%.1f", metrics.maxControllerTemp)
@@ -143,9 +141,7 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     LaunchedEffect(dashboardItems, draggingItem) {
         if (draggingItem == null) {
             displayedDashboardItems.clear()
-            displayedDashboardItems.addAll(
-                dashboardItems.filterNot { it in DASHBOARD_DISABLED_METRICS }
-            )
+            displayedDashboardItems.addAll(dashboardItems)
         }
     }
 
@@ -326,7 +322,7 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                 ) {
                     Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
                         Text("添加数据模块", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 16.dp))
-                        val available = MetricType.entries.filter { it !in displayedDashboardItems && it !in DASHBOARD_DISABLED_METRICS }
+                        val available = MetricType.entries.filter { it !in displayedDashboardItems }
                         if (available.isEmpty()) {
                             Text("所有支持的数据模块均已添加", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
                         } else {

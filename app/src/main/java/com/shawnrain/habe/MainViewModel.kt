@@ -1223,7 +1223,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 is ConnectionState.Connected -> {
                     autoConnectManager.onConnected(
                         address = state.device.address,
-                        name = state.device.name
+                        name = safeBluetoothDeviceName(state.device)
                     )
                 }
                 is ConnectionState.Disconnected -> {
@@ -3081,5 +3081,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             normalized < 292.5f -> "西"
             else -> "西北"
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun safeBluetoothDeviceName(device: BluetoothDevice): String? {
+        return runCatching { device.name }.getOrNull()
     }
 }

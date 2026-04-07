@@ -32,13 +32,14 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.CloudSync
@@ -64,8 +65,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
@@ -114,7 +118,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     viewModel: MainViewModel, 
@@ -808,86 +812,6 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            modifier = Modifier.weight(1f),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(24.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                tonalElevation = 2.dp
-                            ) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.ic_launcher_foreground_bitmap),
-                                    contentDescription = "SmartDash icon",
-                                    modifier = Modifier
-                                        .size(72.dp)
-                                        .padding(10.dp)
-                                )
-                            }
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(
-                                    "关于 SmartDash",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Text(
-                                    "SmartDash by Shawn Rain",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    "作者 Shawn Rain · GitHub / 邮箱 / 应用更新",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        OutlinedButton(
-                            onClick = { showAboutSmartDashSheet = true },
-                            shape = bezierPillShape()
-                        ) {
-                            Text("查看")
-                        }
-                    }
-
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.large,
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f)
-                    ) {
-                        Text(
-                            when {
-                                appUpdateState.isDownloading ->
-                                    "正在下载更新 ${((appUpdateState.downloadProgress ?: 0f).coerceIn(0f, 1f) * 100).toInt()}%，可在关于页里继续查看并安装。"
-                                appUpdateState.isUpdateAvailable ->
-                                    "发现新版本 v${appUpdateState.availableRelease?.versionName}，已放进关于页里统一处理。"
-                                appUpdateState.isChecking ->
-                                    "正在检查 GitHub Releases 最新正式包。"
-                                else ->
-                                    "统一使用 overlay 展示项目信息和应用更新，保持模糊背景、跟手返回和轻量动效的一致体验。"
-                            },
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
             // Google Drive Cloud Sync Section
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1089,6 +1013,13 @@ fun SettingsScreen(
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            AboutSmartDashEntryCard(
+                appUpdateState = appUpdateState,
+                onOpen = { showAboutSmartDashSheet = true }
+            )
             }
         }
         }
@@ -1272,30 +1203,86 @@ fun SettingsScreen(
         }
     }
     if (showAboutSmartDashSheet) {
-        BlurredModalBottomSheet(
-            onDismissRequest = { showAboutSmartDashSheet = false },
-            blurRadius = 34.dp
+        AboutSmartDashDialog(
+            appUpdateState = appUpdateState,
+            versionLabel = appUpdateState.currentVersion.displayName,
+            onCheckForUpdate = { viewModel.checkForAppUpdate() },
+            onOpenUpdateSheet = { showAppUpdateSheet = true },
+            onOpenGithub = openGithub,
+            onSendEmail = sendEmail,
+            onDismiss = { showAboutSmartDashSheet = false }
+        )
+    }
+}
+
+@Composable
+private fun AboutSmartDashEntryCard(
+    appUpdateState: AppUpdateUiState,
+    onOpen: () -> Unit
+) {
+    val summary = when {
+        appUpdateState.isDownloading ->
+            "正在下载 ${((appUpdateState.downloadProgress ?: 0f).coerceIn(0f, 1f) * 100).toInt()}%"
+        appUpdateState.isUpdateAvailable ->
+            "发现新版本 v${appUpdateState.availableRelease?.versionName}"
+        appUpdateState.isChecking ->
+            "正在检查更新"
+        else ->
+            "GitHub / 邮箱 / 应用更新"
+    }
+
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            PredictiveBackPopupTransform(
-                onBack = { showAboutSmartDashSheet = false },
-                modifier = Modifier.fillMaxWidth()
+            Surface(
+                shape = bezierRoundedShape(20.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
             ) {
-                AboutSmartDashSheet(
-                    appUpdateState = appUpdateState,
-                    versionLabel = appUpdateState.currentVersion.displayName,
-                    onCheckForUpdate = { viewModel.checkForAppUpdate() },
-                    onOpenUpdateSheet = { showAppUpdateSheet = true },
-                    onOpenGithub = openGithub,
-                    onSendEmail = sendEmail,
-                    onDismiss = { showAboutSmartDashSheet = false }
+                Box(
+                    modifier = Modifier.size(56.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_launcher_foreground_bitmap),
+                        contentDescription = "SmartDash icon",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.size(38.dp)
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text("关于 SmartDash", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    "作者 Shawn Rain",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            OutlinedButton(onClick = onOpen, shape = bezierPillShape()) {
+                Text("查看")
             }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AboutSmartDashSheet(
+private fun AboutSmartDashDialog(
     appUpdateState: AppUpdateUiState,
     versionLabel: String,
     onCheckForUpdate: () -> Unit,
@@ -1304,139 +1291,241 @@ private fun AboutSmartDashSheet(
     onSendEmail: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var revealContent by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        revealContent = true
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val config = LocalConfiguration.current
+    val screenWidth = config.screenWidthDp.dp
+    var dismissDrag by remember { mutableFloatStateOf(0f) }
+    val dismissThresholdPx = with(density) { 96.dp.toPx() }
+    val enterDurationMs = 300
+    val exitDurationMs = 220
+    var isDialogVisible by remember { mutableStateOf(false) }
+    var dismissInFlight by remember { mutableStateOf(false) }
+    val entryProgress by animateFloatAsState(
+        targetValue = if (isDialogVisible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (isDialogVisible) enterDurationMs else exitDurationMs,
+            easing = if (isDialogVisible) FastOutSlowInEasing else FastOutLinearInEasing
+        ),
+        label = "AboutSmartDashDialogEntry"
+    )
+
+    fun requestDismiss() {
+        if (dismissInFlight) return
+        dismissInFlight = true
+        isDialogVisible = false
+        scope.launch {
+            kotlinx.coroutines.delay(exitDurationMs.toLong())
+            onDismiss()
+        }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("关于 SmartDash", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                Text(
-                    "统一的设置 overlay，保留模糊、圆角和预见返回体验。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            TextButton(onClick = onDismiss) {
-                Text("完成")
-            }
-        }
+    LaunchedEffect(Unit) {
+        isDialogVisible = true
+    }
 
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = bezierRoundedShape(32.dp),
-            color = Color.Transparent
+    Dialog(
+        onDismissRequest = ::requestDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        ApplyDialogWindowBlurEffect(blurRadius = 34.dp, fullscreen = true)
+        val statusBarInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
         ) {
+            PopupBackdropBlurLayer(
+                blurRadius = 34.dp,
+                scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.24f * entryProgress),
+                onDismissRequest = ::requestDismiss
+            )
+            val motion = rememberPredictiveBackMotion(
+                width = screenWidth,
+                onBack = ::requestDismiss,
+                maxHorizontalInset = 8.dp,
+                maxVerticalInset = 8.dp,
+                maxCorner = 22.dp,
+                maxScaleTravelFraction = 0.08f
+            )
+            val outerHorizontal = 10.dp + motion.insetHorizontal
+            val outerTop = statusBarInset + 12.dp + motion.insetVertical
+            val outerBottom = navigationBarInset + 12.dp + motion.insetVertical
+            val maxCardWidth = 430.dp.coerceAtMost(maxWidth - outerHorizontal * 2)
+            val availableHeight = (maxHeight - outerTop - outerBottom).coerceAtLeast(360.dp)
+            val entryTravelPx = with(density) { (1f - entryProgress) * 56.dp.toPx() }
+
             Box(
                 modifier = Modifier
-                    .background(
-                        brush = Brush.linearGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
-                                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.82f)
-                            )
-                        )
-                    )
-                    .padding(18.dp)
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(28.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
-                    ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.ic_launcher_foreground_bitmap),
-                            contentDescription = "SmartDash icon",
-                            modifier = Modifier
-                                .size(88.dp)
-                                .padding(12.dp)
-                        )
+                    .fillMaxSize()
+                    .padding(start = outerHorizontal, end = outerHorizontal, top = outerTop, bottom = outerBottom)
+                    .graphicsLayer {
+                        val scale = (1f - (0.06f * motion.progress)) * (0.95f + 0.05f * entryProgress)
+                        scaleX = scale
+                        scaleY = scale
+                        alpha = motion.alpha * entryProgress
+                        translationX = motion.translationX
+                        translationY = dismissDrag + entryTravelPx
                     }
+                    .pointerInput(versionLabel) {
+                        detectVerticalDragGestures(
+                            onVerticalDrag = { _, dragAmount ->
+                                dismissDrag = (dismissDrag + dragAmount).coerceAtLeast(0f)
+                            },
+                            onDragEnd = {
+                                if (dismissDrag > dismissThresholdPx) requestDismiss()
+                                dismissDrag = 0f
+                            },
+                            onDragCancel = { dismissDrag = 0f }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .widthIn(max = maxCardWidth)
+                        .fillMaxWidth()
+                        .heightIn(max = availableHeight),
+                    shape = bezierRoundedShape(30.dp + motion.corner),
+                    color = MaterialTheme.colorScheme.background,
+                    tonalElevation = 2.dp,
+                    shadowElevation = 0.dp,
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f)
+                    )
+                ) {
                     Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 18.dp, vertical = 18.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        Text(
-                            "SmartDash by Shawn Rain",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Text(
-                            "让骑行仪表、控制器连接、行程记录和云同步在手机上形成一套稳定体验。",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
-                        )
-                        Surface(
-                            shape = bezierPillShape(),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.68f)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                "当前版本 $versionLabel",
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text("关于 SmartDash", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                                Text(
+                                    "项目、作者和应用更新统一放在这里。",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            TextButton(onClick = ::requestDismiss) {
+                                Text("完成")
+                            }
                         }
+
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = bezierRoundedShape(28.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.58f)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    shape = bezierRoundedShape(22.dp),
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
+                                ) {
+                                    Box(
+                                        modifier = Modifier.size(88.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Image(
+                                            painter = painterResource(id = R.drawable.ic_launcher_foreground_bitmap),
+                                            contentDescription = "SmartDash icon",
+                                            contentScale = ContentScale.Fit,
+                                            modifier = Modifier.size(56.dp)
+                                        )
+                                    }
+                                }
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        "SmartDash by Shawn Rain",
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        fontWeight = FontWeight.Black,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Text(
+                                        "骑行仪表、控制器连接、行程记录与同步。",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f),
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        AboutChip("作者 Shawn Rain")
+                                        AboutChip("版本 $versionLabel")
+                                    }
+                                }
+                            }
+                        }
+
+                        AboutSmartDashUpdateRow(
+                            state = appUpdateState,
+                            versionLabel = versionLabel,
+                            onCheckForUpdate = onCheckForUpdate,
+                            onOpenUpdateSheet = onOpenUpdateSheet
+                        )
+                        AboutSmartDashActionRow(
+                            icon = Icons.Default.Code,
+                            title = "GitHub",
+                            value = "ShawnRn/SmartDash-by-Shawn-Rain",
+                            supporting = "仓库、Release、隐私政策",
+                            onClick = onOpenGithub
+                        )
+                        AboutSmartDashActionRow(
+                            icon = Icons.Default.Email,
+                            title = "邮箱",
+                            value = "shawnrain.dev@gmail.com",
+                            supporting = "反馈问题或联系作者",
+                            onClick = onSendEmail
+                        )
                     }
                 }
-            }
-        }
-
-        AnimatedVisibility(
-            visible = revealContent,
-            enter = fadeIn(tween(260, delayMillis = 60)) + slideInVertically(
-                animationSpec = tween(320, delayMillis = 60, easing = FastOutSlowInEasing)
-            ) { it / 6 }
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                AboutSmartDashUpdateRow(
-                    state = appUpdateState,
-                    versionLabel = versionLabel,
-                    onCheckForUpdate = onCheckForUpdate,
-                    onOpenUpdateSheet = onOpenUpdateSheet
-                )
-                AboutSmartDashActionRow(
-                    icon = Icons.Default.Code,
-                    title = "GitHub",
-                    value = "ShawnRn/SmartDash-by-Shawn-Rain",
-                    supporting = "查看项目仓库、Release 和隐私政策",
-                    onClick = onOpenGithub
-                )
-                AboutSmartDashActionRow(
-                    icon = Icons.Default.Email,
-                    title = "邮箱",
-                    value = "shawnrain.dev@gmail.com",
-                    supporting = "反馈问题、合作或隐私相关联系",
-                    onClick = onSendEmail
-                )
-                AboutSmartDashInfoRow(
-                    icon = Icons.Default.Person,
-                    title = "作者",
-                    value = "Shawn Rain",
-                    supporting = "SmartDash 项目维护者"
-                )
             }
         }
     }
 }
 
+@Composable
+private fun AboutChip(label: String) {
+    Surface(
+        shape = bezierPillShape(),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f)
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AboutSmartDashUpdateRow(
     state: AppUpdateUiState,
@@ -1461,7 +1550,7 @@ private fun AboutSmartDashUpdateRow(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = bezierRoundedShape(26.dp),
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f)
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
@@ -1473,7 +1562,7 @@ private fun AboutSmartDashUpdateRow(
             ) {
                 Surface(
                     shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f)
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.86f)
                 ) {
                     Icon(
                         imageVector = Icons.Default.SystemUpdateAlt,
@@ -1484,7 +1573,7 @@ private fun AboutSmartDashUpdateRow(
                 }
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
                     Text("应用更新", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     Text(
@@ -1509,7 +1598,7 @@ private fun AboutSmartDashUpdateRow(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -1517,7 +1606,7 @@ private fun AboutSmartDashUpdateRow(
                     onClick = onCheckForUpdate,
                     enabled = !state.isChecking && !state.isDownloading,
                     shape = bezierPillShape(),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f, fill = false)
                 ) {
                     Text(if (state.isChecking) "检查中…" else "检查更新")
                 }
@@ -1525,7 +1614,7 @@ private fun AboutSmartDashUpdateRow(
                     onClick = onOpenUpdateSheet,
                     enabled = state.isUpdateAvailable || state.hasDownloadedApk || state.isDownloading,
                     shape = bezierPillShape(),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f, fill = false)
                 ) {
                     Text(actionLabel)
                 }
@@ -1575,13 +1664,17 @@ private fun AboutSmartDashActionRow(
                 Text(
                     value,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
                 if (supporting != null) {
                     Text(
                         supporting,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -1590,55 +1683,6 @@ private fun AboutSmartDashActionRow(
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        }
-    }
-}
-
-@Composable
-private fun AboutSmartDashInfoRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    value: String,
-    supporting: String? = null
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = bezierRoundedShape(26.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.padding(10.dp).size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Text(
-                    value,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (supporting != null) {
-                    Text(
-                        supporting,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
-                    )
-                }
-            }
         }
     }
 }
@@ -1872,8 +1916,9 @@ private fun DriveHistoryReviewSheet(
                         ).using(SizeTransform(clip = false))
                     },
                     label = "selected_backup_card"
-                ) { _ ->
-                    selectedMetadata?.let { metadata ->
+                ) { selectedFileId ->
+                    if (selectedFileId != null) {
+                        selectedMetadata?.let { metadata ->
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(30.dp),
@@ -1921,8 +1966,9 @@ private fun DriveHistoryReviewSheet(
                                             style = MaterialTheme.typography.labelMedium,
                                             color = MaterialTheme.colorScheme.primary
                                         )
-                                    }
-                                }
+                        }
+                    }
+                }
                                 Text(
                                     metadata.fileName,
                                     style = MaterialTheme.typography.bodySmall,
@@ -1986,7 +2032,11 @@ private fun DriveHistoryReviewSheet(
                 ).using(SizeTransform(clip = false))
             },
             label = "backup_preview_content"
-        ) {
+        ) { previewState ->
+            val currentFileId = previewState.first
+            val currentIsLoading = previewState.second
+            val currentError = previewState.third
+            val currentMetadata = selectedMetadata?.takeIf { it.fileId == currentFileId }
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = bezierRoundedShape(26.dp),
@@ -1999,7 +2049,7 @@ private fun DriveHistoryReviewSheet(
                 )
             ) {
                 when {
-                    isLoading -> {
+                    currentIsLoading -> {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2010,7 +2060,7 @@ private fun DriveHistoryReviewSheet(
                             Text("正在读取这个版本的内容…", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
-                    errorMessage != null -> {
+                    currentError != null -> {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2018,15 +2068,15 @@ private fun DriveHistoryReviewSheet(
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Text("无法预览这个版本", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
-                            Text(errorMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(currentError, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    preview != null && selectedMetadata != null -> {
+                    preview != null && currentMetadata != null -> {
                         BackupPreviewContent(
                             preview = preview,
-                            metadata = selectedMetadata,
-                            onMerge = { onMerge(selectedMetadata) },
-                            onRestoreRide = { rideId -> onRestoreRide(selectedMetadata, rideId) }
+                            metadata = currentMetadata,
+                            onMerge = { onMerge(currentMetadata) },
+                            onRestoreRide = { rideId -> onRestoreRide(currentMetadata, rideId) }
                         )
                     }
                 }

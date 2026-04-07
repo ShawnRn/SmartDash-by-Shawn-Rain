@@ -148,6 +148,7 @@ Release 签名约定：
 - `app/src/main/java/com/shawnrain/habe/ui/navigation/P2PageHeader.kt`: 二级页公共头部组件
 - `app/src/main/java/com/shawnrain/habe/ui/`: 仪表、连接、设置、BMS、测速界面
 - `app/src/main/java/com/shawnrain/habe/debug/`: 应用内日志系统
+- `.agents/skills/smartdash-overlay-dialog/SKILL.md`: SmartDash 统一 overlay / dialog 设计与交互约束
 - `.agents/scripts/`: 可执行脚本
 - `.agents/workflows/`: 可复用流程说明
 
@@ -391,6 +392,7 @@ Release 签名约定：
 - `.agents/workflows/build-debug.md`
 - `.agents/workflows/build-dev-release.md`
 - `.agents/workflows/build-fast-dev-release.md`
+- `.agents/workflows/overlay-dialog.md`
 - `.agents/workflows/predictive-back.md`
 - `.agents/workflows/test-debug.md`
 - `.agents/workflows/install-debug.md`
@@ -399,6 +401,9 @@ Release 签名约定：
 - `.agents/workflows/collect-logs.md`
 - `.agents/workflows/zhike-diagnose.md`
 - `.agents/workflows/sync-github.md`
+
+### 8.3 Skills
+- `.agents/skills/smartdash-overlay-dialog/SKILL.md`: 统一约束设置页「关于」、应用更新、自定义 dialog、overlay、详情弹层的容器几何、图标适配、模糊、预测返回和 dismiss 动线
 
 ## 9. 推荐日常流程
 
@@ -493,6 +498,8 @@ cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vib
 - 后续新增二级页面、自定义 Dialog、全屏 overlay、页面内自绘 sheet 时，默认必须适配 `PredictiveBackHandler`，优先复用 `app/src/main/java/com/shawnrain/habe/ui/navigation/PredictiveBackMotion.kt`
 - 若使用 `ModalBottomSheet` 等平台组件且系统默认预测性返回动画不足，应补充应用内跟手缩放 / 位移预览，而不是回退为无预测性返回
 - 后续新增任何弹窗、sheet、overlay 时，默认必须复用 `app/src/main/java/com/shawnrain/habe/ui/navigation/DialogWindowEffects.kt`，为窗口背后铺设模糊并保持透明系统栏
+- 后续新增或改造 overlay / dialog / about / update 弹层时，默认先遵循 `.agents/skills/smartdash-overlay-dialog/SKILL.md` 与 `.agents/workflows/overlay-dialog.md`，禁止再临时发明一套新的几何、图标适配或 dismiss 动线
+- 设置页中的「关于」类入口默认放在设置列表最底部；品牌图标必须保持原始比例并做受控内边距适配，禁止粗暴塞进固定圆角框导致观感失衡
 - 行程详情页点击参数卡片进入横屏全屏图表时，必须提供非线性进入/退出动画（建议 `FastOutSlowIn` 进入 + `FastOutLinearIn` 退出），并保证所有关闭路径（返回手势/遮罩点击/按钮/下拉）走同一条"从哪来回哪去"的回收动画
 - 行程详情页概览卡片编辑交互约定为：长按任一卡片直接进入编辑并开始拖拽；正常态不显示"编辑卡片"按钮，仅在编辑态显示"完成/添加卡片"
 - Google Drive 同步加密使用密码派生密钥（v2），禁止使用 Android KeyStore 设备绑定密钥（v1 已废弃），确保跨设备兼容

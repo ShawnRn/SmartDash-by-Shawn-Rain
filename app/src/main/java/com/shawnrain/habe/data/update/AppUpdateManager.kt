@@ -56,7 +56,7 @@ class AppUpdateManager(
     companion object {
         private const val TAG = "AppUpdate"
         private const val RELEASES_LATEST_URL =
-            "https://api.github.com/repos/ShawnRn/habe_android/releases/latest"
+            "https://api.github.com/repos/ShawnRn/SmartDash-by-Shawn-Rain/releases/latest"
         private val versionRegex = Regex("""(\d+)\.(\d+)\.(\d+)""")
         private val buildRegex = Regex("""(?im)build(?:\s+code)?\s*[:=]?\s*(\d{6,})""")
     }

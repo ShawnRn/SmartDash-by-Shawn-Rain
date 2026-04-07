@@ -88,6 +88,11 @@ object AppLogger {
             putExtra(Intent.EXTRA_SUBJECT, "SmartDash 调试日志")
             // Intentionally omit EXTRA_TEXT so target apps treat this exclusively as a file share
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = android.content.ClipData.newUri(
+                context.contentResolver,
+                "SmartDash debug log",
+                uri
+            )
         }
     }
 

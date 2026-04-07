@@ -1,45 +1,41 @@
-# Habe Dashboard (Android)
+# SmartDash by Shawn Rain
 
-`Habe Dashboard` 是 “Habe 仪表” 的 Android 原生版本，聚焦骑行仪表、BLE 控制器连接、BMS 数据、行程记录与迁移能力。
+`SmartDash by Shawn Rain` 是一款面向电动车/电摩骑行场景的 Android 原生仪表应用，聚焦实时仪表、BLE 控制器连接、行程记录、Google Drive 云同步与历史恢复。
 
-## 技术栈
+当前正式版本：
 
-- Kotlin + Jetpack Compose + Material 3
-- Android SDK 36（`minSdk 26`）
-- BLE: `BluetoothGatt` / `BluetoothLeScanner`
-- 数据存储: `DataStore Preferences`
+- `versionName`: `1.0.1`
+- `versionCode`: `2026040700`
+
+## 核心能力
+
+- Jetpack Compose + Material 3 原生仪表 UI
+- BLE 控制器连接、协议识别与参数读取
+- 行程记录、CSV 导出、海报分享
+- Google Drive 加密同步、历史版本回看与单条恢复
+- GitHub Releases 应用内更新检查、下载与安装
 
 ## 本地开发
 
-### 环境建议
+建议环境：
 
 - JDK 17
-- Android SDK（含 `platform-tools`）
-- `adb` 可用
+- Android SDK + `platform-tools`
+- `adb`
 
-建议先执行：
+常用命令：
 
 ```bash
 .agents/scripts/preflight.sh
-```
-
-### 常用命令
-
-```bash
-# Debug 构建
 .agents/scripts/build-debug.sh
-
-# 使用 release 签名的高频联调包（可覆盖真机已安装 release 版本）
 .agents/scripts/build-dev-release.sh
 .agents/scripts/install-dev-release.sh
-
-# 正式 release 构建
 .agents/scripts/build-release.sh
 ```
 
-## GitHub Actions 发布
+## GitHub Release
 
-工作流文件：
+GitHub Actions 工作流：
 
 - `.github/workflows/release.yml`
 
@@ -48,24 +44,25 @@
 - 推送 tag：`v*`
 - 手动触发：`workflow_dispatch`
 
-### 必需 Secrets
-
-工作流会强制校验以下 secrets，缺失则直接失败：
+必需 secrets：
 
 - `HABE_RELEASE_STORE_FILE_BASE64`
 - `HABE_RELEASE_STORE_PASSWORD`
 - `HABE_RELEASE_KEY_ALIAS`
 - `HABE_RELEASE_KEY_PASSWORD`
 
-### 产物保证
+工作流只会产出已签名 APK，并同时上传：
 
-工作流只允许产出“已签名 APK”：
+- GitHub Actions artifact
+- GitHub Release 资产
+- `.sha256` 校验文件
 
-- 仅选择 `app/build/outputs/apk/release` 下非 `*-unsigned.apk` 文件
-- 上传 `actions artifact`（签名 APK + `.sha256`）
-- 同时附加到 GitHub Release 资产
+## 仓库约束
 
-## 仓库说明
+- 项目规范见 [AGENTS.md](./AGENTS.md)
+- 不要提交任何签名文件或密码材料
+- 当前包名与 `applicationId` 仍为 `com.shawnrain.habe`，以保持现有签名、覆盖安装与同步兼容性
 
-- 项目约束和脚本规范见 [AGENTS.md](./AGENTS.md)
-- 不要提交任何签名文件（`*.jks` / `*.keystore` / `*.p12` 等）
+## License
+
+[MIT](./LICENSE)

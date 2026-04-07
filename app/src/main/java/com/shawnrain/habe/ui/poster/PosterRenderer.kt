@@ -362,7 +362,7 @@ class PosterRenderer(private val context: Context) {
             color = Color.parseColor("#7D879A")
             textSize = 28f
         }
-        val text = "Made with Habe Dashboard"
+        val text = "Made with SmartDash by Shawn Rain"
         canvas.drawText(text, (width - footerPaint.measureText(text)) / 2f, height - 86f, footerPaint)
     }
 

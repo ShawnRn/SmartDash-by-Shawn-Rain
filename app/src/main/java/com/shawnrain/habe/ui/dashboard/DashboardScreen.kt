@@ -623,7 +623,7 @@ fun DashboardHeader(
         }
 
         Text(
-            "Habe",
+            "SmartDash",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onBackground,
             fontWeight = FontWeight.Bold,

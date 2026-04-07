@@ -39,6 +39,9 @@ import com.shawnrain.habe.data.sync.GoogleDriveSyncManager
 import com.shawnrain.habe.data.sync.BackupMetadata
 import com.shawnrain.habe.data.sync.BackupPreview
 import com.shawnrain.habe.data.sync.SyncState
+import com.shawnrain.habe.data.update.AppReleaseInfo
+import com.shawnrain.habe.data.update.AppUpdateManager
+import com.shawnrain.habe.data.update.AppUpdateUiState
 import com.shawnrain.habe.data.history.RideHistoryRecord
 import com.shawnrain.habe.data.history.RideMetricSample
 import com.shawnrain.habe.data.history.RideTrackPoint
@@ -99,6 +102,13 @@ data class DriveBackupPreviewUiState(
     val preview: BackupPreview? = null,
     val isLoading: Boolean = false,
     val errorMessage: String? = null
+)
+
+private val EmptyAppUpdateState = AppUpdateUiState(
+    currentVersion = com.shawnrain.habe.data.update.InstalledAppVersion(
+        versionName = "0.0.0",
+        versionCode = 0L
+    )
 )
 
 private data class PendingRideStopSnapshot(
@@ -176,6 +186,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val settingsRepository = SettingsRepository(application)
     private val lanBackupTransfer = LanBackupTransfer()
     private val driveSyncManager = GoogleDriveSyncManager(application)
+    private val appUpdateManager = AppUpdateManager(application)
     val gpsTracker = GpsTracker(application)
     private val headingTracker = HeadingTracker(application)
     private val autoConnectManager = AutoConnectManager(
@@ -742,6 +753,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val driveSyncState: StateFlow<SyncState> = _driveSyncState.asStateFlow()
     private val _driveBackupPreview = MutableStateFlow(DriveBackupPreviewUiState())
     val driveBackupPreview: StateFlow<DriveBackupPreviewUiState> = _driveBackupPreview.asStateFlow()
+    private val _appUpdateState = MutableStateFlow(
+        EmptyAppUpdateState.copy(currentVersion = appUpdateManager.getInstalledVersion())
+    )
+    val appUpdateState: StateFlow<AppUpdateUiState> = _appUpdateState.asStateFlow()
 
     fun checkDriveSignInStatus(): kotlinx.coroutines.Job = viewModelScope.launch {
         if (driveSyncManager.isSignedIn()) {
@@ -1090,6 +1105,92 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun checkForAppUpdate(silent: Boolean = false): kotlinx.coroutines.Job = viewModelScope.launch {
+        val currentVersion = appUpdateManager.getInstalledVersion()
+        _appUpdateState.value = _appUpdateState.value.copy(
+            currentVersion = currentVersion,
+            isChecking = true,
+            errorMessage = null
+        )
+        val result = appUpdateManager.checkForUpdate()
+        result.fold(
+            onSuccess = { release ->
+                _appUpdateState.value = _appUpdateState.value.copy(
+                    currentVersion = currentVersion,
+                    isChecking = false,
+                    availableRelease = release,
+                    lastCheckedAt = System.currentTimeMillis(),
+                    errorMessage = null
+                )
+                AppLogger.i(
+                    TAG,
+                    if (release == null) {
+                        "App update check complete: already latest ${currentVersion.displayName}"
+                    } else {
+                        "App update available: ${release.versionName} build=${release.buildCode ?: 0L}"
+                    }
+                )
+            },
+            onFailure = { error ->
+                _appUpdateState.value = _appUpdateState.value.copy(
+                    currentVersion = currentVersion,
+                    isChecking = false,
+                    lastCheckedAt = System.currentTimeMillis(),
+                    errorMessage = if (silent) null else (error.message ?: "检查更新失败")
+                )
+                AppLogger.w(TAG, "App update check failed: ${error.message}")
+            }
+        )
+    }
+
+    fun downloadAppUpdate(release: AppReleaseInfo? = _appUpdateState.value.availableRelease): kotlinx.coroutines.Job? {
+        val targetRelease = release ?: return null
+        return viewModelScope.launch {
+            _appUpdateState.value = _appUpdateState.value.copy(
+                isDownloading = true,
+                downloadProgress = 0f,
+                errorMessage = null
+            )
+            val result = appUpdateManager.downloadReleaseApk(targetRelease) { progress ->
+                _appUpdateState.value = _appUpdateState.value.copy(downloadProgress = progress)
+            }
+            result.fold(
+                onSuccess = { file ->
+                    _appUpdateState.value = _appUpdateState.value.copy(
+                        isDownloading = false,
+                        downloadProgress = 1f,
+                        downloadedApkPath = file.absolutePath,
+                        errorMessage = null
+                    )
+                    AppLogger.i(TAG, "App update downloaded path=${file.absolutePath}")
+                },
+                onFailure = { error ->
+                    _appUpdateState.value = _appUpdateState.value.copy(
+                        isDownloading = false,
+                        downloadProgress = null,
+                        errorMessage = error.message ?: "下载更新失败"
+                    )
+                    AppLogger.w(TAG, "App update download failed: ${error.message}")
+                }
+            )
+        }
+    }
+
+    fun canInstallDownloadedAppUpdate(): Boolean = appUpdateManager.canRequestPackageInstalls()
+
+    fun createInstallDownloadedAppUpdateIntent(): Intent? {
+        val apkPath = _appUpdateState.value.downloadedApkPath ?: return null
+        val apkFile = File(apkPath).takeIf { it.exists() } ?: return null
+        return appUpdateManager.createInstallIntent(apkFile)
+    }
+
+    fun createManageUnknownSourcesIntent(): Intent =
+        appUpdateManager.createManageUnknownSourcesIntent()
+
+    fun clearAppUpdateError() {
+        _appUpdateState.value = _appUpdateState.value.copy(errorMessage = null)
+    }
+
     val gpsCalibrationState: StateFlow<GpsCalibrationState> = autoCalibrator.state
     val activeProtocolLabel: StateFlow<String> = ProtocolParser.activeProtocolLabel
     val bmsActiveProtocolLabel: StateFlow<String> = BmsParser.activeProtocolLabel
@@ -1149,14 +1250,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }.launchIn(viewModelScope)
 
         settingsRepository.dashboardItems.onEach { items ->
-            if (_dashboardItems.value.isEmpty()) {
-                _dashboardItems.value = items.filterNot { it == com.shawnrain.habe.data.MetricType.MOTOR_TEMP }
+            val sanitized = items.filterNot { it == com.shawnrain.habe.data.MetricType.MOTOR_TEMP }
+            if (_dashboardItems.value != sanitized) {
+                _dashboardItems.value = sanitized
+                AppLogger.i(
+                    TAG,
+                    "仪表排列已从仓库刷新：${sanitized.joinToString(",") { it.name }}"
+                )
             }
         }.launchIn(viewModelScope)
 
         settingsRepository.rideOverviewItems.onEach { items ->
-            if (_rideOverviewItems.value.isEmpty()) {
+            if (_rideOverviewItems.value != items) {
                 _rideOverviewItems.value = items
+                AppLogger.i(
+                    TAG,
+                    "行程概览卡片已从仓库刷新：${items.joinToString(",") { it.name }}"
+                )
             }
         }.launchIn(viewModelScope)
 
@@ -2406,8 +2516,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "image/png"
             putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "Habe ${record.label} 加速成绩")
-            putExtra(Intent.EXTRA_TEXT, "Habe ${record.label} 加速成绩：${formatDuration(record.timeMs)}")
+            putExtra(Intent.EXTRA_SUBJECT, "SmartDash ${record.label} 加速成绩")
+            putExtra(Intent.EXTRA_TEXT, "SmartDash ${record.label} 加速成绩：${formatDuration(record.timeMs)}")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         return Intent.createChooser(shareIntent, "分享加速成绩")
@@ -2419,8 +2529,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "image/png"
             putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "Habe ${record.title} 行程记录")
-            putExtra(Intent.EXTRA_TEXT, "Habe 行程记录：${record.title}")
+            putExtra(Intent.EXTRA_SUBJECT, "SmartDash ${record.title} 行程记录")
+            putExtra(Intent.EXTRA_TEXT, "SmartDash 行程记录：${record.title}")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         return Intent.createChooser(shareIntent, "分享行程记录")
@@ -2438,8 +2548,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "text/csv"
             putExtra(Intent.EXTRA_STREAM, csvUri)
-            putExtra(Intent.EXTRA_SUBJECT, "Habe ${record.title} 原始数据")
-            putExtra(Intent.EXTRA_TEXT, "Habe 行程原始数据：${record.title}")
+            putExtra(Intent.EXTRA_SUBJECT, "SmartDash ${record.title} 原始数据")
+            putExtra(Intent.EXTRA_TEXT, "SmartDash 行程原始数据：${record.title}")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         return Intent.createChooser(shareIntent, "导出行程原始数据")
@@ -2465,7 +2575,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
             put(MediaStore.Images.Media.MIME_TYPE, "image/png")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Habe")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/SmartDash")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
         }

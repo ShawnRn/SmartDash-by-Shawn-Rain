@@ -1,5 +1,5 @@
 ---
-description: 新 Mac 首次安装 Habe Android 编译依赖
+description: 新 Mac 首次安装 SmartDash Android 编译依赖
 ---
 
 适用于全新 macOS 环境，目标是一次性装好 Java 17、Android SDK、adb、sdkmanager 和 shell 环境变量。

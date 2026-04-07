@@ -119,7 +119,7 @@ class GoogleDriveSyncManager(private val context: Context) {
                 client = client,
                 fileName = fileName,
                 content = encryptedPayload,
-                description = "Habe Backup - ${getDeviceName()} - $timestamp"
+                description = "SmartDash Backup - ${getDeviceName()} - $timestamp"
             ) ?: return@withContext Result.failure(Exception("Upload returned null file ID"))
 
             val metadata = BackupMetadata(

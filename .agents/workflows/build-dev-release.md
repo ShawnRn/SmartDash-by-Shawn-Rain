@@ -2,7 +2,7 @@
 description: 使用 release 签名快速构建 devRelease APK，适合真机高频联调
 ---
 
-本工作流用于生成 Habe Android 的 `devRelease` APK。它沿用 release 签名，可直接覆盖用户手机上的现有安装，但比正式 `release` 构建更适合日常快速迭代。
+本工作流用于生成 SmartDash Android 的 `devRelease` APK。它沿用 release 签名，可直接覆盖用户手机上的现有安装，但比正式 `release` 构建更适合日常快速迭代。
 
 说明：
 - 首次构建、Gradle daemon 尚未热身、或刚修改过 `build.gradle.kts` / `gradle.properties` 时，速度仍可能接近正式包

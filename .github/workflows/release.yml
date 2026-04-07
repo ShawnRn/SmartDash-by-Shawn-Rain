@@ -1,4 +1,4 @@
-name: Android Release
+name: SmartDash Android Release
 
 on:
   push:
@@ -62,7 +62,11 @@ jobs:
             fi
           fi
           echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
-          echo "name=Habe Dashboard ${TAG}" >> "${GITHUB_OUTPUT}"
+          VERSION_NAME="$(sed -nE 's/^[[:space:]]*versionName = \"([^\"]+)\"/\\1/p' app/build.gradle.kts | head -n 1)"
+          VERSION_CODE="$(sed -nE 's/^[[:space:]]*versionCode = ([0-9]+)/\\1/p' app/build.gradle.kts | head -n 1)"
+          echo "version_name=${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "version_code=${VERSION_CODE}" >> "${GITHUB_OUTPUT}"
+          echo "name=SmartDash by Shawn Rain ${TAG}" >> "${GITHUB_OUTPUT}"
 
       - name: Validate release signing secrets
         env:
@@ -107,17 +111,17 @@ jobs:
             echo "No signed APK found under app/build/outputs/apk/release" >&2
             exit 1
           fi
-          cp "${APK_PATH}" "habe-${{ steps.meta.outputs.tag }}-release.apk"
-          SHA256="$(sha256sum "habe-${{ steps.meta.outputs.tag }}-release.apk" | awk '{print $1}')"
-          printf '%s  %s\n' "${SHA256}" "habe-${{ steps.meta.outputs.tag }}-release.apk" > "habe-${{ steps.meta.outputs.tag }}-release.sha256"
+          cp "${APK_PATH}" "smartdash-${{ steps.meta.outputs.tag }}-release.apk"
+          SHA256="$(sha256sum "smartdash-${{ steps.meta.outputs.tag }}-release.apk" | awk '{print $1}')"
+          printf '%s  %s\n' "${SHA256}" "smartdash-${{ steps.meta.outputs.tag }}-release.apk" > "smartdash-${{ steps.meta.outputs.tag }}-release.sha256"
           echo "apk=${APK_PATH}" >> "${GITHUB_OUTPUT}"
-          echo "apk_copy=habe-${{ steps.meta.outputs.tag }}-release.apk" >> "${GITHUB_OUTPUT}"
-          echo "sha_copy=habe-${{ steps.meta.outputs.tag }}-release.sha256" >> "${GITHUB_OUTPUT}"
+          echo "apk_copy=smartdash-${{ steps.meta.outputs.tag }}-release.apk" >> "${GITHUB_OUTPUT}"
+          echo "sha_copy=smartdash-${{ steps.meta.outputs.tag }}-release.sha256" >> "${GITHUB_OUTPUT}"
 
       - name: Upload signed release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: habe-${{ steps.meta.outputs.tag }}-signed
+          name: smartdash-${{ steps.meta.outputs.tag }}-signed
           path: |
             ${{ steps.artifact.outputs.apk_copy }}
             ${{ steps.artifact.outputs.sha_copy }}
@@ -136,6 +140,9 @@ jobs:
             ${{ steps.artifact.outputs.apk_copy }}
             ${{ steps.artifact.outputs.sha_copy }}
           body: |
-            Automated Android release from GitHub Actions.
+            Automated SmartDash Android release from GitHub Actions.
+
+            Version: `${{ steps.meta.outputs.version_name }}`
+            Build code: `${{ steps.meta.outputs.version_code }}`
 
             Signed APK: `${{ steps.signing.outputs.signed }}`

@@ -85,7 +85,7 @@ object AppLogger {
         return Intent(Intent.ACTION_SEND).apply {
             type = "*/*"
             putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "Habe 调试日志")
+            putExtra(Intent.EXTRA_SUBJECT, "SmartDash 调试日志")
             // Intentionally omit EXTRA_TEXT so target apps treat this exclusively as a file share
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
@@ -94,7 +94,7 @@ object AppLogger {
     private fun buildLogDump(exportTime: Long): String {
         val snapshot = synchronized(logBuffer) { logBuffer.toList() }
         return buildString {
-            appendLine("Habe Debug Log")
+            appendLine("SmartDash Debug Log")
             appendLine("ExportedAt=${timeFormatter.format(Date(exportTime))}")
             appendLine("MinLevel=${minLevel.name}")
             appendLine("Entries=${snapshot.size}")

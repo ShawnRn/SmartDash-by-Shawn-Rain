@@ -1,5 +1,5 @@
 ---
-description: 抓取 Habe 的 adb logcat 调试日志
+description: 抓取 SmartDash 的 adb logcat 调试日志
 ---
 
 本工作流用于 BLE / 协议 / 后台 `PiP` 联调，重点覆盖 `BleManager`、`ProtocolParser`、`ZhikeProtocol`、`MainActivity` 等标签。

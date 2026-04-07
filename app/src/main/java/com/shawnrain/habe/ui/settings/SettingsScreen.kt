@@ -93,6 +93,7 @@ import com.shawnrain.habe.data.WheelPresets
 import com.shawnrain.habe.data.migration.LanBackupQrPayload
 import com.shawnrain.habe.data.sync.BackupMetadata
 import com.shawnrain.habe.data.sync.BackupPreview
+import com.shawnrain.habe.data.sync.BackupRetentionPolicy
 import com.shawnrain.habe.data.sync.GoogleDriveAuth
 import com.shawnrain.habe.data.sync.SyncState
 import com.shawnrain.habe.data.update.AppReleaseInfo
@@ -139,6 +140,7 @@ fun SettingsScreen(
     val lanBackupRestoring by viewModel.lanBackupRestoring.collectAsState()
     val driveSyncState by viewModel.driveSyncState.collectAsState()
     val driveBackupPreview by viewModel.driveBackupPreview.collectAsState()
+    val driveBackupRetentionPolicy by viewModel.driveBackupRetentionPolicy.collectAsState()
     val appUpdateState by viewModel.appUpdateState.collectAsState()
     val bottomContentPadding = 28.dp
     var stickyDriveSignedInState by remember { mutableStateOf<SyncState.SignedIn?>(null) }
@@ -822,6 +824,45 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.24f)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                "历史版本自动清理",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "最新版本始终保留。每次上传或自动同步写入云端后，按下面规则清理更早的历史版本。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                BackupRetentionPolicy.entries.forEach { policy ->
+                                    FilterChip(
+                                        selected = driveBackupRetentionPolicy == policy,
+                                        onClick = { viewModel.saveDriveBackupRetentionPolicy(policy) },
+                                        label = { Text(policy.label) }
+                                    )
+                                }
+                            }
+                            Text(
+                                driveBackupRetentionPolicy.summary,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
 
                     // Auto-reset Synced/Error state back to SignedIn after delay
                     LaunchedEffect(driveSyncState) {

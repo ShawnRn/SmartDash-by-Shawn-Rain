@@ -232,7 +232,6 @@ class ZhikeProtocol : ControllerProtocol {
                 val rpmSigned = decodeWord(realtimeWords, 6, scale = 5.46f, signed = true, digits = 1)
                 val speedRaw = decodeWord(realtimeWords, 6, scale = 10f, signed = true, digits = 1)
                 val controllerTemp = decodeWord(realtimeWords, 18, scale = 100f, signed = true, digits = 1)
-                val motorTemp = decodeWord(realtimeWords, 12, scale = 100f, signed = true, digits = 1)
                 val ioStatus = realtimeWords.getOrElse(21) { 0 }
                 val faultCode = realtimeWords.getOrElse(22) { 0 }
 
@@ -240,7 +239,6 @@ class ZhikeProtocol : ControllerProtocol {
                     voltage !in 5f..200f ||
                     abs(busCurrent) > MAX_REASONABLE_CURRENT_A ||
                     phaseCurrentRaw !in 0f..MAX_REASONABLE_CURRENT_A ||
-                    motorTemp !in -60f..220f ||
                     controllerTemp !in -60f..220f
                 ) {
                     AppLogger.w(
@@ -267,7 +265,6 @@ class ZhikeProtocol : ControllerProtocol {
                     phaseCurrent = normalizedPhaseCurrent,
                     speedKmH = sanitizedSpeed,
                     rpm = abs(rpmSigned),
-                    motorTemp = motorTemp,
                     mosfetTemp = controllerTemp,
                     controllerTemp = controllerTemp,
                     faultCode = faultCode,

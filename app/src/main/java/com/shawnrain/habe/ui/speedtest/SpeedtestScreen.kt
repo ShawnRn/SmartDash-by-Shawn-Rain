@@ -169,7 +169,6 @@ private enum class RideChartMetric(val title: String, val unit: String, val colo
     VOLTAGE_SAG("压降", "V", Color(0xFFFFD166)),
     BUS_CURRENT("母线电流", "A", Color(0xFFFFB682)),
     PHASE_CURRENT("相电流", "A", Color(0xFFFF8FA3)),
-    MOTOR_TEMP("电机温度", "°C", Color(0xFFFFC27A)),
     CONTROLLER_TEMP("控制器温度", "°C", Color(0xFFFFA86B)),
     EFFICIENCY("能耗", "Wh/km", Color(0xFF8CE0FF)),
     AVG_EFFICIENCY("平均能耗", "Wh/km", Color(0xFF6EE7F2)),
@@ -1670,7 +1669,8 @@ private fun RideMetricChart(
     landscapeMode: Boolean = false
 ) {
     val values = remember(samples, metric) { samples.map { it.metricValue(metric) } }
-    val averageValue = remember(values) { values.takeIf { it.isNotEmpty() }?.average()?.toFloat() ?: 0f }
+    val summaryValue = remember(samples, metric, values) { rideMetricSummaryValue(samples, metric, values) }
+    val summaryLabel = remember(metric) { rideMetricSummaryLabel(metric) }
     val peakIndex = remember(values) { values.indices.maxByOrNull { values[it] } ?: 0 }
     val averageLabelBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
     val density = LocalDensity.current
@@ -1700,7 +1700,7 @@ private fun RideMetricChart(
             Text(metric.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                "拖动图表查看采样点；带坐标轴，虚线显示平均值并标出数值。",
+                "拖动图表查看采样点；带坐标轴，虚线显示当前指标的统一摘要口径。",
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(if (landscapeMode) 12.dp else 16.dp))
@@ -1728,7 +1728,7 @@ private fun RideMetricChart(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "平均 ${formatFloat(averageValue)} ${metric.unit} · 最高 ${formatFloat(values[peakIndex])} ${metric.unit}",
+                        "$summaryLabel ${formatFloat(summaryValue)} ${metric.unit} · 最高 ${formatFloat(values[peakIndex])} ${metric.unit}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     selectedSample?.let { sample ->
@@ -1756,7 +1756,11 @@ private fun RideMetricPlot(
     averagePaint: Paint
 ) {
     val values = remember(samples, metric) { samples.map { it.metricValue(metric) } }
-    val averageValue = remember(values) { values.takeIf { it.isNotEmpty() }?.average()?.toFloat() ?: 0f }
+    val summaryValue = remember(samples, metric, values) { rideMetricSummaryValue(samples, metric, values) }
+    val summaryLabel = remember(metric) { rideMetricSummaryLabel(metric) }
+    val referenceLine = remember(samples, metric, values, summaryValue, summaryLabel) {
+        rideMetricReferenceLine(metric, values, summaryLabel, summaryValue)
+    }
     val peakIndex = remember(values) { values.indices.maxByOrNull { values[it] } ?: 0 }
     val averageLabelBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
 
@@ -1789,7 +1793,7 @@ private fun RideMetricPlot(
             val minValue = values.minOrNull() ?: 0f
             val span = (maxValue - minValue).takeIf { it > 0.001f } ?: 1f
             val tickValues = listOf(maxValue, maxValue - span / 2f, minValue)
-            val averageLabel = "均值 ${formatFloat(averageValue)} ${metric.unit}"
+            val averageLabel = referenceLine.label
             val averageLabelWidth = averagePaint.measureText(averageLabel) + 18.dp.toPx()
             val averageLabelHeight = averagePaint.textSize + 12.dp.toPx()
 
@@ -1828,13 +1832,14 @@ private fun RideMetricPlot(
                 val y = paddingTop + chartHeight - ((value - minValue) / span) * chartHeight
                 if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
-            val averageY = paddingTop + chartHeight - ((averageValue - minValue) / span) * chartHeight
+            val referenceStartY = paddingTop + chartHeight - ((referenceLine.startValue - minValue) / span) * chartHeight
+            val referenceEndY = paddingTop + chartHeight - ((referenceLine.endValue - minValue) / span) * chartHeight
             val averageLabelTop = 6.dp.toPx()
             val averageLabelLeft = (size.width - paddingRight - averageLabelWidth).coerceAtLeast(paddingLeft + 12.dp.toPx())
             drawLine(
                 color = metric.color.copy(alpha = 0.55f),
-                start = Offset(paddingLeft, averageY),
-                end = Offset(size.width - paddingRight, averageY),
+                start = Offset(paddingLeft, referenceStartY),
+                end = Offset(size.width - paddingRight, referenceEndY),
                 strokeWidth = 3f,
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(16f, 10f))
             )
@@ -2324,7 +2329,8 @@ private fun RideMetricFullscreenDialog(
     val mermaidPayload = remember(title, samples, metric) {
         buildSingleMetricMermaid(title = title, samples = samples, metric = metric)
     }
-    val averageValue = remember(values) { values.takeIf { it.isNotEmpty() }?.average()?.toFloat() ?: 0f }
+    val summaryValue = remember(samples, metric, values) { rideMetricSummaryValue(samples, metric, values) }
+    val summaryLabel = remember(metric) { rideMetricSummaryLabel(metric) }
     val peakValue = remember(values) { values.maxOrNull() ?: 0f }
     val selectedValue = values.getOrNull(selectedIndex) ?: 0f
     val selectedSample = samples.getOrNull(selectedIndex)
@@ -2449,7 +2455,7 @@ private fun RideMetricFullscreenDialog(
                                 ) {
                                     Text("当前", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("${formatFloat(selectedValue)} ${metric.unit}", style = MaterialTheme.typography.titleSmall, color = metric.color, fontWeight = FontWeight.Bold)
-                                    Text("均值 ${formatFloat(averageValue)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("$summaryLabel ${formatFloat(summaryValue)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("最高 ${formatFloat(peakValue)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     selectedSample?.let { sample ->
                                         Text("时间 ${formatAxisDuration(sample.elapsedMs)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -2662,6 +2668,91 @@ private fun percentile(values: List<Float>, p: Float): Float {
     val upperIndex = (lowerIndex + 1).coerceAtMost(sorted.lastIndex)
     val fraction = position - lowerIndex
     return sorted[lowerIndex] * (1f - fraction) + sorted[upperIndex] * fraction
+}
+
+private fun rideMetricSummaryLabel(metric: RideChartMetric): String {
+    return when (metric) {
+        RideChartMetric.AVG_EFFICIENCY -> "整段"
+        RideChartMetric.SOC, RideChartMetric.RANGE -> "终点"
+        RideChartMetric.DISTANCE, RideChartMetric.TOTAL_ENERGY, RideChartMetric.RECOVERED_ENERGY -> "累计"
+        RideChartMetric.MAX_CONTROLLER_TEMP -> "最高"
+        else -> "均值"
+    }
+}
+
+private fun rideMetricSummaryValue(
+    samples: List<RideMetricSample>,
+    metric: RideChartMetric,
+    values: List<Float>
+): Float {
+    if (samples.isEmpty()) return 0f
+    val fallbackAverage = values.takeIf { it.isNotEmpty() }?.average()?.toFloat() ?: 0f
+    val last = samples.last()
+    return when (metric) {
+        RideChartMetric.AVG_EFFICIENCY -> when {
+            last.avgEfficiencyWhKm > 0.01f -> last.avgEfficiencyWhKm
+            last.distanceMeters > 10f && last.totalEnergyWh > 0.01f ->
+                last.totalEnergyWh / (last.distanceMeters / 1000f)
+            else -> fallbackAverage
+        }
+        RideChartMetric.SOC -> last.soc.takeIf { it in 1f..100f } ?: fallbackAverage
+        RideChartMetric.RANGE -> last.estimatedRangeKm.takeIf { it > 0.01f } ?: fallbackAverage
+        RideChartMetric.DISTANCE -> (last.distanceMeters / 1000f).coerceAtLeast(0f)
+        RideChartMetric.TOTAL_ENERGY -> last.totalEnergyWh.coerceAtLeast(0f)
+        RideChartMetric.RECOVERED_ENERGY -> last.recoveredEnergyWh.coerceAtLeast(0f)
+        RideChartMetric.MAX_CONTROLLER_TEMP -> maxOf(last.maxControllerTemp, last.controllerTemp)
+        else -> fallbackAverage
+    }
+}
+
+private data class RideMetricReferenceLine(
+    val label: String,
+    val startValue: Float,
+    val endValue: Float
+)
+
+private fun rideMetricReferenceLine(
+    metric: RideChartMetric,
+    values: List<Float>,
+    summaryLabel: String,
+    summaryValue: Float
+): RideMetricReferenceLine {
+    if (metric == RideChartMetric.VOLTAGE && values.size >= 2) {
+        val (startValue, endValue) = linearTrendEndpoints(values)
+        val deltaValue = endValue - startValue
+        return RideMetricReferenceLine(
+            label = "趋势 ${formatSignedFloat(deltaValue)} ${metric.unit}",
+            startValue = startValue,
+            endValue = endValue
+        )
+    }
+    return RideMetricReferenceLine(
+        label = "$summaryLabel ${formatFloat(summaryValue)} ${metric.unit}",
+        startValue = summaryValue,
+        endValue = summaryValue
+    )
+}
+
+private fun linearTrendEndpoints(values: List<Float>): Pair<Float, Float> {
+    if (values.size < 2) {
+        val fallback = values.firstOrNull() ?: 0f
+        return fallback to fallback
+    }
+    val n = values.size.toFloat()
+    val meanX = (values.lastIndex.toFloat()) / 2f
+    val meanY = values.average().toFloat()
+    var numerator = 0f
+    var denominator = 0f
+    values.forEachIndexed { index, value ->
+        val dx = index - meanX
+        numerator += dx * (value - meanY)
+        denominator += dx * dx
+    }
+    val slope = if (denominator > 0.0001f) numerator / denominator else 0f
+    val intercept = meanY - (slope * meanX)
+    val startValue = intercept
+    val endValue = intercept + (slope * values.lastIndex)
+    return startValue to endValue
 }
 
 private fun formatMermaidNumber(value: Float): String =
@@ -3226,12 +3317,6 @@ private fun EmptyCard(title: String, subtitle: String) {
     }
 }
 
-private fun isReliableMotorTempSample(sample: RideMetricSample): Boolean {
-    if (sample.motorTemp !in -40f..220f) return false
-    if (sample.controllerTemp >= 18f && sample.motorTemp <= 0f) return false
-    return true
-}
-
 private fun RideMetricSample.metricValue(metric: RideChartMetric): Float {
     return when (metric) {
         RideChartMetric.SPEED -> speedKmH
@@ -3240,7 +3325,6 @@ private fun RideMetricSample.metricValue(metric: RideChartMetric): Float {
         RideChartMetric.VOLTAGE_SAG -> voltageSag
         RideChartMetric.BUS_CURRENT -> busCurrent
         RideChartMetric.PHASE_CURRENT -> phaseCurrent
-        RideChartMetric.MOTOR_TEMP -> motorTemp
         RideChartMetric.CONTROLLER_TEMP -> controllerTemp
         RideChartMetric.EFFICIENCY -> efficiencyWhKm
         RideChartMetric.AVG_EFFICIENCY -> avgEfficiencyWhKm
@@ -3277,6 +3361,9 @@ private fun formatSeconds(durationMs: Long): String =
 
 private fun formatFloat(value: Float): String =
     String.format(Locale.getDefault(), "%.1f", value)
+
+private fun formatSignedFloat(value: Float): String =
+    String.format(Locale.getDefault(), "%+.1f", value)
 
 private data class VoltageSagSummary(
     val average: Float,

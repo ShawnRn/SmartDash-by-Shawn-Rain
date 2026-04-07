@@ -161,7 +161,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val DISTANCE_FALLBACK_MIN_RPM = 30f
         private const val DISTANCE_FALLBACK_MIN_CURRENT_A = 1.2f
         private const val DISTANCE_FALLBACK_MAX_DT_SECONDS = 3f
-        private const val GPS_DISTANCE_PAIR_MAX_GAP_MS = 12_000L
         private const val SPEED_TEST_SAMPLE_INTERVAL_MS = 120L
         private const val HISTORY_LIMIT = 30
         private const val AUTO_RECONNECT_SCAN_WINDOW_MS = 5000L
@@ -216,7 +215,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var _rideMaxControllerTemp = 0f
     private var _rideLastEnergyUpdateAtMs = 0L
     private var _rideLastDistanceUpdateAtMs = 0L
-    private var _rideDistanceUsingFallback = false
+    private var _rideLastDistanceSpeedKmh = 0f
     private val rideTrackPoints = mutableListOf<RideTrackPoint>()
     private val rideSamples = mutableListOf<RideMetricSample>()
     private var rideStartMode: RideStartMode? = null
@@ -247,8 +246,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var _totalSpeedSum = 0f
     private var _speedSamples = 0
     private var _sessionStartTime = 0L
-    private var _lastEnergyUpdateTime = 0L
-    private var _totalEnergyUsedWh = 0.0
     private var rideStartVehicleMileageKm = 0f
     private var lastVehicleSnapshotAtMs = 0L
     private var lastVehicleSnapshotTripDistanceKm = 0f
@@ -414,16 +411,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Energy Tracking
         val now = System.currentTimeMillis()
         val ridePausedForStop = isRidePausedForStop()
-        if (rideActive && !ridePausedForStop && _lastEnergyUpdateTime > 0) {
-            val deltaH = (now - _lastEnergyUpdateTime) / 3600000.0
+        if (rideActive && !ridePausedForStop && _rideLastEnergyUpdateAtMs > 0L) {
+            val deltaH = (now - _rideLastEnergyUpdateAtMs) / 3600000.0
             if (powerW >= 0f) {
-                _totalEnergyUsedWh += powerW * deltaH
+                _rideEnergyWh += (powerW * deltaH).toFloat()
             } else {
                 _rideRecoveredEnergyWh += (-powerW * deltaH).toFloat()
                 _ridePeakRegenKw = maxOf(_ridePeakRegenKw, -powerW / 1000f)
             }
         }
-        _lastEnergyUpdateTime = now
+        _rideLastEnergyUpdateAtMs = now
         if (rideActive && !ridePausedForStop) {
             _rideMaxControllerTemp = maxOf(_rideMaxControllerTemp, bleMetrics.controllerTemp)
         }
@@ -450,11 +447,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             fallbackSocPercent = fallbackSoc,
             nowMs = now
         )
-        val currentTripEnergyWh = if (rideActive) {
-            maxOf(_rideEnergyWh, _totalEnergyUsedWh.toFloat())
-        } else {
-            0f
-        }
+        val currentTripEnergyWh = if (rideActive) _rideEnergyWh else 0f
         val tripAverageEfficiencyWhKm = when {
             distanceKm > 0.02 && currentTripEnergyWh > 0.5f -> (currentTripEnergyWh / distanceKm).toFloat()
             else -> 0f
@@ -507,6 +500,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             voltageSag = voltageSag,
             totalPowerW = powerW,
             speedKmH = speed,
+            controllerSpeedKmH = controllerSpeed,
             efficiencyWhKm = efficiency,
             tripDistance = distanceKm,
             soc = displaySocPercent,
@@ -1297,12 +1291,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }.launchIn(viewModelScope)
 
         settingsRepository.dashboardItems.onEach { items ->
-            val sanitized = items.filterNot { it == com.shawnrain.habe.data.MetricType.MOTOR_TEMP }
-            if (_dashboardItems.value != sanitized) {
-                _dashboardItems.value = sanitized
+            if (_dashboardItems.value != items) {
+                _dashboardItems.value = items
                 AppLogger.i(
                     TAG,
-                    "仪表排列已从仓库刷新：${sanitized.joinToString(",") { it.name }}"
+                    "仪表排列已从仓库刷新：${items.joinToString(",") { it.name }}"
                 )
             }
         }.launchIn(viewModelScope)
@@ -1326,7 +1319,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }.launchIn(viewModelScope)
 
         settingsRepository.rideHistory.onEach { history ->
-            val normalized = normalizeRideHistoryDistance(history)
+            val normalized = normalizeRideHistoryRecords(history)
             _rideHistory.value = normalized
             if (normalized != history) {
                 viewModelScope.launch {
@@ -1481,14 +1474,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun handleLocationUpdate(location: Location) {
         if (_isRideActive.value && !isRidePausedForStop()) {
-            val lastRideLocation = _lastRideLocation
-            if (lastRideLocation != null) {
-                val gapMs = (location.time - lastRideLocation.time).coerceAtLeast(0L)
-                if (!_rideDistanceUsingFallback && gapMs in 1L..GPS_DISTANCE_PAIR_MAX_GAP_MS) {
-                    _tripDistanceMeters += lastRideLocation.distanceTo(location).toDouble()
-                }
-            }
-            _rideDistanceUsingFallback = false
             _lastRideLocation = location
             val point = RideTrackPoint(location.latitude, location.longitude)
             if (rideTrackPoints.lastOrNull() != point) {
@@ -1530,21 +1515,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun updateRideSession(metrics: VehicleMetrics, now: Long) {
         val speed = metrics.speedKmH
+        val distanceSpeedKmh = metrics.controllerSpeedKmH.coerceAtLeast(0f)
         if (_rideLastDistanceUpdateAtMs <= 0L) {
             _rideLastDistanceUpdateAtMs = now
+            _rideLastDistanceSpeedKmh = distanceSpeedKmh
         } else {
             val dtSeconds = ((now - _rideLastDistanceUpdateAtMs).coerceAtLeast(0L) / 1000f)
                 .coerceAtMost(DISTANCE_FALLBACK_MAX_DT_SECONDS)
-            if (dtSeconds > 0f && !isRecentGpsAvailable(now)) {
-                val canIntegrateDistance = speed >= DISTANCE_FALLBACK_MIN_SPEED_KMH &&
-                    (abs(metrics.rpm) >= DISTANCE_FALLBACK_MIN_RPM ||
-                        abs(metrics.busCurrent) >= DISTANCE_FALLBACK_MIN_CURRENT_A)
-                if (canIntegrateDistance) {
-                    _tripDistanceMeters += ((speed / 3.6f) * dtSeconds).toDouble()
-                    _rideDistanceUsingFallback = true
+            if (dtSeconds > 0f) {
+                val avgDistanceSpeedKmh = ((_rideLastDistanceSpeedKmh + distanceSpeedKmh) * 0.5f)
+                    .coerceAtLeast(0f)
+                if (avgDistanceSpeedKmh >= DISTANCE_FALLBACK_MIN_SPEED_KMH) {
+                    _tripDistanceMeters += ((avgDistanceSpeedKmh / 3.6f) * dtSeconds).toDouble()
                 }
             }
             _rideLastDistanceUpdateAtMs = now
+            _rideLastDistanceSpeedKmh = distanceSpeedKmh
         }
 
         if (_pendingRideStop.value != null) {
@@ -1574,18 +1560,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _rideStopCandidateAtMs = null
         }
 
-        if (_rideLastEnergyUpdateAtMs > 0L) {
-            val deltaHours = (now - _rideLastEnergyUpdateAtMs) / 3_600_000f
-            if (metrics.totalPowerW >= 0f) {
-                _rideEnergyWh += (metrics.totalPowerW * deltaHours)
-            } else {
-                _rideRecoveredEnergyWh += (-metrics.totalPowerW * deltaHours)
-                _ridePeakRegenKw = maxOf(_ridePeakRegenKw, -metrics.totalPowerW / 1000f)
-            }
-        }
-        _rideLastEnergyUpdateAtMs = now
         _ridePeakPowerKw = maxOf(_ridePeakPowerKw, metrics.totalPowerW / 1000f)
-        _rideMaxControllerTemp = maxOf(_rideMaxControllerTemp, metrics.controllerTemp)
 
         if (now - _rideLastSampleAtMs >= RIDE_SAMPLE_INTERVAL_MS) {
             recordRideSample(metrics, now)
@@ -1606,7 +1581,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 voltageSag = metrics.voltageSag,
                 busCurrent = metrics.busCurrent,
                 phaseCurrent = metrics.phaseCurrent,
-                motorTemp = metrics.motorTemp,
                 controllerTemp = metrics.controllerTemp,
                 soc = metrics.soc,
                 estimatedRangeKm = metrics.estimatedRangeKm,
@@ -1624,8 +1598,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun authoritativeTripDistanceMeters(): Double {
-        val sampledDistanceMeters = rideSamples.lastOrNull()?.distanceMeters?.toDouble() ?: 0.0
-        return maxOf(_tripDistanceMeters, sampledDistanceMeters).coerceAtLeast(0.0)
+        return _tripDistanceMeters.coerceAtLeast(0.0)
     }
 
     private fun updateSpeedTestSession(metrics: VehicleMetrics, now: Long) {
@@ -1753,8 +1726,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _maxSpeed = 0f
         _totalSpeedSum = 0f
         _speedSamples = 0
-        _totalEnergyUsedWh = 0.0
-        _lastEnergyUpdateTime = System.currentTimeMillis()
         _sessionStartTime = System.currentTimeMillis()
         _rideStartedAtMs = _sessionStartTime
         rideStartVehicleMileageKm = currentVehicle.value.totalMileageKm
@@ -1767,7 +1738,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _rideMaxControllerTemp = 0f
         _rideLastEnergyUpdateAtMs = _sessionStartTime
         _rideLastDistanceUpdateAtMs = _sessionStartTime
-        _rideDistanceUsingFallback = false
+        _rideLastDistanceSpeedKmh = 0f
         _rideLastSampleAtMs = 0L
         _rideStopCandidateAtMs = null
         clearPendingRideStopState()
@@ -1790,9 +1761,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun stopRide(forceSave: Boolean = false, stopAtMs: Long = System.currentTimeMillis()): Boolean {
         if (!_isRideActive.value) return false
         clearPendingRideStopState()
-        _isRideActive.value = false
         val endedAtMs = stopAtMs.coerceAtLeast(_sessionStartTime)
         val finalMetrics = metrics.value
+        _isRideActive.value = false
         val shouldAppendFinalSample = rideSamples.isEmpty() ||
             rideSamples.last().timestampMs < endedAtMs
         if (shouldAppendFinalSample) {
@@ -1802,7 +1773,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val finalTripDistanceMeters = authoritativeTripDistanceMeters().toFloat()
         val durationMs = endedAtMs - _sessionStartTime
         val avgSpeed = if (_speedSamples > 0) _totalSpeedSum / _speedSamples else 0f
-        val finalEnergyWh = maxOf(_rideEnergyWh, _totalEnergyUsedWh.toFloat())
+        val finalEnergyWh = _rideEnergyWh
         val finalAvgEfficiencyWhKm = if (finalTripDistanceMeters > 20f) {
             (finalEnergyWh / (finalTripDistanceMeters / 1000.0f)).toFloat()
         } else {
@@ -1818,7 +1789,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             totalWh = finalEnergyWh,
             avgEfficiency = finalAvgEfficiencyWhKm
         )
-        val historyRecord = RideHistoryRecord(
+        val rawHistoryRecord = RideHistoryRecord(
             id = UUID.randomUUID().toString(),
             title = buildRideTitle(_sessionStartTime),
             startedAtMs = _sessionStartTime,
@@ -1832,6 +1803,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             avgEfficiencyWhKm = finalAvgEfficiencyWhKm,
             trackPoints = rideTrackPoints.toList(),
             samples = rideSamples.toList()
+        )
+        val historyRecord = normalizeRideHistoryRecord(
+            record = rawHistoryRecord,
+            wheelCircumferenceMm = currentVehicle.value.wheelCircumferenceMm,
+            polePairs = currentVehicle.value.polePairs
         )
         val hasMeaningfulData = hasMeaningfulRideData(historyRecord, finalEnergyWh)
         val shouldPersist = if (forceSave) {
@@ -1862,14 +1838,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _ridePeakPowerKw = 0f
         _ridePeakRegenKw = 0f
         _rideMaxControllerTemp = 0f
-        _totalEnergyUsedWh = 0.0
         _maxSpeed = 0f
         _totalSpeedSum = 0f
         _speedSamples = 0
         _rideLastDistanceUpdateAtMs = 0L
         _rideLastEnergyUpdateAtMs = 0L
-        _lastEnergyUpdateTime = 0L
-        _rideDistanceUsingFallback = false
+        _rideLastDistanceSpeedKmh = 0f
         return shouldPersist
     }
 
@@ -1889,12 +1863,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return false
     }
 
-    private fun normalizeRideHistoryDistance(records: List<RideHistoryRecord>): List<RideHistoryRecord> {
+    private fun normalizeRideHistoryRecords(records: List<RideHistoryRecord>): List<RideHistoryRecord> {
         if (records.isEmpty()) return records
         val profile = currentVehicle.value
         var changedCount = 0
         val normalized = records.map { record ->
-            backfillRideDistanceFromSamples(
+            normalizeRideHistoryRecord(
                 record = record,
                 wheelCircumferenceMm = profile.wheelCircumferenceMm,
                 polePairs = profile.polePairs
@@ -1903,9 +1877,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         if (changedCount > 0) {
-            AppLogger.i(TAG, "Ride history distance normalized for $changedCount record(s)")
+            AppLogger.i(TAG, "Ride history normalized for $changedCount record(s)")
         }
         return normalized
+    }
+
+    private fun normalizeRideHistoryRecord(
+        record: RideHistoryRecord,
+        wheelCircumferenceMm: Float,
+        polePairs: Int
+    ): RideHistoryRecord {
+        val distanceNormalized = backfillRideDistanceFromSamples(
+            record = record,
+            wheelCircumferenceMm = wheelCircumferenceMm,
+            polePairs = polePairs
+        )
+        val energyNormalizedSamples = normalizeRideEnergySamples(distanceNormalized)
+        if (energyNormalizedSamples.isEmpty()) return distanceNormalized
+
+        val finalDistanceMeters = energyNormalizedSamples.lastOrNull()?.distanceMeters?.takeIf { it > 1f }
+            ?: distanceNormalized.distanceMeters
+        val totalEnergyWh = maxOf(
+            distanceNormalized.totalEnergyWh.coerceAtLeast(0f),
+            energyNormalizedSamples.maxOfOrNull { it.totalEnergyWh } ?: 0f
+        )
+        val avgEfficiencyWhKm = if (finalDistanceMeters > 20f && totalEnergyWh > 0.01f) {
+            totalEnergyWh / (finalDistanceMeters / 1000f)
+        } else {
+            distanceNormalized.avgEfficiencyWhKm
+        }
+        val avgSpeedKmh = if (distanceNormalized.durationMs > 0L && finalDistanceMeters > 1f) {
+            ((finalDistanceMeters / 1000f) / (distanceNormalized.durationMs / 3_600_000f)).coerceAtLeast(0f)
+        } else {
+            distanceNormalized.avgSpeedKmh
+        }
+        return distanceNormalized.copy(
+            distanceMeters = finalDistanceMeters,
+            avgSpeedKmh = avgSpeedKmh,
+            totalEnergyWh = totalEnergyWh,
+            avgEfficiencyWhKm = avgEfficiencyWhKm,
+            samples = energyNormalizedSamples
+        )
     }
 
     private fun backfillRideDistanceFromSamples(
@@ -1938,9 +1950,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             else -> 1f
         }
 
-        var integratedDistanceMeters = maxOf(samples.first().distanceMeters, 0f)
+        var integratedDistanceMeters = 0f
         val rebuiltSamples = buildList(samples.size) {
-            add(samples.first().copy(distanceMeters = maxOf(samples.first().distanceMeters, 0f)))
+            add(samples.first().copy(distanceMeters = 0f))
             for (index in 1 until samples.size) {
                 val prev = samples[index - 1]
                 val cur = samples[index]
@@ -1958,17 +1970,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (dtSeconds > 0f && avgSpeed >= HISTORY_BACKFILL_MIN_SPEED_KMH) {
                     integratedDistanceMeters += ((avgSpeed / 3.6f) * dtSeconds)
                 }
-                val rebuiltDistance = maxOf(integratedDistanceMeters, cur.distanceMeters)
-                add(cur.copy(distanceMeters = rebuiltDistance))
+                add(cur.copy(distanceMeters = integratedDistanceMeters))
             }
         }
 
-        val sampleMaxDistance = samples.maxOfOrNull { it.distanceMeters } ?: 0f
-        val rebuiltTotalDistance = maxOf(
-            record.distanceMeters,
-            sampleMaxDistance,
-            rebuiltSamples.last().distanceMeters
-        )
+        val rebuiltTotalDistance = rebuiltSamples.last().distanceMeters
         if (rebuiltTotalDistance < HISTORY_BACKFILL_APPLY_MIN_DISTANCE_METERS) return record
 
         val rebuiltAvgEfficiency = if (rebuiltTotalDistance > 20f && record.totalEnergyWh > 0.01f) {
@@ -1999,13 +2005,81 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sample: RideMetricSample,
         rpmToSpeedRatio: Float
     ): Float {
-        if (sample.speedKmH >= HISTORY_BACKFILL_MIN_SPEED_KMH) {
-            return sample.speedKmH
-        }
         return if (sample.rpm >= HISTORY_BACKFILL_MIN_RPM) {
             (sample.rpm * rpmToSpeedRatio).coerceAtLeast(0f)
+        } else if (sample.speedKmH >= HISTORY_BACKFILL_MIN_SPEED_KMH) {
+            sample.speedKmH
         } else {
             0f
+        }
+    }
+
+    private fun normalizeRideEnergySamples(record: RideHistoryRecord): List<RideMetricSample> {
+        val samples = record.samples
+        if (samples.isEmpty()) return samples
+
+        val hasCumulativeEnergy = samples.any { it.totalEnergyWh > 0.01f }
+        val finalDistanceMeters = samples.lastOrNull()?.distanceMeters?.takeIf { it > 1f }
+            ?: record.distanceMeters.takeIf { it > 1f }
+            ?: 0f
+        val finalElapsedMs = samples.lastOrNull()?.elapsedMs?.takeIf { it > 0L }
+            ?: record.durationMs.takeIf { it > 0L }
+            ?: 0L
+
+        var energyOffsetWh = 0f
+        var previousRawEnergyWh = 0f
+        var runningTotalEnergyWh = 0f
+        var runningRecoveredWh = 0f
+        var previousSample: RideMetricSample? = null
+        val firstValidSoc = samples.firstOrNull { it.soc in 1f..100f }?.soc
+        var lastValidSoc = firstValidSoc ?: 0f
+
+        return samples.map { sample ->
+            val progress = when {
+                finalDistanceMeters > 1f && sample.distanceMeters > 0f ->
+                    (sample.distanceMeters / finalDistanceMeters).coerceIn(0f, 1f)
+                finalElapsedMs > 0L ->
+                    (sample.elapsedMs.toFloat() / finalElapsedMs.toFloat()).coerceIn(0f, 1f)
+                else -> 0f
+            }
+            val rawTotalEnergyWh = when {
+                hasCumulativeEnergy -> sample.totalEnergyWh.coerceAtLeast(0f)
+                record.totalEnergyWh > 0.01f -> (record.totalEnergyWh * progress).coerceAtLeast(0f)
+                else -> 0f
+            }
+            if (hasCumulativeEnergy && rawTotalEnergyWh + 0.05f < previousRawEnergyWh) {
+                energyOffsetWh += previousRawEnergyWh
+            }
+            previousRawEnergyWh = rawTotalEnergyWh
+            runningTotalEnergyWh = maxOf(
+                runningTotalEnergyWh,
+                (energyOffsetWh + rawTotalEnergyWh).coerceAtLeast(0f)
+            )
+
+            previousSample?.let { previous ->
+                val deltaMs = when {
+                    sample.timestampMs > previous.timestampMs -> sample.timestampMs - previous.timestampMs
+                    sample.elapsedMs > previous.elapsedMs -> sample.elapsedMs - previous.elapsedMs
+                    else -> 0L
+                }
+                val deltaHours = (deltaMs / 3_600_000f).coerceIn(0f, 5f / 3600f)
+                if (deltaHours > 0f) {
+                    val avgPowerW = ((previous.powerKw + sample.powerKw) * 1000f * 0.5f)
+                    if (avgPowerW < 0f) {
+                        runningRecoveredWh += (-avgPowerW * deltaHours)
+                    }
+                }
+            }
+            previousSample = sample
+            val normalizedSoc = sample.soc.takeIf { it in 1f..100f }?.also {
+                lastValidSoc = it
+            } ?: lastValidSoc
+
+            sample.copy(
+                soc = normalizedSoc,
+                totalEnergyWh = runningTotalEnergyWh.coerceAtMost(record.totalEnergyWh.coerceAtLeast(runningTotalEnergyWh)),
+                recoveredEnergyWh = runningRecoveredWh.coerceAtLeast(0f)
+            )
         }
     }
 
@@ -2048,7 +2122,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun maybePersistVehicleSnapshot(now: Long) {
         if (!_isRideActive.value) return
-        val tripDistanceKm = (_tripDistanceMeters / 1000.0).toFloat()
+        val tripDistanceKm = (authoritativeTripDistanceMeters() / 1000.0).toFloat()
         val dueByTime = now - lastVehicleSnapshotAtMs >= 3 * 60 * 1000L
         val dueByDistance = tripDistanceKm - lastVehicleSnapshotTripDistanceKm >= 1f
         if (!dueByTime && !dueByDistance) return
@@ -2061,14 +2135,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun persistVehicleSnapshot() {
-        val tripDistanceKm = (_tripDistanceMeters / 1000.0).toFloat()
+        val tripDistanceKm = (authoritativeTripDistanceMeters() / 1000.0).toFloat()
         val absoluteMileageKm = rideStartVehicleMileageKm + tripDistanceKm
         val learnedResistance = rideEnergyEstimator.currentLearnedInternalResistanceOhm()
         val observedEfficiencyWhKm = observeCurrentRideEfficiencyWhKm()
         settingsRepository.updateCurrentVehicle { profile ->
             val observedUsableEnergyRatio = observeCurrentRideUsableEnergyRatio(
                 profile = profile,
-                consumedEnergyWh = maxOf(_rideEnergyWh, _totalEnergyUsedWh.toFloat())
+                consumedEnergyWh = _rideEnergyWh
             )
             profile.copy(
                 totalMileageKm = absoluteMileageKm.coerceAtLeast(profile.totalMileageKm),
@@ -2092,9 +2166,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun observeCurrentRideEfficiencyWhKm(): Float {
-        val tripDistanceKm = (_tripDistanceMeters / 1000.0).toFloat()
+        val tripDistanceKm = (authoritativeTripDistanceMeters() / 1000.0).toFloat()
         if (tripDistanceKm < 0.25f) return 0f
-        val totalEnergyWh = maxOf(_rideEnergyWh, _totalEnergyUsedWh.toFloat())
+        val totalEnergyWh = _rideEnergyWh
         if (totalEnergyWh <= 1f) return 0f
         return (totalEnergyWh / tripDistanceKm).toFloat()
     }
@@ -2665,7 +2739,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "voltage_sag_v",
             "bus_current_a",
             "phase_current_a",
-            "motor_temp_c",
             "controller_temp_c",
             "soc_percent",
             "estimated_range_km",
@@ -2692,7 +2765,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         csvFloat(sample.voltageSag),
                         csvFloat(sample.busCurrent),
                         csvFloat(sample.phaseCurrent),
-                        csvFloat(sample.motorTemp),
                         csvFloat(sample.controllerTemp),
                         csvFloat(sample.soc),
                         csvFloat(sample.estimatedRangeKm),
@@ -2724,7 +2796,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addDashboardItem(type: com.shawnrain.habe.data.MetricType) {
-        if (type == com.shawnrain.habe.data.MetricType.MOTOR_TEMP) return
         val current = _dashboardItems.value.toMutableList()
         current.add(type)
         _dashboardItems.value = current

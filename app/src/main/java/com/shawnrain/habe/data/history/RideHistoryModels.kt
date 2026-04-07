@@ -30,7 +30,6 @@ data class RideMetricSample(
     val voltageSag: Float,
     val busCurrent: Float,
     val phaseCurrent: Float,
-    val motorTemp: Float,
     val controllerTemp: Float,
     val soc: Float,
     val estimatedRangeKm: Float = 0f,
@@ -53,7 +52,6 @@ data class RideMetricSample(
         .put("voltageSag", voltageSag.toDouble())
         .put("busCurrent", busCurrent.toDouble())
         .put("phaseCurrent", phaseCurrent.toDouble())
-        .put("motorTemp", motorTemp.toDouble())
         .put("controllerTemp", controllerTemp.toDouble())
         .put("soc", soc.toDouble())
         .put("estimatedRangeKm", estimatedRangeKm.toDouble())
@@ -78,7 +76,6 @@ data class RideMetricSample(
                 voltageSag = json.optDouble("voltageSag", 0.0).toFloat(),
                 busCurrent = json.optDouble("busCurrent", 0.0).toFloat(),
                 phaseCurrent = json.optDouble("phaseCurrent", 0.0).toFloat(),
-                motorTemp = json.optDouble("motorTemp", 0.0).toFloat(),
                 controllerTemp = json.optDouble("controllerTemp", 0.0).toFloat(),
                 soc = json.optDouble("soc", 0.0).toFloat(),
                 estimatedRangeKm = json.optDouble("estimatedRangeKm", 0.0).toFloat(),

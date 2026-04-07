@@ -596,7 +596,7 @@ class SettingsRepository(private val context: Context) {
             }
         }
         if (staged.isEmpty() || !hasAppOwnedKey) {
-            throw IllegalArgumentException("备份内容为空或不是 Habe 备份格式")
+            throw IllegalArgumentException("备份内容为空或不是 SmartDash 备份格式")
         }
 
         var imported = 0

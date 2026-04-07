@@ -2,7 +2,7 @@
 description: 标准化 Debug APK 构建、校验与归档
 ---
 
-本工作流用于生成 Habe Android 的最新 Debug APK，并输出构建日志、APK 路径与 SHA-256。
+本工作流用于生成 SmartDash Android 的最新 Debug APK，并输出构建日志、APK 路径与 SHA-256。
 
 > [!IMPORTANT]
 > `build-debug.sh` 仅用于本地调试或纯 Debug 环境验证。

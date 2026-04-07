@@ -45,9 +45,11 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SystemUpdateAlt
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.*
@@ -82,6 +84,8 @@ import com.shawnrain.habe.data.sync.BackupMetadata
 import com.shawnrain.habe.data.sync.BackupPreview
 import com.shawnrain.habe.data.sync.GoogleDriveAuth
 import com.shawnrain.habe.data.sync.SyncState
+import com.shawnrain.habe.data.update.AppReleaseInfo
+import com.shawnrain.habe.data.update.AppUpdateUiState
 import com.shawnrain.habe.debug.AppLogLevel
 import com.shawnrain.habe.ui.navigation.ApplyDialogWindowBlurEffect
 import com.shawnrain.habe.ui.navigation.BlurredAlertDialog
@@ -124,6 +128,7 @@ fun SettingsScreen(
     val lanBackupRestoring by viewModel.lanBackupRestoring.collectAsState()
     val driveSyncState by viewModel.driveSyncState.collectAsState()
     val driveBackupPreview by viewModel.driveBackupPreview.collectAsState()
+    val appUpdateState by viewModel.appUpdateState.collectAsState()
     val bottomContentPadding = 28.dp
     var stickyDriveSignedInState by remember { mutableStateOf<SyncState.SignedIn?>(null) }
     LaunchedEffect(driveSyncState) {
@@ -146,6 +151,7 @@ fun SettingsScreen(
     var showLanScannerDialog by remember { mutableStateOf(false) }
     var showDriveSignOutConfirm by remember { mutableStateOf(false) }
     var showDriveHistory by remember { mutableStateOf(false) }
+    var showAppUpdateSheet by remember { mutableStateOf(false) }
     var selectedDriveHistoryFileId by rememberSaveable { mutableStateOf<String?>(null) }
     val qrPayload = remember(lanBackupShare) { viewModel.currentLanBackupQrPayload() }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
@@ -188,6 +194,7 @@ fun SettingsScreen(
     }
     LaunchedEffect(Unit) {
         viewModel.checkDriveSignInStatus()
+        viewModel.checkForAppUpdate(silent = true)
     }
     val availableBackups = ((driveSyncState as? SyncState.SignedIn) ?: stickyDriveSignedInState)
         ?.availableBackups
@@ -778,6 +785,137 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SystemUpdateAlt,
+                                    contentDescription = null,
+                                    modifier = Modifier.padding(10.dp).size(18.dp),
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    "应用更新",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    "当前版本 ${appUpdateState.currentVersion.displayName}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = { viewModel.checkForAppUpdate() },
+                            shape = bezierPillShape(),
+                            enabled = !appUpdateState.isChecking && !appUpdateState.isDownloading
+                        ) {
+                            Text(if (appUpdateState.isChecking) "检查中…" else "检查更新")
+                        }
+                    }
+                    Text(
+                        "从 GitHub Releases 拉取最新正式包，下载完成后直接安装。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    when {
+                        appUpdateState.isDownloading -> {
+                            LinearProgressIndicator(
+                                progress = { appUpdateState.downloadProgress ?: 0f },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Text(
+                                "正在下载更新${appUpdateState.downloadProgress?.let { " ${((it.coerceIn(0f, 1f)) * 100).toInt()}%" } ?: ""}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        appUpdateState.isUpdateAvailable -> {
+                            val release = appUpdateState.availableRelease
+                            if (release != null) {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                    shape = MaterialTheme.shapes.large
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Text(
+                                                "发现新版本 v${release.versionName}",
+                                                style = MaterialTheme.typography.titleSmall,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                release.buildCode?.let { "build $it" } ?: "查看发布说明",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.82f)
+                                            )
+                                        }
+                                        Button(
+                                            onClick = { showAppUpdateSheet = true },
+                                            shape = bezierPillShape()
+                                        ) {
+                                            Text("查看")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        appUpdateState.lastCheckedAt != null -> {
+                            Text(
+                                "已是最新版本",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                    appUpdateState.errorMessage?.let { message ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.32f)
+                        ) {
+                            Text(
+                                message,
+                                modifier = Modifier.padding(10.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
             // Google Drive Cloud Sync Section
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -996,7 +1134,7 @@ fun SettingsScreen(
             onScanResult = { raw ->
                 val payload = LanBackupQrPayload.decode(raw)
                 if (payload == null) {
-                    viewModel.showLanBackupMessage("二维码无效：不是 Habe 换机码")
+                    viewModel.showLanBackupMessage("二维码无效：不是 SmartDash 换机码")
                 } else {
                     showLanScannerDialog = false
                     lanRestoreHost = payload.host
@@ -1124,6 +1262,186 @@ fun SettingsScreen(
                     }
                 )
             }
+        }
+    }
+    val availableRelease = appUpdateState.availableRelease
+    if (showAppUpdateSheet && availableRelease != null) {
+        BlurredModalBottomSheet(
+            onDismissRequest = { showAppUpdateSheet = false },
+            blurRadius = 34.dp
+        ) {
+            PredictiveBackPopupTransform(
+                onBack = { showAppUpdateSheet = false },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                AppUpdateReviewSheet(
+                    state = appUpdateState,
+                    release = availableRelease,
+                    canInstallPackage = viewModel.canInstallDownloadedAppUpdate(),
+                    onDownload = { viewModel.downloadAppUpdate() },
+                    onInstall = {
+                        val intent = if (viewModel.canInstallDownloadedAppUpdate()) {
+                            viewModel.createInstallDownloadedAppUpdateIntent()
+                        } else {
+                            viewModel.createManageUnknownSourcesIntent()
+                        }
+                        if (intent != null) {
+                            context.startActivity(intent)
+                        }
+                    },
+                    onOpenReleasePage = { release ->
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, android.net.Uri.parse(release.htmlUrl))
+                        )
+                    },
+                    onDismiss = { showAppUpdateSheet = false }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppUpdateReviewSheet(
+    state: AppUpdateUiState,
+    release: AppReleaseInfo,
+    canInstallPackage: Boolean,
+    onDownload: () -> Unit,
+    onInstall: () -> Unit,
+    onOpenReleasePage: (AppReleaseInfo) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val progress = state.downloadProgress?.coerceIn(0f, 1f) ?: 0f
+    val installActionLabel = when {
+        !state.hasDownloadedApk -> "下载更新"
+        canInstallPackage -> "安装更新"
+        else -> "允许安装"
+    }
+    val supportText = when {
+        state.hasDownloadedApk && !canInstallPackage -> "安装前需要先允许 SmartDash 安装未知来源应用。"
+        state.hasDownloadedApk && !state.isDownloading -> "安装包已经准备好，可以直接开始安装。"
+        state.isDownloading -> "安装包会下载到本地缓存，完成后可直接开始安装。"
+        else -> "这版会从 GitHub Releases 拉取正式 APK，并保持和现有 overlay 一致的体验。"
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("版本更新", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+        Text(
+            "当前 ${state.currentVersion.displayName}，可更新到 v${release.versionName}${release.buildCode?.let { " (build $it)" } ?: ""}。",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(release.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            release.publishedAt?.replace("T", " ")?.removeSuffix("Z") ?: release.tagName,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Surface(
+                        shape = bezierPillShape(),
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Text(
+                            "GitHub Release",
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+                Text(
+                    supportText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (state.isDownloading) {
+                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                    Text(
+                        "下载中 ${(progress * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("更新说明", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    release.notes.ifBlank { "这次发布没有额外说明。" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            OutlinedButton(
+                onClick = { onOpenReleasePage(release) },
+                modifier = Modifier.weight(1f),
+                shape = bezierPillShape()
+            ) {
+                Text("打开 Release")
+            }
+            Button(
+                onClick = {
+                    if (state.hasDownloadedApk) {
+                        onInstall()
+                    } else {
+                        onDownload()
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                enabled = !state.isDownloading,
+                shape = bezierPillShape()
+            ) {
+                Icon(
+                    imageVector = if (state.hasDownloadedApk) Icons.Default.SystemUpdateAlt else Icons.Default.Download,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(installActionLabel)
+            }
+        }
+        TextButton(
+            onClick = onDismiss,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+            shape = bezierPillShape()
+        ) {
+            Text("稍后再说")
         }
     }
 }

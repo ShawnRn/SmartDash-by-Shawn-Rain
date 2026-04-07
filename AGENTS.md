@@ -1,7 +1,7 @@
-# Habe Dashboard - Android 原生迁移项目 (AGENTS.md)
+# SmartDash by Shawn Rain - Android 原生项目 (AGENTS.md)
 
 ## 1. 项目目标
-`Habe Dashboard` 是对原微信小程序版 “Habe仪表” 的原生 Android 重构，目标是把高频骑行仪表、控制器协议、BMS、测速与调参能力迁到本地端，解决小程序在 BLE 并发、界面刷新、后台能力、权限与商业限制上的短板。
+`SmartDash by Shawn Rain` 是一款 Android 原生骑行仪表项目，目标是把高频骑行仪表、控制器协议、BMS、测速、调参、行程记录与跨设备同步能力稳定落到本地端。
 
 当前仓库定位：
 - Android 原生骑行仪表主工程
@@ -11,6 +11,7 @@
 
 ## 2. 技术栈与构建基线
 - `namespace` / `applicationId`: `com.shawnrain.habe`
+- 品牌名 / 桌面显示名: `SmartDash`
 - Android Gradle Plugin: `8.5.0`
 - `compileSdk`: `36`（`gradle.properties` 中 `android.suppressUnsupportedCompileSdk=36` 压制警告）
 - `targetSdk`: `36`

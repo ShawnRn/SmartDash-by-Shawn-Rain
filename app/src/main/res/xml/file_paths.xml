@@ -3,6 +3,9 @@
     <cache-path
         name="exports"
         path="exports/" />
+    <cache-path
+        name="app_updates"
+        path="app-updates/" />
     <files-path
         name="internal_exports"
         path="exports/" />

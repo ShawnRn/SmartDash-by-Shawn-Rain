@@ -21,10 +21,10 @@ keytool -genkeypair -v \
   -keysize 4096 \
   -validity 36500 \
   -keypass "$KEY_PASSWORD" \
-  -dname "CN=Shawn Rain, OU=Habe Dashboard, O=Shawn Rain, L=Shanghai, ST=Shanghai, C=CN"
+  -dname "CN=Shawn Rain, OU=SmartDash by Shawn Rain, O=Shawn Rain, L=Shanghai, ST=Shanghai, C=CN"
 
 cat > "$OUT_DIR/SIGNING_INFO.txt" <<INFO
-Habe Android Release Signing
+SmartDash Android Release Signing
 Created at: $(date '+%Y-%m-%d %H:%M:%S')
 
 Keystore file:

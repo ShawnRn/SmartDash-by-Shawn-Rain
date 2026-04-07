@@ -45,7 +45,7 @@ keytool -genkeypair -v \
   -keysize 4096 \
   -validity 36500 \
   -keypass "$key_password" \
-  -dname "CN=Shawn Rain, OU=Habe Dashboard, O=Shawn Rain, L=Shanghai, ST=Shanghai, C=CN"
+  -dname "CN=Shawn Rain, OU=SmartDash by Shawn Rain, O=Shawn Rain, L=Shanghai, ST=Shanghai, C=CN"
 
 security add-generic-password -U -a "$USER" -s "habe.android.release.store.path" -w "$store_file"
 security add-generic-password -U -a "$USER" -s "habe.android.release.store.password" -w "$store_password"

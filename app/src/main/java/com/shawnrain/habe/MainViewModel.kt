@@ -2638,8 +2638,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             type = "image/png"
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, "SmartDash ${record.label} 加速成绩")
-            putExtra(Intent.EXTRA_TEXT, "SmartDash ${record.label} 加速成绩：${formatDuration(record.timeMs)}")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = android.content.ClipData.newUri(
+                getApplication<Application>().contentResolver,
+                "SmartDash speed test poster",
+                uri
+            )
         }
         return Intent.createChooser(shareIntent, "分享加速成绩")
     }
@@ -2651,8 +2655,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             type = "image/png"
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, "SmartDash ${record.title} 行程记录")
-            putExtra(Intent.EXTRA_TEXT, "SmartDash 行程记录：${record.title}")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = android.content.ClipData.newUri(
+                getApplication<Application>().contentResolver,
+                "SmartDash ride poster",
+                uri
+            )
         }
         return Intent.createChooser(shareIntent, "分享行程记录")
     }
@@ -2666,12 +2674,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun createRideCsvShareIntent(record: RideHistoryRecord): Intent {
         val csvUri = exportText(buildRideCsv(record), "ride-${record.id}.csv")
+        AppLogger.i(TAG, "导出行程 CSV file=ride-${record.id}.csv samples=${record.samples.size}")
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "text/csv"
             putExtra(Intent.EXTRA_STREAM, csvUri)
             putExtra(Intent.EXTRA_SUBJECT, "SmartDash ${record.title} 原始数据")
-            putExtra(Intent.EXTRA_TEXT, "SmartDash 行程原始数据：${record.title}")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = android.content.ClipData.newUri(
+                getApplication<Application>().contentResolver,
+                "SmartDash ride csv",
+                csvUri
+            )
         }
         return Intent.createChooser(shareIntent, "导出行程原始数据")
     }

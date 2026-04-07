@@ -1384,26 +1384,17 @@ private fun AboutSmartDashDialog(
                             .padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 20.dp + navigationBottomInset),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text("关于 SmartDash", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
-                                Text(
-                                    "项目资料、作者信息与版本更新",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1
-                                )
-                            }
-                            TextButton(onClick = ::requestDismiss) {
-                                Text("完成")
-                            }
+                            Text("关于 SmartDash", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                            Text(
+                                "项目资料、作者信息与版本更新",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1
+                            )
                         }
 
                         Surface(
@@ -1445,7 +1436,7 @@ private fun AboutSmartDashDialog(
                                         AboutChip("骑行仪表")
                                         AboutChip("行程记录")
                                         AboutChip("云同步")
-                                        AboutChip("v$versionLabel")
+                                        AboutChip(versionLabel)
                                     }
                                 }
                             }
@@ -1484,33 +1475,18 @@ private fun SmartDashBrandIcon(
     modifier: Modifier = Modifier
 ) {
     val shape = bezierRoundedShape(size * 0.28f)
-    Surface(
-        modifier = modifier.size(size),
-        shape = shape,
-        color = Color.Transparent,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.24f))
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f))
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    brush = Brush.linearGradient(
-                        colors = listOf(
-                            Color(0xFFEAF0FF),
-                            Color(0xFFDCE4FF)
-                        )
-                    )
-                )
-                .padding(size * 0.12f),
-            contentAlignment = Alignment.Center
-        ) {
-            Image(
-                painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                contentDescription = "SmartDash icon",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
+        Image(
+            painter = painterResource(id = R.drawable.ic_launcher_foreground_bitmap),
+            contentDescription = "SmartDash icon",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }
 

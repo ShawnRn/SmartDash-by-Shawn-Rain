@@ -8,6 +8,10 @@
 - `AlertDialog`
 - `ModalBottomSheet`
 
+相关技能：
+- `.agents/skills/smartdash-overlay-dialog/SKILL.md`
+- `.agents/workflows/overlay-dialog.md`
+
 实施原则：
 1. 优先复用 `app/src/main/java/com/shawnrain/habe/ui/navigation/PredictiveBackMotion.kt`
 2. 返回手势过程中至少提供：
@@ -21,11 +25,12 @@
    - 左右边缘返回方向是否正确
    - 与拖拽关闭手势是否冲突
 5. 所有弹窗窗口默认复用 `DialogWindowEffects.kt`，确保背景模糊不是“某几个弹窗特例”
-6. 行程详情卡片 -> 横屏全屏图表，必须满足：
+6. 涉及设置页「关于」/「更新」/品牌信息类弹层时，优先遵循 `.agents/workflows/overlay-dialog.md` 的容器几何和排版约定
+7. 行程详情卡片 -> 横屏全屏图表，必须满足：
    - 打开和退出都有非线性动画（推荐：进入 `FastOutSlowIn`，退出 `FastOutLinearIn`）
    - 所有退出入口（返回手势/遮罩点击/按钮/下拉）走统一的 dismiss 动画通道
    - 动线保持“从哪来回哪去”，避免一个入口多套退出效果造成割裂
-7. 行程详情概览卡片编辑约定：
+8. 行程详情概览卡片编辑约定：
    - 长按卡片直接进入编辑并触发拖拽
    - 非编辑态不显示“编辑卡片”按钮
    - 仅编辑态显示“完成”和“添加卡片”

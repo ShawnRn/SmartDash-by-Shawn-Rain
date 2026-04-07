@@ -18,8 +18,8 @@ android {
         applicationId = "com.shawnrain.habe"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2026040702
-        versionName = "1.0.3"
+        versionCode = 2026040703
+        versionName = "1.0.4"
         
         vectorDrawables {
             useSupportLibrary = true
@@ -75,6 +75,11 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    lint {
+        // SmartDash intentionally uses a date-based versionCode that remains below Int.MAX_VALUE
+        // so release-signed upgrades continue to install over existing devices without data loss.
+        disable += "HighAppVersionCode"
     }
 }
 

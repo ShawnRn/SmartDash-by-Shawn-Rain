@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.net.Uri
 import android.graphics.Color as AndroidColor
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,7 +46,10 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
@@ -63,9 +67,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -75,6 +80,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.shawnrain.habe.MainViewModel
+import com.shawnrain.habe.R
 import com.shawnrain.habe.data.DataSource
 import com.shawnrain.habe.data.SpeedSource
 import com.shawnrain.habe.data.VehicleProfile
@@ -152,6 +158,7 @@ fun SettingsScreen(
     var showDriveSignOutConfirm by remember { mutableStateOf(false) }
     var showDriveHistory by remember { mutableStateOf(false) }
     var showAppUpdateSheet by remember { mutableStateOf(false) }
+    var showAboutSmartDashSheet by remember { mutableStateOf(false) }
     var selectedDriveHistoryFileId by rememberSaveable { mutableStateOf<String?>(null) }
     val qrPayload = remember(lanBackupShare) { viewModel.currentLanBackupQrPayload() }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
@@ -185,6 +192,22 @@ fun SettingsScreen(
     val handleDriveSignIn = {
         val intent = GoogleDriveAuth(appContext).getSignInIntent()
         driveSignInLauncher.launch(intent)
+    }
+    val openGithub = {
+        context.startActivity(
+            Intent(
+                Intent.ACTION_VIEW,
+                Uri.parse("https://github.com/ShawnRn/SmartDash-by-Shawn-Rain")
+            )
+        )
+    }
+    val sendEmail = {
+        context.startActivity(
+            Intent(
+                Intent.ACTION_SENDTO,
+                Uri.parse("mailto:shawnrain.dev@gmail.com")
+            )
+        )
     }
 
     LaunchedEffect(lanBackupShare.isSharing) {
@@ -788,7 +811,7 @@ fun SettingsScreen(
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -796,120 +819,69 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer
+                                shape = RoundedCornerShape(24.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                tonalElevation = 2.dp
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.SystemUpdateAlt,
-                                    contentDescription = null,
-                                    modifier = Modifier.padding(10.dp).size(18.dp),
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_launcher_foreground_bitmap),
+                                    contentDescription = "SmartDash icon",
+                                    modifier = Modifier
+                                        .size(72.dp)
+                                        .padding(10.dp)
                                 )
                             }
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(
-                                    "应用更新",
+                                    "关于 SmartDash",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                                 Text(
-                                    "当前版本 ${appUpdateState.currentVersion.displayName}",
+                                    "SmartDash by Shawn Rain",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "作者 Shawn Rain · GitHub / 邮箱 / 应用更新",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
                         OutlinedButton(
-                            onClick = { viewModel.checkForAppUpdate() },
-                            shape = bezierPillShape(),
-                            enabled = !appUpdateState.isChecking && !appUpdateState.isDownloading
+                            onClick = { showAboutSmartDashSheet = true },
+                            shape = bezierPillShape()
                         ) {
-                            Text(if (appUpdateState.isChecking) "检查中…" else "检查更新")
+                            Text("查看")
                         }
                     }
-                    Text(
-                        "从 GitHub Releases 拉取最新正式包，下载完成后直接安装。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    when {
-                        appUpdateState.isDownloading -> {
-                            LinearProgressIndicator(
-                                progress = { appUpdateState.downloadProgress ?: 0f },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Text(
-                                "正在下载更新${appUpdateState.downloadProgress?.let { " ${((it.coerceIn(0f, 1f)) * 100).toInt()}%" } ?: ""}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        appUpdateState.isUpdateAvailable -> {
-                            val release = appUpdateState.availableRelease
-                            if (release != null) {
-                                Surface(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                                    shape = MaterialTheme.shapes.large
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                                        ) {
-                                            Text(
-                                                "发现新版本 v${release.versionName}",
-                                                style = MaterialTheme.typography.titleSmall,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                release.buildCode?.let { "build $it" } ?: "查看发布说明",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.82f)
-                                            )
-                                        }
-                                        Button(
-                                            onClick = { showAppUpdateSheet = true },
-                                            shape = bezierPillShape()
-                                        ) {
-                                            Text("查看")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        appUpdateState.lastCheckedAt != null -> {
-                            Text(
-                                "已是最新版本",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                    appUpdateState.errorMessage?.let { message ->
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.medium,
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.32f)
-                        ) {
-                            Text(
-                                message,
-                                modifier = Modifier.padding(10.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                        }
+
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f)
+                    ) {
+                        Text(
+                            when {
+                                appUpdateState.isDownloading ->
+                                    "正在下载更新 ${((appUpdateState.downloadProgress ?: 0f).coerceIn(0f, 1f) * 100).toInt()}%，可在关于页里继续查看并安装。"
+                                appUpdateState.isUpdateAvailable ->
+                                    "发现新版本 v${appUpdateState.availableRelease?.versionName}，已放进关于页里统一处理。"
+                                appUpdateState.isChecking ->
+                                    "正在检查 GitHub Releases 最新正式包。"
+                                else ->
+                                    "统一使用 overlay 展示项目信息和应用更新，保持模糊背景、跟手返回和轻量动效的一致体验。"
+                            },
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                     }
                 }
             }
@@ -1296,6 +1268,376 @@ fun SettingsScreen(
                     },
                     onDismiss = { showAppUpdateSheet = false }
                 )
+            }
+        }
+    }
+    if (showAboutSmartDashSheet) {
+        BlurredModalBottomSheet(
+            onDismissRequest = { showAboutSmartDashSheet = false },
+            blurRadius = 34.dp
+        ) {
+            PredictiveBackPopupTransform(
+                onBack = { showAboutSmartDashSheet = false },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                AboutSmartDashSheet(
+                    appUpdateState = appUpdateState,
+                    versionLabel = appUpdateState.currentVersion.displayName,
+                    onCheckForUpdate = { viewModel.checkForAppUpdate() },
+                    onOpenUpdateSheet = { showAppUpdateSheet = true },
+                    onOpenGithub = openGithub,
+                    onSendEmail = sendEmail,
+                    onDismiss = { showAboutSmartDashSheet = false }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AboutSmartDashSheet(
+    appUpdateState: AppUpdateUiState,
+    versionLabel: String,
+    onCheckForUpdate: () -> Unit,
+    onOpenUpdateSheet: () -> Unit,
+    onOpenGithub: () -> Unit,
+    onSendEmail: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var revealContent by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        revealContent = true
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("关于 SmartDash", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                Text(
+                    "统一的设置 overlay，保留模糊、圆角和预见返回体验。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            TextButton(onClick = onDismiss) {
+                Text("完成")
+            }
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = bezierRoundedShape(32.dp),
+            color = Color.Transparent
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(
+                        brush = Brush.linearGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
+                                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.82f)
+                            )
+                        )
+                    )
+                    .padding(18.dp)
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(28.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_launcher_foreground_bitmap),
+                            contentDescription = "SmartDash icon",
+                            modifier = Modifier
+                                .size(88.dp)
+                                .padding(12.dp)
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            "SmartDash by Shawn Rain",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Black,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            "让骑行仪表、控制器连接、行程记录和云同步在手机上形成一套稳定体验。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
+                        )
+                        Surface(
+                            shape = bezierPillShape(),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.68f)
+                        ) {
+                            Text(
+                                "当前版本 $versionLabel",
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = revealContent,
+            enter = fadeIn(tween(260, delayMillis = 60)) + slideInVertically(
+                animationSpec = tween(320, delayMillis = 60, easing = FastOutSlowInEasing)
+            ) { it / 6 }
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                AboutSmartDashUpdateRow(
+                    state = appUpdateState,
+                    versionLabel = versionLabel,
+                    onCheckForUpdate = onCheckForUpdate,
+                    onOpenUpdateSheet = onOpenUpdateSheet
+                )
+                AboutSmartDashActionRow(
+                    icon = Icons.Default.Code,
+                    title = "GitHub",
+                    value = "ShawnRn/SmartDash-by-Shawn-Rain",
+                    supporting = "查看项目仓库、Release 和隐私政策",
+                    onClick = onOpenGithub
+                )
+                AboutSmartDashActionRow(
+                    icon = Icons.Default.Email,
+                    title = "邮箱",
+                    value = "shawnrain.dev@gmail.com",
+                    supporting = "反馈问题、合作或隐私相关联系",
+                    onClick = onSendEmail
+                )
+                AboutSmartDashInfoRow(
+                    icon = Icons.Default.Person,
+                    title = "作者",
+                    value = "Shawn Rain",
+                    supporting = "SmartDash 项目维护者"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AboutSmartDashUpdateRow(
+    state: AppUpdateUiState,
+    versionLabel: String,
+    onCheckForUpdate: () -> Unit,
+    onOpenUpdateSheet: () -> Unit
+) {
+    val actionLabel = when {
+        state.isDownloading -> "查看下载"
+        state.isUpdateAvailable -> "查看更新"
+        state.isChecking -> "检查中…"
+        else -> "检查更新"
+    }
+    val summary = when {
+        state.isDownloading -> "正在下载 ${((state.downloadProgress ?: 0f).coerceIn(0f, 1f) * 100).toInt()}%"
+        state.isUpdateAvailable -> "发现新版本 v${state.availableRelease?.versionName}"
+        state.errorMessage != null -> state.errorMessage
+        state.lastCheckedAt != null -> "已是最新版本"
+        else -> "从 GitHub Releases 拉取最新正式 APK"
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = bezierRoundedShape(26.dp),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SystemUpdateAlt,
+                        contentDescription = null,
+                        modifier = Modifier.padding(10.dp).size(18.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text("应用更新", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(
+                        "当前版本 $versionLabel",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (state.errorMessage != null) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f)
+                        }
+                    )
+                }
+            }
+            if (state.isDownloading) {
+                LinearProgressIndicator(
+                    progress = { state.downloadProgress ?: 0f },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onCheckForUpdate,
+                    enabled = !state.isChecking && !state.isDownloading,
+                    shape = bezierPillShape(),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(if (state.isChecking) "检查中…" else "检查更新")
+                }
+                Button(
+                    onClick = onOpenUpdateSheet,
+                    enabled = state.isUpdateAvailable || state.hasDownloadedApk || state.isDownloading,
+                    shape = bezierPillShape(),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(actionLabel)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AboutSmartDashActionRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    value: String,
+    supporting: String? = null,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = bezierRoundedShape(26.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.padding(10.dp).size(18.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    value,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (supporting != null) {
+                    Text(
+                        supporting,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+                    )
+                }
+            }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun AboutSmartDashInfoRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    value: String,
+    supporting: String? = null
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = bezierRoundedShape(26.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.padding(10.dp).size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    value,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (supporting != null) {
+                    Text(
+                        supporting,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+                    )
+                }
             }
         }
     }

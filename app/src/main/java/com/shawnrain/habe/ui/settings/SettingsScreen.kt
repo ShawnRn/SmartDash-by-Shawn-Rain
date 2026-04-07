@@ -1262,44 +1262,18 @@ private fun AboutSmartDashEntryCard(
     appUpdateState: AppUpdateUiState,
     onOpen: () -> Unit
 ) {
-    val summary = when {
-        appUpdateState.isDownloading ->
-            "正在下载 ${((appUpdateState.downloadProgress ?: 0f).coerceIn(0f, 1f) * 100).toInt()}%"
-        appUpdateState.isUpdateAvailable ->
-            "发现新版本 v${appUpdateState.availableRelease?.versionName}"
-        appUpdateState.isChecking ->
-            "正在检查更新"
-        else ->
-            "GitHub · 邮箱 · 版本更新"
-    }
-
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            SmartDashBrandIcon(size = 56.dp)
             Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
+                modifier = Modifier.weight(1f)
             ) {
                 Text("关于 SmartDash", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    "作者 Shawn Rain",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
-                )
-                Text(
-                    summary,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
             }
             OutlinedButton(onClick = onOpen, shape = bezierPillShape()) {
                 Text("查看")
@@ -1308,7 +1282,6 @@ private fun AboutSmartDashEntryCard(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AboutSmartDashDialog(
     appUpdateState: AppUpdateUiState,
@@ -1430,12 +1403,6 @@ private fun AboutSmartDashDialog(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text("关于 SmartDash", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
-                            Text(
-                                "项目资料、作者信息与版本更新",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1
-                            )
                         }
 
                         Surface(
@@ -1450,7 +1417,6 @@ private fun AboutSmartDashDialog(
                                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                                 verticalAlignment = Alignment.Top
                             ) {
-                                SmartDashBrandIcon(size = 88.dp)
                                 Column(
                                     modifier = Modifier.weight(1f),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1463,22 +1429,17 @@ private fun AboutSmartDashDialog(
                                         color = MaterialTheme.colorScheme.onPrimaryContainer
                                     )
                                     Text(
-                                        "作者 Shawn Rain",
+                                        "By Shawn Rain",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.92f),
                                         maxLines = 1
                                     )
-                                    FlowRow(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                                        maxItemsInEachRow = 2
-                                    ) {
-                                        AboutChip("骑行仪表")
-                                        AboutChip("行程记录")
-                                        AboutChip("云同步")
-                                        AboutChip(versionLabel)
-                                    }
+                                    Text(
+                                        versionLabel,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f),
+                                        maxLines = 1
+                                    )
                                 }
                             }
                         }
@@ -1507,42 +1468,6 @@ private fun AboutSmartDashDialog(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun SmartDashBrandIcon(
-    size: Dp,
-    modifier: Modifier = Modifier
-) {
-    val shape = bezierRoundedShape(size * 0.28f)
-    Box(
-        modifier = modifier
-            .size(size)
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f))
-    ) {
-        Image(
-            painter = painterResource(id = R.drawable.ic_launcher_foreground_bitmap),
-            contentDescription = "SmartDash icon",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
-    }
-}
-
-@Composable
-private fun AboutChip(label: String) {
-    Surface(
-        shape = bezierPillShape(),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f)
-    ) {
-        Text(
-            label,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface
-        )
     }
 }
 

@@ -4,8 +4,12 @@
 
 当前正式版本：
 
-- `versionName`: `1.0.1`
-- `versionCode`: `2026040700`
+- `versionName`: `1.0.2`
+- `versionCode`: `2026040701`
+
+隐私政策：
+
+- [Privacy Policy](./PRIVACY_POLICY.md)
 
 ## 核心能力
 
@@ -56,6 +60,10 @@ GitHub Actions 工作流：
 - GitHub Actions artifact
 - GitHub Release 资产
 - `.sha256` 校验文件
+
+OAuth 配置可用公开链接：
+
+- `https://github.com/ShawnRn/SmartDash-by-Shawn-Rain/blob/main/PRIVACY_POLICY.md`
 
 ## 仓库约束
 

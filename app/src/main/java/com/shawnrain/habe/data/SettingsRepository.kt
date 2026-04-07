@@ -17,6 +17,7 @@ import com.shawnrain.habe.data.speedtest.SpeedTestRecord
 import com.shawnrain.habe.data.sync.BackupPreview
 import com.shawnrain.habe.data.sync.BackupPreviewRide
 import com.shawnrain.habe.data.sync.BackupPreviewVehicle
+import com.shawnrain.habe.data.sync.BackupRetentionPolicy
 import com.shawnrain.habe.debug.AppLogLevel
 import org.json.JSONArray
 import org.json.JSONObject
@@ -86,6 +87,7 @@ class SettingsRepository(private val context: Context) {
         const val K_LAST_CONTROLLER_PROTOCOL_ID = "last_controller_protocol_id"
         val LOG_LEVEL = stringPreferencesKey("log_level")
         val OVERLAY_ENABLED = booleanPreferencesKey("overlay_enabled")
+        val DRIVE_BACKUP_RETENTION = stringPreferencesKey("drive_backup_retention")
 
         private fun syncMetaName(name: String): String = "$SYNC_META_PREFIX$name"
         private fun syncMetaKey(name: String) = longPreferencesKey(syncMetaName(name))
@@ -271,6 +273,10 @@ class SettingsRepository(private val context: Context) {
         pref.safeGet(OVERLAY_ENABLED) ?: false
     }
 
+    val driveBackupRetentionPolicy: Flow<BackupRetentionPolicy> = preferencesFlow.map { pref ->
+        BackupRetentionPolicy.fromName(pref.safeGet(DRIVE_BACKUP_RETENTION))
+    }
+
     val lastControllerDeviceAddress: Flow<String?> = preferencesFlow.map { pref ->
         val profiles = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
         val currentId = profiles.firstOrNull { it.id == pref.safeGet(CURRENT_VEHICLE_ID) }?.id ?: profiles.first().id
@@ -419,6 +425,13 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit {
             it[vKey(id, K_DASH_ITEMS)] = sanitized.joinToString(",") { item -> item.name }
             markSyncedAt(it, "v_${id}_$K_DASH_ITEMS")
+        }
+    }
+
+    suspend fun saveDriveBackupRetentionPolicy(policy: BackupRetentionPolicy) {
+        context.dataStore.edit {
+            it[DRIVE_BACKUP_RETENTION] = policy.name
+            markSyncedAt(it, DRIVE_BACKUP_RETENTION.name)
         }
     }
 

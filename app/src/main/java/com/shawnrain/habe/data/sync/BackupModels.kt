@@ -96,6 +96,33 @@ sealed class SyncState {
     data class Error(val message: String, val recoverable: Boolean = true) : SyncState()
 }
 
+enum class BackupRetentionPolicy(
+    val label: String,
+    val summary: String,
+    val retentionDays: Int?
+) {
+    KEEP_ALL(
+        label = "全部保留",
+        summary = "不自动清理历史版本",
+        retentionDays = null
+    ),
+    DAYS_7(
+        label = "7 天内",
+        summary = "自动清理 7 天前的历史版本",
+        retentionDays = 7
+    ),
+    DAYS_30(
+        label = "30 天内",
+        summary = "自动清理 30 天前的历史版本",
+        retentionDays = 30
+    );
+
+    companion object {
+        fun fromName(name: String?): BackupRetentionPolicy =
+            entries.firstOrNull { it.name == name } ?: KEEP_ALL
+    }
+}
+
 enum class ImportStrategy {
     OVERWRITE_ALL,        // Wipe local, apply remote
     MERGE_VEHICLES,       // Only merge vehicle profiles

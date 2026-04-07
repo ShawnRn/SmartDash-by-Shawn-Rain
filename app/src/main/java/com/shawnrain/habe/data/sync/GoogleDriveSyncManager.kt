@@ -241,6 +241,39 @@ class GoogleDriveSyncManager(private val context: Context) {
         }
     }
 
+    /**
+     * Deletes expired historical backups according to the chosen retention policy.
+     * The newest backup is always preserved even if it falls outside the retention window.
+     */
+    suspend fun pruneBackups(policy: BackupRetentionPolicy): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            val retentionDays = policy.retentionDays ?: return@withContext Result.success(0)
+            val backups = listBackups().getOrElse { throw it }
+            if (backups.size <= 1) {
+                return@withContext Result.success(0)
+            }
+
+            val cutoffMs = System.currentTimeMillis() - retentionDays * 24L * 60L * 60L * 1000L
+            val expiredBackups = backups
+                .drop(1) // newest version is always preserved
+                .filter { it.createdAt < cutoffMs }
+
+            var deletedCount = 0
+            expiredBackups.forEach { backup ->
+                deleteBackup(backup.fileId).getOrElse { throw it }
+                deletedCount += 1
+            }
+
+            if (deletedCount > 0) {
+                AppLogger.i(TAG, "Pruned $deletedCount expired Drive backups with policy=${policy.name}")
+            }
+            Result.success(deletedCount)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Prune backups failed", e)
+            Result.failure(e)
+        }
+    }
+
     // ======== Private Helpers ========
 
     private suspend fun uploadFile(

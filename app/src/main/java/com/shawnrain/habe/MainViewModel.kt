@@ -38,6 +38,7 @@ import com.shawnrain.habe.data.migration.LanBackupTransfer
 import com.shawnrain.habe.data.sync.GoogleDriveSyncManager
 import com.shawnrain.habe.data.sync.BackupMetadata
 import com.shawnrain.habe.data.sync.BackupPreview
+import com.shawnrain.habe.data.sync.BackupRetentionPolicy
 import com.shawnrain.habe.data.sync.SyncState
 import com.shawnrain.habe.data.update.AppReleaseInfo
 import com.shawnrain.habe.data.update.AppUpdateManager
@@ -267,6 +268,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val controllerBrand = settingsRepository.controllerBrand.stateIn(viewModelScope, SharingStarted.Lazily, "auto")
     val logLevel = settingsRepository.logLevel.stateIn(viewModelScope, SharingStarted.Lazily, AppLogLevel.INFO)
     val overlayEnabled = settingsRepository.overlayEnabled.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val driveBackupRetentionPolicy = settingsRepository.driveBackupRetentionPolicy.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        BackupRetentionPolicy.KEEP_ALL
+    )
     val vehicleProfiles = settingsRepository.vehicleProfiles.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
@@ -815,7 +821,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val backupJson = settingsRepository.exportBackupJson()
             val result = driveSyncManager.uploadBackup(backupJson)
             result.fold(
-                onSuccess = { metadata ->
+                onSuccess = {
+                    val deletedCount = pruneExpiredDriveBackups()
                     val currentState = _driveSyncState.value
                     if (currentState is SyncState.SignedIn) {
                         _driveSyncState.value = currentState.copy(
@@ -823,7 +830,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                     _driveSyncState.value = SyncState.Synced(uploaded = true, downloaded = false)
-                    _driveSyncMessage.value = "备份已上传到 Google Drive"
+                    _driveSyncMessage.value = if (deletedCount > 0) {
+                        "备份已上传，并清理 $deletedCount 个过期历史版本"
+                    } else {
+                        "备份已上传到 Google Drive"
+                    }
                     loadDriveBackups()
                 },
                 onFailure = { error ->
@@ -957,7 +968,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return driveSyncManager.getCurrentAccount()?.email ?: "Unknown"
     }
 
-    private suspend fun mergeRemoteAndUploadLocal(): Pair<Int, List<BackupMetadata>> {
+    private suspend fun pruneExpiredDriveBackups(): Int {
+        val policy = driveBackupRetentionPolicy.value
+        return driveSyncManager.pruneBackups(policy).getOrElse { throw it }
+    }
+
+    private suspend fun mergeRemoteAndUploadLocal(): Triple<Int, Int, List<BackupMetadata>> {
         val backups = driveSyncManager.listBackups().getOrElse { throw it }
         var mergedCount = 0
         val latestRemote = backups.firstOrNull()
@@ -971,8 +987,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val localBackupJson = settingsRepository.exportBackupJson()
         driveSyncManager.uploadBackup(localBackupJson).getOrElse { throw it }
+        val deletedCount = pruneExpiredDriveBackups()
         val refreshedBackups = driveSyncManager.listBackups().getOrElse { backups }
-        return mergedCount to refreshedBackups
+        return Triple(mergedCount, deletedCount, refreshedBackups)
     }
 
     private suspend fun runDriveSmartSync(showState: Boolean, showMessage: Boolean) {
@@ -990,7 +1007,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         try {
-            val (mergedCount, backups) = mergeRemoteAndUploadLocal()
+            val (mergedCount, deletedCount, backups) = mergeRemoteAndUploadLocal()
             hasAutoSyncedThisSession = true
             val now = System.currentTimeMillis()
             _driveSyncState.value = SyncState.SignedIn(
@@ -1002,9 +1019,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             if (showMessage) {
                 _driveSyncMessage.value = if (mergedCount > 0) {
-                    "同步完成：已合并 $mergedCount 项并更新云端"
+                    if (deletedCount > 0) {
+                        "同步完成：已合并 $mergedCount 项，并清理 $deletedCount 个过期版本"
+                    } else {
+                        "同步完成：已合并 $mergedCount 项并更新云端"
+                    }
                 } else {
-                    "同步完成：云端与本地已对齐"
+                    if (deletedCount > 0) {
+                        "同步完成：云端与本地已对齐，并清理 $deletedCount 个过期版本"
+                    } else {
+                        "同步完成：云端与本地已对齐"
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -1102,6 +1127,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 hasRemoteUpdate = false,
                 remoteDeviceName = null
             )
+        }
+    }
+
+    fun saveDriveBackupRetentionPolicy(policy: BackupRetentionPolicy) {
+        viewModelScope.launch {
+            settingsRepository.saveDriveBackupRetentionPolicy(policy)
+            if (driveSyncManager.isSignedIn()) {
+                runCatching { pruneExpiredDriveBackups() }
+                    .onSuccess { deletedCount ->
+                        loadDriveBackups()
+                        _driveSyncMessage.value = if (policy == BackupRetentionPolicy.KEEP_ALL) {
+                            "历史版本自动清理已关闭"
+                        } else if (deletedCount > 0) {
+                            "已应用${policy.label}保留规则，并清理 $deletedCount 个过期版本"
+                        } else {
+                            "已应用${policy.label}保留规则"
+                        }
+                    }
+                    .onFailure {
+                        _driveSyncMessage.value = "保留规则已保存，但清理失败：${it.message}"
+                    }
+            }
         }
     }
 

@@ -135,6 +135,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 
+private val speedPageContentPadding = PaddingValues(
+    start = 20.dp,
+    top = 20.dp,
+    end = 20.dp,
+    bottom = 28.dp
+)
+
 private data class SpeedTestOption(
     val label: String,
     val targetSpeedKmh: Float
@@ -206,6 +213,7 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         initialPage = 0,
         pageCount = { SpeedPageTab.entries.size }
     )
+    val isSyncing = driveSyncState is SyncState.Syncing
     val rideSelectionMode = selectedRideIds.isNotEmpty()
     BackHandler(enabled = rideSelectionMode) {
         selectedRideIds = emptySet()
@@ -273,55 +281,61 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             ) { page ->
                 when (SpeedPageTab.entries[page]) {
                     SpeedPageTab.TEST -> {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        PullToRefreshBox(
+                            isRefreshing = isSyncing,
+                            onRefresh = { viewModel.syncDriveNow() },
+                            modifier = Modifier.fillMaxSize()
                         ) {
-                            item {
-                                SpeedTestHero(
-                                    option = selectedOption,
-                                    speedTestSession = speedTestSession,
-                                    bestRecord = bestSpeedTestRecord,
-                                    onStart = {
-                                        val error = viewModel.startSpeedTest(selectedOption.label, selectedOption.targetSpeedKmh)
-                                        if (error != null) {
-                                            scope.launch { snackbarHostState.showSnackbar(error) }
-                                        }
-                                    },
-                                    onStop = { viewModel.stopSpeedTest() }
-                                )
-                            }
-                            item {
-                                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                                    options.forEachIndexed { index, option ->
-                                        SegmentedButton(
-                                            selected = selectedOption == option,
-                                            onClick = { selectedOption = option },
-                                            shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size)
-                                        ) {
-                                            Text(option.label)
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = speedPageContentPadding,
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                item {
+                                    SpeedTestHero(
+                                        option = selectedOption,
+                                        speedTestSession = speedTestSession,
+                                        bestRecord = bestSpeedTestRecord,
+                                        onStart = {
+                                            val error = viewModel.startSpeedTest(selectedOption.label, selectedOption.targetSpeedKmh)
+                                            if (error != null) {
+                                                scope.launch { snackbarHostState.showSnackbar(error) }
+                                            }
+                                        },
+                                        onStop = { viewModel.stopSpeedTest() }
+                                    )
+                                }
+                                item {
+                                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                                        options.forEachIndexed { index, option ->
+                                            SegmentedButton(
+                                                selected = selectedOption == option,
+                                                onClick = { selectedOption = option },
+                                                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size)
+                                            ) {
+                                                Text(option.label)
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            item {
-                                LiveTelemetryGrid(metrics)
-                            }
-                            item {
-                                SectionHeader("加速历史", "每条记录都支持分享冲刺海报")
-                            }
-                            if (speedTestHistory.isEmpty()) {
-                                item { EmptyCard("还没有加速记录", "完成一次 0-25 / 0-50 / 0-60 / 0-100 测试后会出现在这里") }
-                            } else {
-                                items(speedTestHistory, key = { it.id }) { record ->
-                                    SpeedTestHistoryCard(
-                                        record = record,
-                                        onShare = {
-                                            context.startActivity(viewModel.createSpeedTestShareIntent(record))
-                                        },
-                                        onDelete = { viewModel.deleteSpeedTestRecord(record.id) }
-                                    )
+                                item {
+                                    LiveTelemetryGrid(metrics)
+                                }
+                                item {
+                                    SectionHeader("加速历史", "每条记录都支持分享冲刺海报")
+                                }
+                                if (speedTestHistory.isEmpty()) {
+                                    item { EmptyCard("还没有加速记录", "完成一次 0-25 / 0-50 / 0-60 / 0-100 测试后会出现在这里") }
+                                } else {
+                                    items(speedTestHistory, key = { it.id }) { record ->
+                                        SpeedTestHistoryCard(
+                                            record = record,
+                                            onShare = {
+                                                context.startActivity(viewModel.createSpeedTestShareIntent(record))
+                                            },
+                                            onDelete = { viewModel.deleteSpeedTestRecord(record.id) }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -329,13 +343,13 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
 
                     SpeedPageTab.RIDE_HISTORY -> {
                         PullToRefreshBox(
-                            isRefreshing = driveSyncState is SyncState.Syncing,
+                            isRefreshing = isSyncing,
                             onRefresh = { viewModel.syncDriveNow() },
                             modifier = Modifier.fillMaxSize()
                         ) {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
+                                contentPadding = speedPageContentPadding,
                                 verticalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
                                 item {

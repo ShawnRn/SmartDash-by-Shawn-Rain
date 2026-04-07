@@ -53,6 +53,32 @@ data class BackupManifest(
     }
 }
 
+data class BackupPreview(
+    val exportedAt: Long,
+    val vehicleCount: Int,
+    val rideCount: Int,
+    val speedTestCount: Int,
+    val vehicles: List<BackupPreviewVehicle> = emptyList(),
+    val recentRides: List<BackupPreviewRide> = emptyList()
+)
+
+data class BackupPreviewVehicle(
+    val id: String,
+    val name: String,
+    val totalMileageKm: Float,
+    val rideCount: Int
+)
+
+data class BackupPreviewRide(
+    val id: String,
+    val title: String,
+    val startedAtMs: Long,
+    val distanceKm: Float,
+    val durationMinutes: Int,
+    val vehicleId: String,
+    val vehicleName: String
+)
+
 private val backupJson = Json { ignoreUnknownKeys = true }
 
 sealed class SyncState {

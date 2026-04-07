@@ -14,6 +14,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -51,6 +52,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
+import androidx.compose.foundation.isSystemInDarkTheme
 import com.shawnrain.habe.ui.theme.bezierRoundedShape
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -78,14 +80,19 @@ private fun findWindowFromView(view: android.view.View): Window? {
 fun ApplyDialogWindowBlurEffect(blurRadius: Dp, fullscreen: Boolean = false) {
     val view = LocalView.current
     val density = LocalDensity.current
+    val darkTheme = isSystemInDarkTheme()
     val radiusPx = with(density) { blurRadius.toPx() }
 
-    DisposableEffect(view, radiusPx, fullscreen) {
+    DisposableEffect(view, radiusPx, fullscreen, darkTheme) {
         val window = findWindowFromView(view)
         if (window == null) {
             onDispose { }
         } else {
             configurePopupWindow(window, radiusPx.roundToInt(), fullscreen)
+            WindowCompat.getInsetsController(window, window.decorView)?.apply {
+                isAppearanceLightStatusBars = !darkTheme
+                isAppearanceLightNavigationBars = !darkTheme
+            }
             onDispose { }
         }
     }
@@ -248,11 +255,15 @@ fun BlurredAlertDialog(
                                     val scale = 0.96f + (0.04f * entryProgress)
                                     scaleX = scale
                                     scaleY = scale
-                                },
+                            },
                             shape = bezierRoundedShape(28.dp),
                             color = MaterialTheme.colorScheme.surface,
-                            tonalElevation = 6.dp,
-                            shadowElevation = 16.dp
+                            tonalElevation = 2.dp,
+                            shadowElevation = 0.dp,
+                            border = BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f)
+                            )
                         ) {
                             Column(
                                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 22.dp)
@@ -337,19 +348,23 @@ fun BlurredModalBottomSheet(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp)
+                        .padding(horizontal = 6.dp)
                         .windowInsetsPadding(WindowInsets.navigationBars)
                         .graphicsLayer {
                             alpha = entryProgress
-                            translationY = with(density) { (1f - entryProgress) * 56.dp.toPx() }
-                            val scale = 0.98f + (0.02f * entryProgress)
+                            translationY = with(density) { (1f - entryProgress) * 38.dp.toPx() }
+                            val scale = 0.985f + (0.015f * entryProgress)
                             scaleX = scale
                             scaleY = scale
                         },
                     shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
                     color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
-                    shadowElevation = 18.dp
+                    tonalElevation = 2.dp,
+                    shadowElevation = 0.dp,
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f)
+                    )
                 ) {
                     Column(
                         modifier = Modifier

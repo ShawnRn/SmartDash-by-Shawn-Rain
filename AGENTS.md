@@ -136,13 +136,14 @@ Release 签名约定：
   - `ProtocolParser.kt`: 协议识别与路由
   - `protocols/`: 控制器协议实现
   - `bms/protocols/`: BMS 协议实现（注意：`ble/bms/protocols/` 为正确拼写）
-- `app/src/main/java/com/shawnrain/habe/data/`: DataStore、GPS、校准、骑行会话
+- `app/src/main/java/com/shawnrain/habe/data/`: DataStore、GPS、校准、骑行会话、能量估算
   - `sync/`: Google Drive 云同步
     - `BackupModels.kt`: 数据模型（EncryptedBackup, BackupMetadata, SyncState）
     - `EncryptionService.kt`: AES-256-GCM 加密（v1 设备绑定 / v2 密码派生）
     - `GoogleDriveAuth.kt`: Google Sign-In OAuth 认证
     - `GoogleDriveSyncManager.kt`: Drive 上传/下载/列表/删除
   - `migration/`: LAN 备份传输
+  - `RideEnergyEstimator.kt`: 当前 `SoC / range / 能量窗口` 估算实现，后续重构优先关注目标
 - `app/src/main/java/com/shawnrain/habe/ui/navigation/PredictiveBackMotion.kt`: 预测性返回动画公共 helper
 - `app/src/main/java/com/shawnrain/habe/ui/navigation/DialogWindowEffects.kt`: Dialog / sheet / overlay 窗口模糊与透明系统栏 helper
 - `app/src/main/java/com/shawnrain/habe/ui/navigation/P2PageHeader.kt`: 二级页公共头部组件
@@ -312,6 +313,17 @@ Release 签名约定：
 - [ ] 更完整的测速 / 制动 / 海报能力迁移
 - [ ] 本地单元测试覆盖
 
+## 5.1 遥测估算重构约束（新增）
+- SmartDash 的控制器数据来自 `BLE`，到包时间不均匀，不能把 UI 聚合流当成物理采样时钟
+- **`Wh / Ah / peak / distance` 等累计量必须只由“新鲜控制器样本”驱动**，不能由 `GPS / BMS / 设置项 / UI` 刷新重复触发
+- 推荐后续重构链路：`BLE frame -> TelemetryStreamProcessor -> TelemetrySample -> RideAccumulator -> BatteryStateEstimator -> RangeEstimator -> DashboardProjector`
+- `SoC`、`remainingEnergyWh`、`estimatedRangeKm` 必须统一口径；不要把带强先验的车辆档案百分比再反推成“独立容量证据”
+- `voltageSag` 需要区分展示值与分析值，避免在短时低流瞬间频繁重写静置基线
+- 任何涉及上述链路的修改，都优先阅读：
+  - `.agents/skills/ble-telemetry-estimation/SKILL.md`
+  - `.agents/workflows/telemetry-refactor.md`
+  - `audit/Telemetry_Estimation_Refactor_Plan_2026-04-07.md`
+
 ## 6. 已知问题与风险
 - 智科"可连接但数据全 0"问题仍需依赖真机日志继续定位
 - 智科调参页目前只是基础子集，尚未达到小程序同等级别的丰富参数矩阵
@@ -400,10 +412,12 @@ Release 签名约定：
 - `.agents/workflows/install-fast-dev-release.md`
 - `.agents/workflows/collect-logs.md`
 - `.agents/workflows/zhike-diagnose.md`
+- `.agents/workflows/telemetry-refactor.md`
 - `.agents/workflows/sync-github.md`
 
 ### 8.3 Skills
 - `.agents/skills/smartdash-overlay-dialog/SKILL.md`: 统一约束设置页「关于」、应用更新、自定义 dialog、overlay、详情弹层的容器几何、图标适配、模糊、预测返回和 dismiss 动线
+- `.agents/skills/ble-telemetry-estimation/SKILL.md`: 统一约束 `BLE` 遥测采样、累计能量、`SoC / range` 估算、`CSV` 导出与回放验证，强调“只由新鲜控制器样本驱动物理积分”
 
 ## 9. 推荐日常流程
 

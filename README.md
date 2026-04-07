@@ -4,8 +4,8 @@
 
 当前正式版本：
 
-- `versionName`: `1.0.4`
-- `versionCode`: `2026040703`
+- `versionName`: `1.0.5`
+- `versionCode`: `2026040704`
 
 隐私政策：
 

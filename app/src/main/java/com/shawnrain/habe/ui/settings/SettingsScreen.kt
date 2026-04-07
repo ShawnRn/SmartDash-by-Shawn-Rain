@@ -77,6 +77,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
@@ -1228,7 +1229,7 @@ private fun AboutSmartDashEntryCard(
         appUpdateState.isChecking ->
             "正在检查更新"
         else ->
-            "GitHub / 邮箱 / 应用更新"
+            "GitHub · 邮箱 · 版本更新"
     }
 
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
@@ -1239,35 +1240,21 @@ private fun AboutSmartDashEntryCard(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
-                shape = bezierRoundedShape(20.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
-            ) {
-                Box(
-                    modifier = Modifier.size(56.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_launcher_foreground_bitmap),
-                        contentDescription = "SmartDash icon",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.size(38.dp)
-                    )
-                }
-            }
+            SmartDashBrandIcon(size = 56.dp)
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                Text("关于 SmartDash", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text("关于 SmartDash", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(
                     "作者 Shawn Rain",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
                 )
                 Text(
                     summary,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -1295,6 +1282,7 @@ private fun AboutSmartDashDialog(
     val density = LocalDensity.current
     val config = LocalConfiguration.current
     val screenWidth = config.screenWidthDp.dp
+    val navigationBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var dismissDrag by remember { mutableFloatStateOf(0f) }
     val dismissThresholdPx = with(density) { 96.dp.toPx() }
     val enterDurationMs = 300
@@ -1329,12 +1317,7 @@ private fun AboutSmartDashDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
         ApplyDialogWindowBlurEffect(blurRadius = 34.dp, fullscreen = true)
-        val statusBarInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-        val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        BoxWithConstraints(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
             PopupBackdropBlurLayer(
                 blurRadius = 34.dp,
                 scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.24f * entryProgress),
@@ -1343,29 +1326,25 @@ private fun AboutSmartDashDialog(
             val motion = rememberPredictiveBackMotion(
                 width = screenWidth,
                 onBack = ::requestDismiss,
-                maxHorizontalInset = 8.dp,
+                maxHorizontalInset = 10.dp,
                 maxVerticalInset = 8.dp,
-                maxCorner = 22.dp,
-                maxScaleTravelFraction = 0.08f
+                maxCorner = 20.dp,
+                maxScaleTravelFraction = 0.1f
             )
-            val outerHorizontal = 10.dp + motion.insetHorizontal
-            val outerTop = statusBarInset + 12.dp + motion.insetVertical
-            val outerBottom = navigationBarInset + 12.dp + motion.insetVertical
-            val maxCardWidth = 430.dp.coerceAtMost(maxWidth - outerHorizontal * 2)
-            val availableHeight = (maxHeight - outerTop - outerBottom).coerceAtLeast(360.dp)
-            val entryTravelPx = with(density) { (1f - entryProgress) * 56.dp.toPx() }
-
-            Box(
+            Surface(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(start = outerHorizontal, end = outerHorizontal, top = outerTop, bottom = outerBottom)
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.90f)
                     .graphicsLayer {
-                        val scale = (1f - (0.06f * motion.progress)) * (0.95f + 0.05f * entryProgress)
-                        scaleX = scale
-                        scaleY = scale
+                        val baseScale = 1f - (0.06f * motion.progress)
+                        scaleX = baseScale
+                        scaleY = baseScale
                         alpha = motion.alpha * entryProgress
+                        val entryTravelPx = with(density) { (1f - entryProgress) * 72.dp.toPx() }
+                        translationY = entryTravelPx + dismissDrag + motion.insetVertical.toPx()
                         translationX = motion.translationX
-                        translationY = dismissDrag + entryTravelPx
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
                     }
                     .pointerInput(versionLabel) {
                         detectVerticalDragGestures(
@@ -1379,28 +1358,31 @@ private fun AboutSmartDashDialog(
                             onDragCancel = { dismissDrag = 0f }
                         )
                     },
-                contentAlignment = Alignment.Center
+                shape = bezierRoundedShape(32.dp + motion.corner),
+                color = MaterialTheme.colorScheme.background
             ) {
-                Surface(
-                    modifier = Modifier
-                        .widthIn(max = maxCardWidth)
-                        .fillMaxWidth()
-                        .heightIn(max = availableHeight),
-                    shape = bezierRoundedShape(30.dp + motion.corner),
-                    color = MaterialTheme.colorScheme.background,
-                    tonalElevation = 2.dp,
-                    shadowElevation = 0.dp,
-                    border = BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f)
-                    )
-                ) {
-                    Column(
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .padding(top = 16.dp, bottom = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(44.dp)
+                                .height(5.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                    shape = bezierPillShape()
+                                )
+                        )
+                    }
+                    Column(
+                        modifier = Modifier
                             .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 18.dp, vertical = 18.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                            .padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 20.dp + navigationBottomInset),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1413,11 +1395,10 @@ private fun AboutSmartDashDialog(
                             ) {
                                 Text("关于 SmartDash", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
                                 Text(
-                                    "项目、作者和应用更新统一放在这里。",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    "项目资料、作者信息与版本更新",
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
+                                    maxLines = 1
                                 )
                             }
                             TextButton(onClick = ::requestDismiss) {
@@ -1433,51 +1414,38 @@ private fun AboutSmartDashDialog(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                                    .padding(horizontal = 18.dp, vertical = 18.dp),
                                 horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.Top
                             ) {
-                                Surface(
-                                    shape = bezierRoundedShape(22.dp),
-                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
-                                ) {
-                                    Box(
-                                        modifier = Modifier.size(88.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Image(
-                                            painter = painterResource(id = R.drawable.ic_launcher_foreground_bitmap),
-                                            contentDescription = "SmartDash icon",
-                                            contentScale = ContentScale.Fit,
-                                            modifier = Modifier.size(56.dp)
-                                        )
-                                    }
-                                }
+                                SmartDashBrandIcon(size = 88.dp)
                                 Column(
                                     modifier = Modifier.weight(1f),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Text(
-                                        "SmartDash by Shawn Rain",
+                                        "SmartDash",
                                         style = MaterialTheme.typography.headlineSmall,
                                         fontWeight = FontWeight.Black,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
+                                        maxLines = 1,
                                         color = MaterialTheme.colorScheme.onPrimaryContainer
                                     )
                                     Text(
-                                        "骑行仪表、控制器连接、行程记录与同步。",
+                                        "作者 Shawn Rain",
                                         style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f),
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.92f),
+                                        maxLines = 1
                                     )
                                     FlowRow(
+                                        modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        maxItemsInEachRow = 2
                                     ) {
-                                        AboutChip("作者 Shawn Rain")
-                                        AboutChip("版本 $versionLabel")
+                                        AboutChip("骑行仪表")
+                                        AboutChip("行程记录")
+                                        AboutChip("云同步")
+                                        AboutChip("v$versionLabel")
                                     }
                                 }
                             }
@@ -1506,6 +1474,42 @@ private fun AboutSmartDashDialog(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SmartDashBrandIcon(
+    size: Dp,
+    modifier: Modifier = Modifier
+) {
+    val shape = bezierRoundedShape(size * 0.28f)
+    Surface(
+        modifier = modifier.size(size),
+        shape = shape,
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.24f))
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFFEAF0FF),
+                            Color(0xFFDCE4FF)
+                        )
+                    )
+                )
+                .padding(size * 0.12f),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                contentDescription = "SmartDash icon",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }
@@ -1588,7 +1592,8 @@ private fun AboutSmartDashUpdateRow(
                             MaterialTheme.colorScheme.error
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f)
-                        }
+                        },
+                        maxLines = 2
                     )
                 }
             }
@@ -1673,7 +1678,7 @@ private fun AboutSmartDashActionRow(
                         supporting,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }

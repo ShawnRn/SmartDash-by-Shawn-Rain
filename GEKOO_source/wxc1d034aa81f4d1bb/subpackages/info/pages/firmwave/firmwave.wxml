@@ -1,0 +1,73 @@
+<view class="data-v-213955d3">
+  <scroll-view
+    class="firmware-update-container data-v-213955d3"
+    scrollY="{{true}}"
+  >
+    <image
+      class="top-image data-v-213955d3"
+      mode="widthFix"
+      src="https://tse1-mm.cn.bing.net/th/id/OIP-C.RSHveLZE96ZzhfZaID3BCQHaDr?rs=1&pid=ImgDetMain"
+    ></image>
+    <view class="section-title data-v-213955d3">各系列固件更新说明</view>
+    <view
+      class="firmware-series data-v-213955d3"
+      wx:for="{{$root.l1}}"
+      wx:for-item="series"
+      wx:key="index"
+    >
+      <view
+        bindtap="__e"
+        class="series-title data-v-213955d3"
+        data-event-opts="{{[ [ 'tap',[ [ 'toggleSeries',[index] ] ] ] ]}}"
+        >{{''+series[$orig].name+''}}<text
+          class="{{['data-v-213955d3',series[$orig].isExpanded?'cuIcon-fold':'cuIcon-unfold']}}"
+        ></text>
+      </view>
+      <view
+        class="update-content data-v-213955d3"
+        wx:if="{{series[$orig].isExpanded}}"
+      >
+        <view
+          class="update-item data-v-213955d3"
+          wx:for="{{series.l0}}"
+          wx:for-index="updateIndex"
+          wx:for-item="update"
+          wx:key="updateIndex"
+        >
+          <view class="update-info data-v-213955d3">
+            <text class="data-v-213955d3"
+              >{{'版本号: '+update[$orig].version}}</text
+            >
+            <text class="data-v-213955d3"
+              >{{'版本日期: '+update[$orig].date}}</text
+            >
+          </view>
+          <view class="update-details data-v-213955d3">
+            <text class="data-v-213955d3">更新内容:</text>
+            <view
+              class="content-item data-v-213955d3"
+              wx:for="{{update[$orig].content}}"
+              wx:for-index="contentIndex"
+              wx:for-item="content"
+              wx:key="contentIndex"
+              >{{'- '+content+''}}</view
+            >
+            <text class="data-v-213955d3">{{'涉及型号: '+update.g0}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+    <view class="content-display data-v-213955d3">
+      <image
+        class="data-v-213955d3"
+        mode="aspectFill"
+        src="https://img1.baidu.com/it/u=1810354550,4111141332&fm=253&fmt=auto&app=138&f=JPEG?w=833&h=500"
+      ></image>
+      <view class="description bg-gradual-blue data-v-213955d3">
+        <text class="text-white data-v-213955d3"
+          >整车厂家可以联系我们增加专用系列</text
+        >
+      </view>
+    </view>
+  </scroll-view>
+</view>

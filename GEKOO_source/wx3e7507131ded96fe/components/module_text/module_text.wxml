@@ -1,0 +1,7 @@
+<view
+  bindtap="__e"
+  class="text-box data-v-bb930e74"
+  data-event-opts="{{[ [ 'tap',[ [ 'getinfo',['$event'] ] ] ] ]}}"
+>
+  <text class="text-content data-v-bb930e74">{{text}}</text>
+</view>

@@ -1,0 +1,50 @@
+<view class="image-selector-container data-v-3e202046">
+  <image
+    class="top-image data-v-3e202046"
+    mode="aspectFit"
+    src="https://www.yamaha-motor.com.cn/mc/race/sbk/2022/img/220612_wsbk_rd4_027.jpg"
+  ></image>
+  <view class="title-container data-v-3e202046">
+    <view class="title-line data-v-3e202046">年轻就该不知天高地厚</view>
+    <view class="title-line center data-v-3e202046">加油</view>
+  </view>
+  <view class="button-container data-v-3e202046">
+    <button
+      bindtap="__e"
+      class="data-v-3e202046"
+      data-event-opts="{{[ [ 'tap',[ [ 'chooseImages',['$event'] ] ] ] ]}}"
+    >
+      自由选择
+    </button>
+    <button
+      bindtap="__e"
+      class="data-v-3e202046"
+      data-event-opts="{{[ [ 'tap',[ [ 'deleteAllImages',['$event'] ] ] ] ]}}"
+    >
+      绝不将就
+    </button>
+  </view>
+  <view class="image-list data-v-3e202046">
+    <image
+      class="selected-image data-v-3e202046"
+      mode="aspectFit"
+      src="{{imageSrcList[0]}}"
+    ></image>
+    <image
+      class="selected-image data-v-3e202046"
+      mode="aspectFit"
+      src="{{imageSrcList[1]}}"
+    ></image>
+    <image
+      class="selected-image data-v-3e202046"
+      mode="aspectFit"
+      src="{{imageSrcList[2]}}"
+    ></image>
+  </view>
+  <cysnow
+    bind:__l="__l"
+    class="data-v-3e202046"
+    img="/static/lx2.png"
+    vueId="f4372d00-1"
+  ></cysnow>
+</view>

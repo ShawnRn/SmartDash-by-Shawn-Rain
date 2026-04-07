@@ -1,0 +1,74 @@
+<view class="contact-page data-v-ae84ebb4">
+  <view class="map-container data-v-ae84ebb4">
+    <map
+      class="data-v-ae84ebb4"
+      latitude="{{latitude}}"
+      longitude="{{longitude}}"
+      markers="{{markers}}"
+      scale="{{scale}}"
+      style="width: 100%; height: 300px"
+    ></map>
+  </view>
+  <view class="card-container data-v-ae84ebb4">
+    <view class="card-item solid data-v-ae84ebb4">
+      <view class="card-icon cuIcon-vipcard bg-cyan data-v-ae84ebb4"></view>
+      <view class="card-text-container data-v-ae84ebb4">
+        <view class="card-title data-v-ae84ebb4">公司/Company</view>
+        <view class="card-content data-v-ae84ebb4">{{$root.m0}}</view>
+      </view>
+    </view>
+    <view class="card-item solid data-v-ae84ebb4">
+      <view class="card-icon cuIcon-addressbook bg-blue data-v-ae84ebb4"></view>
+      <view class="card-text-container data-v-ae84ebb4">
+        <view class="card-title data-v-ae84ebb4">地址/Addr</view>
+        <view class="card-content data-v-ae84ebb4">{{$root.m1}}</view>
+      </view>
+    </view>
+    <view class="card-item solid data-v-ae84ebb4">
+      <view class="card-icon cuIcon-phone bg-brown data-v-ae84ebb4"></view>
+      <view class="card-text-container data-v-ae84ebb4">
+        <view class="card-title data-v-ae84ebb4">售后电话/Service Tel</view>
+        <view class="card-content data-v-ae84ebb4">17365412717</view>
+      </view>
+    </view>
+    <view class="card-item solid data-v-ae84ebb4">
+      <view class="card-icon cuIcon-phone bg-brown data-v-ae84ebb4"></view>
+      <view class="card-text-container data-v-ae84ebb4">
+        <view class="card-title data-v-ae84ebb4">业务电话/Phone</view>
+        <view class="card-content data-v-ae84ebb4">{{$root.m2}}</view>
+      </view>
+    </view>
+    <view class="card-item solid data-v-ae84ebb4">
+      <view class="card-icon cuIcon-addressbook bg-blue data-v-ae84ebb4"></view>
+      <view class="card-text-container data-v-ae84ebb4">
+        <view class="card-title data-v-ae84ebb4">官网/Webseite</view>
+        <view class="card-content data-v-ae84ebb4"
+          >https://www.gekoodriver.com</view
+        >
+      </view>
+    </view>
+  </view>
+  <view class="button-container data-v-ae84ebb4">
+    <button
+      bindtap="__e"
+      class="cu-btn block bg-blue shadow margin-tb-sm lg data-v-ae84ebb4"
+      data-event-opts="{{[ [ 'tap',[ [ 'page_click_handle',[0] ] ] ] ]}}"
+    >
+      {{$root.m3}}
+    </button>
+    <button
+      bindtap="__e"
+      class="cu-btn block bg-cyan shadow margin-tb-sm lg data-v-ae84ebb4"
+      data-event-opts="{{[ [ 'tap',[ [ 'page_click_handle',[1] ] ] ] ]}}"
+    >
+      {{$root.m4}}
+    </button>
+    <button
+      bindtap="__e"
+      class="cu-btn block bg-purple shadow margin-tb-sm lg data-v-ae84ebb4"
+      data-event-opts="{{[ [ 'tap',[ [ 'page_click_handle',[2] ] ] ] ]}}"
+    >
+      {{$root.m5}}
+    </button>
+  </view>
+</view>

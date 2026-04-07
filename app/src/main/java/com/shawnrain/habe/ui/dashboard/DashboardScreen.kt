@@ -66,6 +66,7 @@ import com.shawnrain.habe.ui.navigation.PredictiveBackPopupTransform
 import com.shawnrain.habe.ui.theme.bezierPillShape
 import com.shawnrain.habe.ui.theme.bezierRoundedShape
 import androidx.compose.ui.zIndex
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.roundToInt
@@ -116,13 +117,13 @@ fun formatMetricValue(type: MetricType, metrics: VehicleMetrics): String {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
-    val metrics = viewModel.metrics.collectAsState().value
+    val metrics = viewModel.metrics.collectAsStateWithLifecycle().value
     val config = LocalConfiguration.current
     val isLandscape = config.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val dashboardItems by viewModel.dashboardItems.collectAsState()
-    val activeProtocol by viewModel.activeProtocolLabel.collectAsState()
-    val connectionState by viewModel.connectionState.collectAsState()
-    val autoConnectState by viewModel.autoConnectState.collectAsState()
+    val dashboardItems by viewModel.dashboardItems.collectAsStateWithLifecycle()
+    val activeProtocol by viewModel.activeProtocolLabel.collectAsStateWithLifecycle()
+    val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
+    val autoConnectState by viewModel.autoConnectState.collectAsStateWithLifecycle()
     val haptic = LocalHapticFeedback.current
     val view = LocalView.current
     val context = LocalContext.current
@@ -145,20 +146,25 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         }
     }
 
-    val isRegen = metrics.busCurrent < 0
-    val ringColor = if (isRegen) Color(0xFF10B981) else MaterialTheme.colorScheme.primary
-    val isControllerConnected = connectionState is ConnectionState.Connected
+    val isRegen by remember { derivedStateOf { metrics.busCurrent < 0 } }
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val ringColor by remember(isRegen) { derivedStateOf { if (isRegen) Color(0xFF10B981) else primaryColor } }
+    val isControllerConnected by remember { derivedStateOf { connectionState is ConnectionState.Connected } }
 
     // Use auto-connect state for natural status messages
-    val connectionStatusLabel = when {
-        connectionState is ConnectionState.Connected -> activeProtocol
-        autoConnectState is AutoConnectState.Connecting -> "正在连接 ${autoConnectState.displayName}…"
-        autoConnectState is AutoConnectState.Searching -> "搜索设备中…"
-        autoConnectState is AutoConnectState.NotFound -> "未找到已知设备"
-        autoConnectState is AutoConnectState.Error -> "连接失败"
-        connectionState is ConnectionState.Connecting -> "连接中"
-        connectionState is ConnectionState.Error -> "连接错误"
-        else -> "未连接"
+    val connectionStatusLabel by remember {
+        derivedStateOf {
+            when {
+                connectionState is ConnectionState.Connected -> activeProtocol
+                autoConnectState is AutoConnectState.Connecting -> "正在连接 ${autoConnectState.displayName}…"
+                autoConnectState is AutoConnectState.Searching -> "搜索设备中…"
+                autoConnectState is AutoConnectState.NotFound -> "未找到已知设备"
+                autoConnectState is AutoConnectState.Error -> "连接失败"
+                connectionState is ConnectionState.Connecting -> "连接中"
+                connectionState is ConnectionState.Error -> "连接错误"
+                else -> "未连接"
+            }
+        }
     }
 
     val angle = if (isEditMode) {

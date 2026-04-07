@@ -178,6 +178,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val HISTORY_BACKFILL_MIN_RPM = 30f
         private const val HISTORY_BACKFILL_MIN_CURRENT_A = 1.0f
         private const val HISTORY_BACKFILL_APPLY_MIN_DISTANCE_METERS = 3f
+        private const val ENERGY_INTEGRATION_MIN_POWER_W = 35f
+        private const val ENERGY_INTEGRATION_MIN_CURRENT_A = 0.8f
         private const val MAX_SOC_SOURCE_DEVIATION_PERCENT = 28f
     }
 
@@ -2018,21 +2020,65 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val samples = record.samples
         if (samples.isEmpty()) return samples
 
+        val normalizedEnergy = normalizeSampleEnergySeries(
+            samples = samples,
+            recordTotalEnergyWh = record.totalEnergyWh
+        )
+        val firstValidSoc = samples.firstOrNull { it.soc in 1f..100f }?.soc
+        var lastValidSoc = firstValidSoc ?: 0f
+
+        return samples.mapIndexed { index, sample ->
+            val energy = normalizedEnergy[index]
+            val normalizedSoc = sample.soc.takeIf { it in 1f..100f }?.also {
+                lastValidSoc = it
+            } ?: lastValidSoc
+
+            // Fix: avgEfficiencyWhKm must stay consistent with normalized energy/distance.
+            // A ride is a single data entity — per-sample avg_eff should always equal
+            // cumulative_energy / cumulative_distance to avoid mismatches in CSV export
+            // and UI charts.
+            val normalizedAvgEfficiencyWhKm = when {
+                sample.distanceMeters > 10f && energy.totalEnergyWh > 0.01f ->
+                    energy.totalEnergyWh / (sample.distanceMeters / 1000f)
+                record.avgEfficiencyWhKm > 0.1f -> record.avgEfficiencyWhKm
+                else -> sample.avgEfficiencyWhKm
+            }
+
+            sample.copy(
+                soc = normalizedSoc,
+                totalEnergyWh = energy.totalEnergyWh,
+                recoveredEnergyWh = energy.recoveredEnergyWh,
+                avgEfficiencyWhKm = normalizedAvgEfficiencyWhKm
+            )
+        }
+    }
+
+    private data class SampleEnergyTotals(
+        val totalEnergyWh: Float,
+        val recoveredEnergyWh: Float
+    )
+
+    private fun normalizeSampleEnergySeries(
+        samples: List<RideMetricSample>,
+        recordTotalEnergyWh: Float
+    ): List<SampleEnergyTotals> {
+        if (samples.isEmpty()) return emptyList()
+
         val hasCumulativeEnergy = samples.any { it.totalEnergyWh > 0.01f }
-        val finalDistanceMeters = samples.lastOrNull()?.distanceMeters?.takeIf { it > 1f }
-            ?: record.distanceMeters.takeIf { it > 1f }
-            ?: 0f
-        val finalElapsedMs = samples.lastOrNull()?.elapsedMs?.takeIf { it > 0L }
-            ?: record.durationMs.takeIf { it > 0L }
-            ?: 0L
+        val hasRecoveredEnergy = samples.any { it.recoveredEnergyWh > 0.01f }
+        val canRebuildRecoveredEnergy = samples.size > 1 && samples.any {
+            it.powerKw < -0.02f || it.busCurrent < -0.2f
+        }
+        val finalDistanceMeters = samples.lastOrNull()?.distanceMeters?.takeIf { it > 1f } ?: 0f
+        val finalElapsedMs = samples.lastOrNull()?.elapsedMs?.takeIf { it > 0L } ?: 0L
 
         var energyOffsetWh = 0f
+        var recoveredOffsetWh = 0f
         var previousRawEnergyWh = 0f
+        var previousRawRecoveredWh = 0f
         var runningTotalEnergyWh = 0f
         var runningRecoveredWh = 0f
         var previousSample: RideMetricSample? = null
-        val firstValidSoc = samples.firstOrNull { it.soc in 1f..100f }?.soc
-        var lastValidSoc = firstValidSoc ?: 0f
 
         return samples.map { sample ->
             val progress = when {
@@ -2042,45 +2088,77 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     (sample.elapsedMs.toFloat() / finalElapsedMs.toFloat()).coerceIn(0f, 1f)
                 else -> 0f
             }
+
             val rawTotalEnergyWh = when {
                 hasCumulativeEnergy -> sample.totalEnergyWh.coerceAtLeast(0f)
-                record.totalEnergyWh > 0.01f -> (record.totalEnergyWh * progress).coerceAtLeast(0f)
+                recordTotalEnergyWh > 0.01f -> (recordTotalEnergyWh * progress).coerceAtLeast(0f)
                 else -> 0f
             }
             if (hasCumulativeEnergy && rawTotalEnergyWh + 0.05f < previousRawEnergyWh) {
                 energyOffsetWh += previousRawEnergyWh
             }
             previousRawEnergyWh = rawTotalEnergyWh
-            runningTotalEnergyWh = maxOf(
-                runningTotalEnergyWh,
-                (energyOffsetWh + rawTotalEnergyWh).coerceAtLeast(0f)
-            )
-
-            previousSample?.let { previous ->
-                val deltaMs = when {
-                    sample.timestampMs > previous.timestampMs -> sample.timestampMs - previous.timestampMs
-                    sample.elapsedMs > previous.elapsedMs -> sample.elapsedMs - previous.elapsedMs
-                    else -> 0L
-                }
-                val deltaHours = (deltaMs / 3_600_000f).coerceIn(0f, 5f / 3600f)
-                if (deltaHours > 0f) {
-                    val avgPowerW = ((previous.powerKw + sample.powerKw) * 1000f * 0.5f)
-                    if (avgPowerW < 0f) {
-                        runningRecoveredWh += (-avgPowerW * deltaHours)
-                    }
-                }
+            runningTotalEnergyWh = if (hasCumulativeEnergy) {
+                maxOf(
+                    runningTotalEnergyWh,
+                    (energyOffsetWh + rawTotalEnergyWh).coerceAtLeast(0f)
+                )
+            } else {
+                runningTotalEnergyWh + integrateEnergyDeltaWh(previousSample, sample, recovering = false)
             }
-            previousSample = sample
-            val normalizedSoc = sample.soc.takeIf { it in 1f..100f }?.also {
-                lastValidSoc = it
-            } ?: lastValidSoc
 
-            sample.copy(
-                soc = normalizedSoc,
-                totalEnergyWh = runningTotalEnergyWh.coerceAtMost(record.totalEnergyWh.coerceAtLeast(runningTotalEnergyWh)),
+            val rawRecoveredEnergyWh = sample.recoveredEnergyWh.coerceAtLeast(0f)
+            if (hasRecoveredEnergy && rawRecoveredEnergyWh + 0.05f < previousRawRecoveredWh) {
+                recoveredOffsetWh += previousRawRecoveredWh
+            }
+            previousRawRecoveredWh = rawRecoveredEnergyWh
+            runningRecoveredWh = if (canRebuildRecoveredEnergy) {
+                runningRecoveredWh + integrateEnergyDeltaWh(previousSample, sample, recovering = true)
+            } else if (hasRecoveredEnergy) {
+                maxOf(
+                    runningRecoveredWh,
+                    (recoveredOffsetWh + rawRecoveredEnergyWh).coerceAtLeast(0f)
+                )
+            } else {
+                0f
+            }
+
+            previousSample = sample
+            SampleEnergyTotals(
+                totalEnergyWh = runningTotalEnergyWh.coerceAtLeast(0f),
                 recoveredEnergyWh = runningRecoveredWh.coerceAtLeast(0f)
             )
         }
+    }
+
+    private fun integrateEnergyDeltaWh(
+        previous: RideMetricSample?,
+        current: RideMetricSample,
+        recovering: Boolean
+    ): Float {
+        if (previous == null) return 0f
+        val deltaMs = when {
+            current.timestampMs > previous.timestampMs -> current.timestampMs - previous.timestampMs
+            current.elapsedMs > previous.elapsedMs -> current.elapsedMs - previous.elapsedMs
+            else -> 0L
+        }
+        val deltaHours = (deltaMs / 3_600_000f).coerceIn(0f, 5f / 3600f)
+        if (deltaHours <= 0f) return 0f
+
+        val powerW = current.powerKw * 1000f
+        val directionMatches = if (recovering) powerW < 0f else powerW > 0f
+        if (!directionMatches) return 0f
+
+        val absPowerW = abs(powerW)
+        val absCurrentA = maxOf(abs(previous.busCurrent), abs(current.busCurrent))
+        val moving = maxOf(previous.speedKmH, current.speedKmH) >= HISTORY_BACKFILL_MIN_SPEED_KMH ||
+            maxOf(previous.rpm, current.rpm) >= HISTORY_BACKFILL_MIN_RPM
+        val hasMeaningfulLoad = absPowerW >= ENERGY_INTEGRATION_MIN_POWER_W ||
+            absCurrentA >= ENERGY_INTEGRATION_MIN_CURRENT_A ||
+            moving
+        if (!hasMeaningfulLoad) return 0f
+
+        return absPowerW * deltaHours
     }
 
     private fun inferRpmSpeedRatio(
@@ -2594,39 +2672,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val rawSamples = record.samples
         if (rawSamples.isEmpty()) return emptyList()
 
-        val hasCumulativeEnergy = rawSamples.any { it.totalEnergyWh > 0.01f }
-        val hasRecoveredEnergy = rawSamples.any { it.recoveredEnergyWh > 0.01f }
-        val finalDistanceMeters = rawSamples.lastOrNull()?.distanceMeters?.takeIf { it > 1f }
-            ?: record.distanceMeters.takeIf { it > 1f }
-            ?: 0f
-        val finalElapsedMs = rawSamples.lastOrNull()?.elapsedMs?.takeIf { it > 0L }
-            ?: record.durationMs.takeIf { it > 0L }
-            ?: 0L
-
-        var runningEnergyWh = 0f
-        var runningRecoveredWh = 0f
-        return rawSamples.map { sample ->
-            val progress = when {
-                finalDistanceMeters > 1f && sample.distanceMeters > 0f ->
-                    (sample.distanceMeters / finalDistanceMeters).coerceIn(0f, 1f)
-                finalElapsedMs > 0L ->
-                    (sample.elapsedMs.toFloat() / finalElapsedMs.toFloat()).coerceIn(0f, 1f)
-                else -> 0f
-            }
-            val totalEnergyWh = when {
-                hasCumulativeEnergy -> sample.totalEnergyWh.coerceAtLeast(0f)
-                record.totalEnergyWh > 0.01f -> (record.totalEnergyWh * progress).coerceAtLeast(0f)
-                else -> sample.totalEnergyWh.coerceAtLeast(0f)
-            }
-            val recoveredEnergyWh = when {
-                hasRecoveredEnergy -> sample.recoveredEnergyWh.coerceAtLeast(0f)
-                else -> 0f
-            }
-            runningEnergyWh = maxOf(runningEnergyWh, totalEnergyWh)
-            runningRecoveredWh = maxOf(runningRecoveredWh, recoveredEnergyWh)
+        val normalizedEnergy = normalizeSampleEnergySeries(
+            samples = rawSamples,
+            recordTotalEnergyWh = record.totalEnergyWh
+        )
+        return rawSamples.mapIndexed { index, sample ->
+            val energy = normalizedEnergy[index]
             sample.copy(
-                totalEnergyWh = runningEnergyWh,
-                recoveredEnergyWh = runningRecoveredWh
+                totalEnergyWh = energy.totalEnergyWh,
+                recoveredEnergyWh = energy.recoveredEnergyWh
             )
         }
     }
@@ -2743,6 +2797,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun buildRideCsv(record: RideHistoryRecord): String {
+        val normalized = normalizeRideEnergySamples(record)
         val header = listOf(
             "elapsed_ms",
             "timestamp_ms",
@@ -2767,7 +2822,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         ).joinToString(",")
         val rows = buildList {
             add(header)
-            record.samples.forEach { sample ->
+            normalized.forEach { sample ->
                 add(
                     listOf(
                         sample.elapsedMs.toString(),
@@ -2995,9 +3050,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun handleAppVisibilityChanged(isForeground: Boolean) {
         if (isForeground) {
+            // App 回到前台：立即尝试直连最后设备
             lastControllerDeviceAddress.value?.let { address ->
+                autoConnectManager.onAppForeground()
                 tryAutoReconnect(address, reason = "app-foreground")
             }
+        } else {
+            // App 进入后台：启动低功耗后台扫描
+            autoConnectManager.onAppBackground()
         }
     }
 

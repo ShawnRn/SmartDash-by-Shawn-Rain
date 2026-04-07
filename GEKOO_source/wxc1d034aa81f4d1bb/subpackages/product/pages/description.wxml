@@ -1,0 +1,25 @@
+<view class="list-container data-v-c1ee6ede">
+  <image
+    class="top-image data-v-c1ee6ede"
+    mode="widthFix"
+    src="https://puui.qpic.cn/vpic_cover/e35141clb72/e35141clb72_1684246860_hz.jpg/1280"
+  ></image>
+  <view class="suggestion-text data-v-c1ee6ede"
+    >公众号的干货建议大家有空观看一下</view
+  >
+  <view
+    bindtap="__e"
+    class="list-item data-v-c1ee6ede"
+    data-event-opts="{{[ [ 'tap',[ [ 'openLink',['$0','$1'],[ [ ['itemList','',index,'link'] ],[ ['itemList','',index,'dy_link'] ] ] ] ] ] ]}}"
+    wx:for="{{itemList}}"
+    wx:key="index"
+  >
+    <view class="item-icon data-v-c1ee6ede">
+      <text class="{{['data-v-c1ee6ede',item.iconClass]}}"></text>
+    </view>
+    <view class="item-content data-v-c1ee6ede">
+      <view class="item-title data-v-c1ee6ede">{{item.title}}</view>
+      <view class="item-desc data-v-c1ee6ede">{{item.desc}}</view>
+    </view>
+  </view>
+</view>

@@ -52,6 +52,7 @@ class BleManager(private val context: Context) {
         private const val CCC_DESCRIPTOR = "00002902-0000-1000-8000-00805f9b34fb"
         private const val SCAN_TIMEOUT_MS = 10_000L // 10 seconds
         private const val GATT_MTU = 247 // Request larger MTU for better throughput
+        private const val TARGET_SCAN_TIMEOUT_MS = 5000L // 针对已知设备的快速扫描超时
     }
 
     private enum class WriteRoute {
@@ -97,12 +98,26 @@ class BleManager(private val context: Context) {
         }
     }
 
+    private var targetDeviceAddress: String? = null
+    private var onTargetDeviceFound: ((BluetoothDevice) -> Unit)? = null
+
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
             val name = safeDeviceName(device)
+
+            // 针对 AirPods 场景：如果发现目标设备，立即停止扫描并触发连接
+            val targetAddress = targetDeviceAddress
+            if (targetAddress != null && device.address == targetAddress) {
+                AppLogger.i(TAG, "🎯 发现目标设备: $name (${device.address}) rssi=${result.rssi}，立即停止扫描")
+                stopScan()
+                onTargetDeviceFound?.invoke(device)
+                onTargetDeviceFound = null
+                targetDeviceAddress = null
+                return
+            }
+
             if (!name.isNullOrBlank()) {
-                // Use Set for O(1) deduplication
                 val currentDevices = _scannedDevices.value
                 if (currentDevices.none { it.address == device.address }) {
                     AppLogger.d(TAG, "扫描到设备: $name (${device.address}) rssi=${result.rssi}")
@@ -117,44 +132,75 @@ class BleManager(private val context: Context) {
         }
     }
 
-    // Scan timeout handler
     private val scanTimeoutRunnable = Runnable {
         AppLogger.w(TAG, "BLE 扫描超时，自动停止扫描")
         stopScan()
     }
 
+    /**
+     * 普通扫描模式：用于用户在 App 内手动扫描设备
+     */
     fun startScan() {
+        startScanWithTarget(null)
+    }
+
+    /**
+     * 针对已知设备的快速扫描：用于后台/前台快速发现并连接目标设备
+     * 这是 AirPods 体验的核心：App 在后台时持续低功耗扫描，发现目标立即连接
+     */
+    fun startTargetedScan(
+        targetAddress: String,
+        onFound: (BluetoothDevice) -> Unit
+    ) {
+        startScanWithTarget(targetAddress, onFound)
+    }
+
+    private fun startScanWithTarget(
+        targetAddress: String? = null,
+        onFound: ((BluetoothDevice) -> Unit)? = null
+    ) {
         if (!hasBluetoothScanPermission()) {
             AppLogger.w(TAG, "缺少 BLUETOOTH_SCAN 权限，无法开始扫描")
             return
         }
-        
+
+        // 如果已有扫描在运行，先停止
+        stopScan()
+
+        targetDeviceAddress = targetAddress
+        onTargetDeviceFound = onFound
+
         _scannedDevices.value = emptyList()
-        AppLogger.i(TAG, "开始 BLE 扫描")
-        
-        // Stop any existing scan timeout
+        val logMsg = if (targetAddress != null) "针对目标设备 $targetAddress 快速扫描" else "开始 BLE 扫描"
+        AppLogger.i(TAG, logMsg)
+
         pollingHandler.removeCallbacks(scanTimeoutRunnable)
-        
-        // Start scan with timeout
+
         val scanner = bluetoothAdapter?.bluetoothLeScanner
         if (scanner != null) {
-            // Use scan filter for service UUID 0000FFE0 (common for these controllers)
             val filter = ScanFilter.Builder()
                 .setServiceUuid(android.os.ParcelUuid(UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb")))
                 .build()
-            
+
+            // AirPods 体验关键：有目标时用 LOW_LATENCY，无目标时用 LOW_POWER
+            val isTargeted = targetAddress != null
+            val scanMode = if (isTargeted) {
+                ScanSettings.SCAN_MODE_LOW_LATENCY
+            } else {
+                ScanSettings.SCAN_MODE_LOW_POWER
+            }
+
             val settings = ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .setScanMode(scanMode)
                 .build()
-            
+
             scanner.startScan(listOf(filter), settings, scanCallback)
         } else {
-            // Fallback to unfiltered scan if scanner is null
             bluetoothAdapter?.bluetoothLeScanner?.startScan(scanCallback)
         }
-        
-        // Set timeout to auto-stop
-        pollingHandler.postDelayed(scanTimeoutRunnable, SCAN_TIMEOUT_MS)
+
+        val timeout = if (targetAddress != null) TARGET_SCAN_TIMEOUT_MS else SCAN_TIMEOUT_MS
+        pollingHandler.postDelayed(scanTimeoutRunnable, timeout)
     }
 
     fun stopScan() {

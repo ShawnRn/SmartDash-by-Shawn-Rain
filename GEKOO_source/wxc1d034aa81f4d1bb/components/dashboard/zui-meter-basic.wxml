@@ -1,0 +1,27 @@
+<view
+  class="{{['data-v-830b7ff6','vue-ref','zui-meter-basic',debug?'debug':'']}}"
+  data-ref="eleMeter"
+>
+  <view class="zui-meter-basic-wrapper data-v-830b7ff6" style="{{style}}">
+    <image
+      class="zui-meter-basic-bottom data-v-830b7ff6"
+      mode="aspectFit"
+      src="{{bottomImage}}"
+    ></image>
+    <image
+      class="zui-meter-basic-pointer data-v-830b7ff6"
+      mode="aspectFit"
+      src="/subpackages/images/static/images/meter-pointer.png"
+    ></image>
+    <image
+      class="zui-meter-basic-top data-v-830b7ff6"
+      mode="aspectFit"
+      src="/subpackages/images/static/images/meter-top.png"
+    ></image>
+  </view>
+  <view class="debug-frame data-v-830b7ff6" wx:if="{{debug}}">
+    <view class="cross-v data-v-830b7ff6"></view>
+    <view class="cross-h data-v-830b7ff6"></view>
+    <view class="half-size data-v-830b7ff6"></view>
+  </view>
+</view>

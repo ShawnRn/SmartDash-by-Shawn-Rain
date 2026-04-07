@@ -1,0 +1,661 @@
+<view class="data-v-0f056466">
+  <scroll-view
+    class="bg-gradual-blue nav text-center fixed-scroll-view data-v-0f056466"
+    scrollX="{{true}}"
+  >
+    <view
+      bindtap="__e"
+      class="{{['','cu-item','text-df','data-v-0f056466',0==TabCur?'text-white cur':'']}}"
+      data-event-opts="{{[ [ 'tap',[ [ 'tabSelect',['$event'] ] ] ] ]}}"
+      data-id="0"
+    >
+      <text class="cuIcon-camerafill data-v-0f056466"></text
+      >{{''+$root.m0+''}}</view
+    >
+    <view
+      bindtap="__e"
+      class="{{['','cu-item','text-df','data-v-0f056466',1==TabCur?'text-white cur':'']}}"
+      data-event-opts="{{[ [ 'tap',[ [ 'tabSelect',['$event'] ] ] ] ]}}"
+      data-id="1"
+    >
+      <text class="cuIcon-upstagefill data-v-0f056466"></text
+      >{{''+$root.m1+''}}</view
+    >
+    <view
+      bindtap="__e"
+      class="{{['','cu-item','text-df','data-v-0f056466',2==TabCur?'text-white cur':'']}}"
+      data-event-opts="{{[ [ 'tap',[ [ 'tabSelect',['$event'] ] ] ] ]}}"
+      data-id="2"
+    >
+      <text class="cuIcon-clothesfill data-v-0f056466"></text
+      >{{''+$root.m2+''}}</view
+    >
+    <view
+      bindtap="__e"
+      class="{{['cu-item','text-df','data-v-0f056466',3==TabCur?'text-white cur':'']}}"
+      data-event-opts="{{[ [ 'tap',[ [ 'tabSelect',['$event'] ] ] ] ]}}"
+      data-id="3"
+    >
+      <text class="cuIcon-clothesfill data-v-0f056466"></text
+      >{{''+$root.m3+''}}</view
+    >
+  </scroll-view>
+  <view class="data-v-0f056466" wx:if="{{TabCur===0}}">
+    <view class="data-v-0f056466" wx:if="{{Amplify}}">
+      <view class="template-planet data-v-0f056466">
+        <view
+          bindtap="__e"
+          class="dashboard data-v-0f056466"
+          data-event-opts="{{[ [ 'tap',[ [ 'switch_display',[0] ] ] ] ]}}"
+        >
+          <car-dash-board
+            bind:__l="__l"
+            class="data-v-0f056466"
+            debug="{{false}}"
+            position="{{realtime_page_data.speed}}"
+            range="{{[115,50]}}"
+            size="{{420}}"
+            vueId="5cb0ad40-1"
+          ></car-dash-board>
+        </view>
+        <view class="info-container data-v-0f056466">
+          <view class="info-item data-v-0f056466">
+            <view class="value data-v-0f056466"
+              >{{realtime_page_data.speed_zoom}}</view
+            >
+            <view class="unit data-v-0f056466">km/h</view>
+          </view>
+          <view class="info-item data-v-0f056466">
+            <view class="value data-v-0f056466"
+              >{{realtime_page_data.voltage_zoom}}</view
+            >
+            <view class="unit data-v-0f056466">V</view>
+          </view>
+        </view>
+        <view class="info-container2 data-v-0f056466">
+          <view class="status-text-zoom data-v-0f056466"
+            >{{''+realtime_page_data.status+''}}</view
+          >
+          <view
+            class="block-container data-v-0f056466"
+            wx:if="{{single_soft_ver>=26&&single_soft_ver<=99}}"
+          >
+            <view
+              class="block data-v-0f056466"
+              style="{{'background-image:'+item.m4+';'}}"
+              wx:for="{{$root.l0}}"
+              wx:key="index"
+              >{{''+item[$orig]+''}}</view
+            >
+          </view>
+        </view>
+      </view>
+    </view>
+    <view class="data-v-0f056466" wx:else>
+      <view class="template-planet data-v-0f056466">
+        <module_-text
+          bind:__l="__l"
+          class="data-v-0f056466"
+          text="{{realtime_page_data.m_debug}}"
+          vueId="5cb0ad40-2"
+        ></module_-text>
+        <view class="image-container data-v-0f056466">
+          <view class="status-container data-v-0f056466">
+            <status-container
+              bind:__l="__l"
+              ble_connect="{{ble_connect}}"
+              ble_r_ok="{{ble_r_ok}}"
+              class="data-v-0f056466"
+              isLock="{{realtime_page_data.isLock}}"
+              isNew="{{realtime_page_data.isNew}}"
+              vueId="5cb0ad40-3"
+            ></status-container>
+          </view>
+          <view
+            bindtap="__e"
+            class="image-dashboard-container data-v-0f056466"
+            data-event-opts="{{[ [ 'tap',[ [ 'switch_display',[1] ] ] ] ]}}"
+          >
+            <image
+              class="dashboard-background-image data-v-0f056466"
+              mode="aspectFill"
+              src="/static/back.jpeg"
+            ></image>
+            <view class="left-dashboard data-v-0f056466">
+              <car-dash-board
+                bind:__l="__l"
+                class="data-v-0f056466"
+                debug="{{false}}"
+                position="{{realtime_page_data.speed}}"
+                range="{{[115,50]}}"
+                size="{{160}}"
+                vueId="5cb0ad40-4"
+              ></car-dash-board>
+            </view>
+            <view class="center-image data-v-0f056466"></view>
+            <view class="right-dashboard data-v-0f056466">
+              <car-dash-board
+                bind:__l="__l"
+                class="data-v-0f056466"
+                debug="{{false}}"
+                position="{{realtime_page_data.velocity}}"
+                range="{{[140,44]}}"
+                size="{{180}}"
+                vueId="5cb0ad40-5"
+              ></car-dash-board>
+            </view>
+            <image
+              class="trip-container data-v-0f056466"
+              mode="aspectFill"
+              src="/static/xxx6.png"
+            ></image>
+            <view class="status-text data-v-0f056466"
+              >{{''+realtime_page_data.status+''}}</view
+            >
+            <view class="status-text2 data-v-0f056466"
+              >{{''+realtime_page_data.func_status+''}}</view
+            >
+            <image
+              class="right-dz data-v-0f056466"
+              mode="aspectFill"
+              src="/static/dz.png"
+            ></image>
+            <image
+              class="left-dz data-v-0f056466"
+              mode="aspectFill"
+              src="/static/dz.png"
+            ></image>
+            <image
+              mode
+              class="center-container data-v-0f056466"
+              src="/static/xxx41.png"
+            ></image>
+          </view>
+        </view>
+        <image
+          class="line_image data-v-0f056466"
+          mode="aspectFill"
+          src="/static/xxx5.png"
+        ></image>
+        <item-card
+          bind:__l="__l"
+          class="data-v-0f056466"
+          item1_bkcolor="violet"
+          item1_description="{{$root.m5}}"
+          item1_icon="icon-xudianchidianya "
+          item1_unit="V"
+          item1_value="{{realtime_page_data.display[0].value}}"
+          item2_bkcolor="orange"
+          item2_description="{{$root.m6}}"
+          item2_icon="icon-UIicon_dianliu"
+          item2_unit="A"
+          item2_value="{{realtime_page_data.display[1].value}}"
+          vueId="5cb0ad40-6"
+        ></item-card>
+        <item-card
+          bind:__l="__l"
+          class="data-v-0f056466"
+          item1_bkcolor="pink"
+          item1_description="{{$root.m7}}"
+          item1_icon="icon-zhuansu"
+          item1_unit="rpm"
+          item1_value="{{realtime_page_data.display[2].value}}"
+          item2_bkcolor="green"
+          item2_description="{{$root.m8}}"
+          item2_icon="icon-wendu"
+          item2_unit="℃"
+          item2_value="{{realtime_page_data.display[3].value}}"
+          vueId="5cb0ad40-7"
+        ></item-card>
+        <item-card
+          bind:__l="__l"
+          class="data-v-0f056466"
+          item1_bkcolor="brown"
+          item1_description="{{$root.m9}}"
+          item1_icon="icon-taban"
+          item1_unit="V"
+          item1_value="{{realtime_page_data.display[4].value}}"
+          item2_bkcolor="red"
+          item2_description="{{$root.m10}}"
+          item2_icon="icon-guzhang"
+          item2_unit=" "
+          item2_value="{{realtime_page_data.display[5].value}}"
+          vueId="5cb0ad40-8"
+        ></item-card>
+        <item-card
+          bind:__l="__l"
+          class="data-v-0f056466"
+          item1_bkcolor="brown"
+          item1_description="5V"
+          item1_icon="icon-xinzenggujianbanben"
+          item1_unit=" "
+          item1_value="{{realtime_page_data.display[6].value}}"
+          item2_bkcolor="red"
+          item2_description="12V"
+          item2_icon="icon-xinzenggujianbanben"
+          item2_unit=" "
+          item2_value="{{realtime_page_data.display[7].value}}"
+          vueId="5cb0ad40-9"
+          wx:if="{{debug_data}}"
+        ></item-card>
+        <item-card
+          bind:__l="__l"
+          class="data-v-0f056466"
+          item1_bkcolor="brown"
+          item1_description="电机温度"
+          item1_icon="icon-xinzenggujianbanben"
+          item1_unit="℃"
+          item1_value="{{realtime_page_data.display[8].value}}"
+          item2_bkcolor="red"
+          item2_description="相电流有效值"
+          item2_icon="icon-xinzenggujianbanben"
+          item2_unit="A"
+          item2_value="{{realtime_page_data.display[9].value}}"
+          vueId="5cb0ad40-10"
+          wx:if="{{debug_data}}"
+        ></item-card>
+        <view class="bit-status-container data-v-0f056466">
+          <view
+            bindtap="__e"
+            class="title-wrap data-v-0f056466"
+            data-event-opts="{{[ [ 'tap',[ [ 'toggleCollapse2',['$event'] ] ] ] ]}}"
+          >
+            <view class="title data-v-0f056466">端口状态</view>
+            <view class="collapse-icon data-v-0f056466"
+              >{{isCollapsed2?'展开 ▼':'折叠 ▲'}}</view
+            >
+          </view>
+          <view class="bit-list data-v-0f056466" wx:if="{{!isCollapsed2}}">
+            <view
+              class="bit-item data-v-0f056466"
+              wx:for="{{realtime_page_data.gear_io_info}}"
+              wx:for-item="bit"
+              wx:key="index"
+            >
+              <view class="bit-name data-v-0f056466">{{''+bit.name+''}}</view>
+              <view
+                class="{{['bit-status','data-v-0f056466',bit.status===1?'active':'']}}"
+                >{{''+bit.status+''}}</view
+              >
+            </view>
+          </view>
+        </view>
+        <view class="data-v-0f056466" wx:if="{{debug_buffer_flag&&debug_data}}">
+          <view class="debug-container data-v-0f056466">
+            <view
+              bindtap="__e"
+              class="debug-header data-v-0f056466"
+              data-event-opts="{{[ [ 'tap',[ [ 'toggleCollapse',['$event'] ] ] ] ]}}"
+            >
+              <text class="title data-v-0f056466">实时监控原始数据</text>
+              <view class="toggle-icon data-v-0f056466">
+                <text
+                  class="{{['data-v-0f056466',isCollapsed?'cuIcon-fold':'cuIcon-unfold']}}"
+                ></text>
+              </view>
+            </view>
+            <view
+              class="{{['debug-content','data-v-0f056466',isCollapsed?'collapsed':'']}}"
+            >
+              <view class="data-header data-v-0f056466">
+                <view class="header-name data-v-0f056466">数据索引</view>
+                <view class="header-dec data-v-0f056466">十进制</view>
+                <view class="header-hex data-v-0f056466">十六进制</view>
+              </view>
+              <view class="data-list data-v-0f056466">
+                <view
+                  class="{{['data-item','data-v-0f056466',index%2===0?'even':'']}}"
+                  wx:for="{{$root.l1}}"
+                  wx:key="index"
+                >
+                  <view class="data-name data-v-0f056466"
+                    >{{index+'-'+(debug_buffer_name[index]||'保留')}}</view
+                  >
+                  <view class="data-dec data-v-0f056466"
+                    >{{''+item.m11+''}}</view
+                  >
+                  <view class="data-hex data-v-0f056466"
+                    >{{''+item.m12+''}}</view
+                  >
+                </view>
+              </view>
+            </view>
+          </view>
+        </view>
+        <view class="button-container data-v-0f056466">
+          <view
+            bindtap="__e"
+            class="button-item data-v-0f056466"
+            data-event-opts="{{[ [ 'tap',[ [ 'realtime_click_handle',['$event'] ] ] ] ]}}"
+            id="button_learn"
+          >
+            <text class="button-icon cuIcon-cascades data-v-0f056466"></text>
+            <text class="button-text data-v-0f056466">{{$root.m13}}</text>
+          </view>
+          <view
+            bindlongpress="__e"
+            bindtap="__e"
+            class="button-item data-v-0f056466"
+            data-event-opts="{{[ [ 'tap',[ [ 'realtime_click_handle',['$event'] ] ] ],[ 'longpress',[ [ 'realtime_longclick_handle',['$event'] ] ] ] ]}}"
+            id="button_check"
+            longpressTime="3000"
+          >
+            <text class="button-icon cuIcon-lock data-v-0f056466"></text>
+            <text class="button-text data-v-0f056466">{{$root.m14}}</text>
+          </view>
+          <view
+            bindtap="__e"
+            class="button-item data-v-0f056466"
+            data-event-opts="{{[ [ 'tap',[ [ 'realtime_click_handle',['$event'] ] ] ] ]}}"
+            id="button_error"
+          >
+            <text class="button-icon cuIcon-form data-v-0f056466"></text>
+            <text class="button-text data-v-0f056466">{{$root.m15}}</text>
+          </view>
+          <view
+            bindtap="__e"
+            class="button-item data-v-0f056466"
+            data-event-opts="{{[ [ 'tap',[ [ 'realtime_click_handle',['$event'] ] ] ] ]}}"
+            id="button_switch"
+          >
+            <text class="button-icon cuIcon-repeal data-v-0f056466"></text>
+            <text class="button-text data-v-0f056466">{{$root.m16}}</text>
+          </view>
+          <view
+            bindtap="__e"
+            class="button-item data-v-0f056466"
+            data-event-opts="{{[ [ 'tap',[ [ 'realtime_click_handle',['$event'] ] ] ] ]}}"
+            id="button_function"
+          >
+            <text class="button-icon cuIcon-news data-v-0f056466"></text>
+            <text class="button-text data-v-0f056466">{{$root.m17}}</text>
+          </view>
+          <view
+            bindtap="__e"
+            class="button-item data-v-0f056466"
+            data-event-opts="{{[ [ 'tap',[ [ 'realtime_click_handle',['$event'] ] ] ] ]}}"
+            id="button_select"
+          >
+            <text class="button-icon cuIcon-magic data-v-0f056466"></text>
+            <text class="button-text data-v-0f056466">{{$root.m18}}</text>
+          </view>
+        </view>
+        <view class="alert-box data-v-0f056466">
+          <view class="alert-icon data-v-0f056466">
+            <image
+              class="alert-image data-v-0f056466"
+              mode="aspectFill"
+              src="/static/realtime/tip.ico"
+            ></image>
+          </view>
+          <view class="alert-content data-v-0f056466">
+            <text class="alert-text data-v-0f056466">{{$root.m19}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+  <block wx:else>
+    <view class="data-v-0f056466" wx:if="{{TabCur===1}}">
+      <view class="page-container data-v-0f056466">
+        <param-group-card
+          bind:__l="__l"
+          bind:updateIsExpanded="__e"
+          class="data-v-0f056466"
+          data-event-opts="{{[ [ '^updateIsExpanded',[ ['e0'] ] ] ]}}"
+          data-event-params="{{index:index}}"
+          groupIntro="{{item[$orig].about}}"
+          groupName="{{item[$orig].name}}"
+          iconClass="{{item[$orig].icon}}"
+          isExpanded="{{item[$orig].isarrow}}"
+          vueId="{{'5cb0ad40-11-'+index}}"
+          vueSlots="{{['default']}}"
+          wx:if="{{item[$orig].visible}}"
+          wx:for="{{$root.l3}}"
+          wx:key="index"
+        >
+          <view
+            class="data-v-0f056466"
+            wx:for="{{item.l2}}"
+            wx:for-index="paramIndex"
+            wx:for-item="param"
+            wx:key="paramIndex"
+          >
+            <view
+              class="{{['data-v-0f056466',param[$orig].border?'param-row-border':'param-row']}}"
+              wx:if="{{param.g0}}"
+            >
+              <text class="param-name data-v-0f056466"
+                >{{param[$orig].name}}</text
+              >
+              <view
+                class="param-value-container data-v-0f056466"
+                wx:if="{{param.g1}}"
+              >
+                <view
+                  bindtap="__e"
+                  class="param-value data-v-0f056466"
+                  data-event-opts="{{[ [ 'tap',[ [ 'parameter_click_handle',['$0','$1',paramIndex],[ [ ['parameter_setting.'+item[$orig].id+'','',paramIndex] ],[ ['parameter_title','',index,'id'] ] ] ] ] ] ]}}"
+                  >{{''+param[$orig].value+''}}</view
+                >
+                <text
+                  class="param-unit data-v-0f056466"
+                  style="{{'visibility:'+(param[$orig].unit?'visible':'hidden')+';'}}"
+                  >{{param[$orig].unit}}</text
+                >
+              </view>
+              <block wx:else>
+                <view
+                  class="param-value-container data-v-0f056466"
+                  wx:if="{{param[$orig].type==='bool'}}"
+                >
+                  <view
+                    bindtap="__e"
+                    class="param-value data-v-0f056466"
+                    data-event-opts="{{[ [ 'tap',[ [ 'parameter_switch_tip_handle',['$0','$1',paramIndex],[ [ ['parameter_setting.'+item[$orig].id+'','',paramIndex] ],[ ['parameter_title','',index,'id'] ] ] ] ] ] ]}}"
+                  >
+                    <switch
+                      bindchange="__e"
+                      checked="{{param[$orig].reverse?!param[$orig].value:param[$orig].value}}"
+                      class="data-v-0f056466"
+                      data-event-opts="{{[ [ 'change',[ [ 'parameter_switch_handle',['$event','$0',paramIndex],[ [ ['parameter_title','',index,'id'] ] ] ] ] ] ]}}"
+                      disabled="{{param[$orig].en}}"
+                    ></switch>
+                    <text class="param-switch-text data-v-0f056466"
+                      >{{param[$orig].value?param[$orig].onText:param[$orig].offText}}</text
+                    >
+                  </view>
+                  <text
+                    class="param-unit data-v-0f056466"
+                    style="{{'visibility:'+(param[$orig].unit?'visible':'hidden')+';'}}"
+                    >{{param[$orig].unit}}</text
+                  >
+                </view>
+                <block wx:else>
+                  <view
+                    class="param-value-container data-v-0f056466"
+                    wx:if="{{param.g2}}"
+                  >
+                    <view
+                      bindtap="__e"
+                      class="param-value data-v-0f056466"
+                      data-event-opts="{{[ [ 'tap',[ [ 'parameter_list_handle',['$0','$1',paramIndex],[ [ ['parameter_setting.'+item[$orig].id+'','',paramIndex] ],[ ['parameter_title','',index,'id'] ] ] ] ] ] ]}}"
+                      >{{''+param[$orig].options[param[$orig].value]+''}}</view
+                    >
+                    <text
+                      class="param-unit data-v-0f056466"
+                      style="{{'visibility:'+(param[$orig].unit?'visible':'hidden')+';'}}"
+                      >{{param[$orig].unit}}</text
+                    >
+                  </view>
+                  <block wx:else>
+                    <view
+                      class="param-value-container data-v-0f056466"
+                      wx:if="{{param[$orig].type==='text'}}"
+                    >
+                      <view
+                        bindtap="__e"
+                        class="param-value data-v-0f056466"
+                        data-event-opts="{{[ [ 'tap',[ [ 'parameter_text_handle',['$0','$1',paramIndex],[ [ ['parameter_setting.'+item[$orig].id+'','',paramIndex] ],[ ['parameter_title','',index,'id'] ] ] ] ] ] ]}}"
+                      >
+                        <text class="data-v-0f056466"
+                          >{{param[$orig].value%2!=0?'打开':'关闭'}}</text
+                        >
+                      </view>
+                      <text
+                        class="param-unit data-v-0f056466"
+                        style="{{'visibility:'+(param[$orig].unit?'visible':'hidden')+';'}}"
+                        >{{param[$orig].unit}}</text
+                      >
+                    </view>
+                    <block wx:else>
+                      <view
+                        class="param-value-container data-v-0f056466"
+                        wx:if="{{param[$orig].type==='picker'}}"
+                      >
+                        <picker
+                          bindchange="__e"
+                          class="param-picker-text data-v-0f056466"
+                          data-event-opts="{{[ [ 'change',[ [ 'param_picker_handle',['$event','$0',paramIndex],[ [ ['parameter_title','',index,'id'] ] ] ] ] ] ]}}"
+                          range="{{param[$orig].options}}"
+                          value="{{param[$orig].value}}"
+                        >
+                          <view class="param-value data-v-0f056466"
+                            >{{param[$orig].options[param[$orig].value]}}</view
+                          >
+                        </picker>
+                        <text
+                          class="param-unit data-v-0f056466"
+                          style="{{'visibility:'+(param[$orig].unit?'visible':'hidden')+';'}}"
+                          >{{param[$orig].unit}}</text
+                        >
+                      </view>
+                    </block>
+                  </block>
+                </block>
+              </block>
+            </view>
+            <view
+              class="{{['data-v-0f056466',param[$orig].divider?'divider-spd':'divider']}}"
+              wx:if="{{param.g3}}"
+            ></view>
+          </view>
+          <view class="button-tip data-v-0f056466" wx:if="{{item.g4}}">
+            <button
+              bindtap="__e"
+              class="cu-btn line-blue shadow data-v-0f056466"
+              data-event-opts="{{[ [ 'tap',[ [ 'buttonClickHandler',['$0','$1'],[ [ ['parameter_title','',index],['buttons','',buttonIndex,'id'] ],[ ['parameter_title','',index,'id'] ] ] ] ] ] ]}}"
+              id="{{button.id}}"
+              wx:for="{{item[$orig].buttons}}"
+              wx:for-index="buttonIndex"
+              wx:for-item="button"
+              wx:key="buttonIndex"
+            >
+              {{''+button.name+''}}
+            </button>
+          </view>
+        </param-group-card>
+        <table-modal
+          bind:__l="__l"
+          bind:close="__e"
+          class="data-v-0f056466"
+          data-event-opts="{{[ [ '^close',[ ['e1'] ] ] ]}}"
+          isShow="{{isTableModalShow}}"
+          tableData="{{currentTableData}}"
+          tableHeaders="{{currentTableHeaders}}"
+          vueId="5cb0ad40-12"
+        ></table-modal>
+        <view class="para-null-view data-v-0f056466">
+          <view class="param-row data-v-0f056466">
+            <text class="param-name data-v-0f056466">Time</text>
+            <view class="param-value-container data-v-0f056466">
+              <view class="param-value data-v-0f056466"
+                >{{''+key_time+''}}</view
+              >
+            </view>
+          </view>
+          <view class="param-row data-v-0f056466">
+            <text class="param-name data-v-0f056466">CRC</text>
+            <view class="param-value-container data-v-0f056466">
+              <view class="param-value data-v-0f056466">{{''+key_crc+''}}</view>
+            </view>
+          </view>
+        </view>
+        <button
+          bindtap="__e"
+          class="para-button cu-btn block bg-blue margin-tb-sm lg data-v-0f056466"
+          data-event-opts="{{[ [ 'tap',[ [ 'parameter_sheet_handle',['$event'] ] ] ] ]}}"
+        >
+          <text
+            class="{{['iconfont','cuIconfont-spin','data-v-0f056466',!realtime_page_data.isNew?'icon-jiandingdashi':'',realtime_page_data.isNew?'icon-xinshourumen':'']}}"
+          ></text
+          >{{''+$root.m20+''}}
+        </button>
+        <view
+          class="{{['bubble-hint','data-v-0f056466',showBubbleHint?'show':'']}}"
+          wx:if="{{showBubbleHint}}"
+        >
+          <view class="bubble-content data-v-0f056466"
+            >写入参数的位置藏在这里！</view
+          >
+          <view class="bubble-arrow data-v-0f056466"></view>
+        </view>
+      </view>
+    </view>
+    <block wx:else>
+      <view class="data-v-0f056466" wx:if="{{TabCur===2}}">
+        <view class="page-container data-v-0f056466">
+          <firmware-upgrade
+            bind:__l="__l"
+            bind:firmwaveinfo="__e"
+            bind:upgradeClicked="__e"
+            class="data-v-0f056466"
+            currentVersion="{{manufacturerFirmwareId===0?currentFirmwareVersion:currentFirmwareVersion+'&'+manufacturerFirmwareId}}"
+            data-event-opts="{{[ [ '^upgradeClicked',[ ['onUpgradeClicked'] ] ],[ '^firmwaveinfo',[ ['getfirmwaveinfoClicked'] ] ] ]}}"
+            hardver="{{hard_ver}}"
+            progress="{{prog_progess}}"
+            targetVersion="{{targetFirmwareVersion}}"
+            vueId="5cb0ad40-13"
+          ></firmware-upgrade>
+          <textarea
+            bindinput="__e"
+            class="input-key data-v-0f056466"
+            data-event-opts="{{[ [ 'input',[ [ '__set_model',[ '','inputKey','$event',[] ] ] ] ] ]}}"
+            placeholder="升级后出现问题后请联系厂家协助处理"
+            rows="3"
+            value="{{inputKey}}"
+          ></textarea>
+        </view>
+      </view>
+      <block wx:else>
+        <view class="data-v-0f056466" wx:if="{{TabCur===3}}">
+          <view class="page-container data-v-0f056466">
+            <debug-component
+              bind:__l="__l"
+              bind:adaptPolePairs="__e"
+              bind:adaptThrottle="__e"
+              bind:autoSet="__e"
+              bind:calculateResults="__e"
+              bind:detectThrottleVoltage="__e"
+              bind:ebsCloseSet="__e"
+              bind:ebsCommondSet="__e"
+              bind:exportParameters="__e"
+              bind:handleVolSet="__e"
+              bind:importParameters="__e"
+              bind:tireRadiusChanged="__e"
+              busCurrent="{{busCurrentValue}}"
+              class="data-v-0f056466"
+              currentPolePairs="{{polePairs}}"
+              currentSpeed="{{speed}}"
+              data-event-opts="{{[ [ '^calculateResults',[ ['handleCalculatedResults'] ] ],[ '^tireRadiusChanged',[ ['handleTireRadiusChanged'] ] ],[ '^adaptPolePairs',[ ['handleAdaptPolePairs'] ] ],[ '^exportParameters',[ ['exportParametersFile'] ] ],[ '^importParameters',[ ['importParametersFile'] ] ],[ '^detectThrottleVoltage',[ ['detectThrottleVoltage'] ] ],[ '^adaptThrottle',[ ['adaptThrottle'] ] ],[ '^autoSet',[ ['autoWriteCurrent'] ] ],[ '^handleVolSet',[ ['handleVolSet'] ] ],[ '^ebsCommondSet',[ ['ebsCommondSet'] ] ],[ '^ebsCloseSet',[ ['ebsCloseSet'] ] ] ]}}"
+              fullThrottleVoltage="{{fullVoltage}}"
+              idleThrottleVoltage="{{idleVoltage}}"
+              phaseCurrent="{{phaseCurrentValue}}"
+              vueId="5cb0ad40-14"
+            ></debug-component>
+          </view>
+        </view>
+      </block>
+    </block>
+  </block>
+</view>

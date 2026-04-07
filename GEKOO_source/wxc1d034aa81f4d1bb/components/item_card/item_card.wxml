@@ -1,0 +1,30 @@
+<view class="container">
+  <view class="item">
+    <view class="item-image-container">
+      <text class="{{['iconfont','item-image',item1_icon]}}"></text>
+    </view>
+    <view class="item-info">
+      <view class="data-unit">
+        <text class="data">{{item1_value+''}}</text>
+        <text class="unit">{{item1_unit}}</text>
+      </view>
+      <view class="description">{{item1_description}}</view>
+    </view>
+  </view>
+  <view
+    bindtap="__e"
+    class="item"
+    data-event-opts="{{[ [ 'tap',[ [ 'handle_event',['$event'] ] ] ] ]}}"
+  >
+    <view class="item-image-container">
+      <text class="{{['iconfont','item-image',item2_icon]}}"></text>
+    </view>
+    <view class="item-info">
+      <view class="data-unit">
+        <text class="data">{{item2_value}}</text>
+        <text class="unit">{{item2_unit}}</text>
+      </view>
+      <view class="description">{{item2_description}}</view>
+    </view>
+  </view>
+</view>

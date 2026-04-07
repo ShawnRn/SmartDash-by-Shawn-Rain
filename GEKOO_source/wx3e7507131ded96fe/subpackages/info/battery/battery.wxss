@@ -1,0 +1,125 @@
+.remark-container.data-v-7f55b84c {
+  align-items: center;
+  display: -webkit-flex;
+  display: flex;
+  margin-bottom: 30rpx;
+  padding: 0 30rpx;
+}
+.remark-label.data-v-7f55b84c {
+  color: #333;
+  font-size: 28rpx;
+  width: 140rpx;
+}
+.remark-input.data-v-7f55b84c {
+  background-color: #fff;
+  border: 1px solid #d9d9d9;
+  border-radius: 6rpx;
+  flex: 1;
+  font-size: 28rpx;
+  height: 70rpx;
+  padding: 0 20rpx;
+}
+.battery-settings-page.data-v-7f55b84c {
+  background-color: #f5f7fa;
+  min-height: 100vh;
+}
+.page-header.data-v-7f55b84c {
+  background-color: #0056b3;
+  padding: 30rpx 0;
+  text-align: center;
+}
+.header-title.data-v-7f55b84c {
+  color: #fff;
+  font-size: 36rpx;
+  font-weight: 700;
+}
+.tab-bar.data-v-7f55b84c {
+  background-color: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  display: -webkit-flex;
+  display: flex;
+  flex-direction: row;
+}
+.tab-item.data-v-7f55b84c {
+  color: #666;
+  flex: 1;
+  font-size: 32rpx;
+  padding: 25rpx 0;
+  position: relative;
+  text-align: center;
+}
+.tab-item.active.data-v-7f55b84c {
+  color: #1677ff;
+  font-weight: 600;
+}
+.tab-item.active.data-v-7f55b84c::after {
+  background-color: #1677ff;
+  bottom: 0;
+  content: "";
+  height: 4rpx;
+  left: 0;
+  position: absolute;
+  width: 100%;
+}
+.content-panel.data-v-7f55b84c {
+  padding: 30rpx;
+}
+.battery1-bg.data-v-7f55b84c {
+  background-color: #f5f7fa;
+}
+.battery2-bg.data-v-7f55b84c {
+  background-color: #e6f7ff;
+}
+.param-form.data-v-7f55b84c {
+  padding: 30rpx;
+}
+.form-item.data-v-7f55b84c {
+  align-items: center;
+  display: -webkit-flex;
+  display: flex;
+  margin-bottom: 30rpx;
+}
+.param-label.data-v-7f55b84c {
+  color: #333;
+  font-size: 28rpx;
+  width: 240rpx;
+}
+.param-input.data-v-7f55b84c {
+  border: 1px solid #d9d9d9;
+  border-radius: 6rpx;
+  color: #333;
+  flex: 1;
+  font-size: 28rpx;
+  height: 70rpx;
+  padding: 0 20rpx;
+}
+.button-group.data-v-7f55b84c {
+  display: -webkit-flex;
+  display: flex;
+  flex-direction: row;
+  gap: 20rpx;
+  margin-top: 40rpx;
+}
+.btn.data-v-7f55b84c {
+  border-radius: 8rpx;
+  flex: 1;
+  font-size: 30rpx;
+  height: 80rpx;
+  line-height: 80rpx;
+  padding: 0;
+}
+.reset-btn.data-v-7f55b84c {
+  background-color: #f5f5f5;
+  border: none;
+  color: #333;
+}
+.confirm-btn.data-v-7f55b84c {
+  background-color: #1677ff;
+  border: none;
+  color: #fff;
+}
+.cancel-btn.data-v-7f55b84c {
+  background-color: #fff;
+  border: 1px solid #d9d9d9;
+  color: #666;
+}

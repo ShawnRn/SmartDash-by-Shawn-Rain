@@ -1,0 +1,22 @@
+<view
+  class="content data-v-6970575e"
+  style="{{'width:'+conwidth+';'+'height:'+conheight+';'+'position:'+'fixed'+';'+'top:'+'0'+';'+'left:'+'0'+';'+'z-index:'+'999'+';'}}"
+>
+  <view
+    class="img-box data-v-6970575e"
+    style="{{'top:'+item.top+';'+'left:'+item.left+';'+'animation-delay:'+item.animationDelay+';'}}"
+    wx:for="{{snows}}"
+    wx:key="index"
+  >
+    <image
+      lazyLoad
+      mode
+      class="snowimg data-v-6970575e"
+      src="{{img}}"
+      wx:if="{{img}}"
+    ></image>
+    <view class="data-v-6970575e" style="{{'font-size:'+item.wh+';'}}" wx:else
+      >*</view
+    >
+  </view>
+</view>

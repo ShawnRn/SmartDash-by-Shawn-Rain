@@ -1,0 +1,13 @@
+{
+  "navigationBarTitleText": "",
+  "usingComponents": {
+    "table-modal": "/components/TableModal/TableModal",
+    "module_-text": "/components/module_text/module_text",
+    "item-card": "/components/item_card/item_card",
+    "car-dash-board": "/components/dashboard/zui-meter-basic",
+    "param-group-card": "/components/text_group/text_group",
+    "firmware-upgrade": "/components/firmwave_update/firmwave_update",
+    "debug-component": "/components/debugger/debugger",
+    "status-container": "/components/blestatus/blestatus"
+  }
+}

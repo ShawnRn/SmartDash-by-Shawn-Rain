@@ -12,10 +12,11 @@ class RideAccumulator {
 
     fun accumulate(sample: TelemetrySample) {
         val isDuplicate = sample.quality == SampleQuality.DUPLICATE
+        val isTooDense = sample.quality == SampleQuality.TOO_DENSE
         val isOutlier = sample.quality == SampleQuality.OUTLIER || sample.quality == SampleQuality.GAP_RESET
 
-        // 统计量去污：重复包不参与平均值计算 (防止 dt 为 0 导致的平均速度失真)
-        if (!isDuplicate) {
+        // 统计量去污：重复包和过密包不参与平均值计算 (防止采样权重因调度抖动而失真)
+        if (!isDuplicate && !isTooDense) {
             _state = _state.copy(
                 sampleCount = _state.sampleCount + 1,
                 totalSpeedSum = _state.totalSpeedSum + sample.controllerSpeedKmH

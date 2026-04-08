@@ -24,6 +24,9 @@ class RangeEstimator {
     
     private var lastDistanceKm = 0.0
     private var lastNetWh = 0.0
+    
+    // 数据质量追踪
+    private val qualityWindow = ArrayDeque<SampleQuality>(20)
 
     fun reset() {
         rangeWindow.clear()
@@ -31,9 +34,11 @@ class RangeEstimator {
         rangeWindowEnergyWh = 0.0
         lastDistanceKm = 0.0
         lastNetWh = 0.0
+        qualityWindow.clear()
     }
 
     fun estimate(
+        sample: TelemetrySample,
         batteryState: BatteryState,
         accumulator: RideAccumulatorState,
         batterySeries: Int,
@@ -59,6 +64,10 @@ class RangeEstimator {
             trimRangeWindow()
         }
         
+        // 1.5 追踪质量分布
+        qualityWindow.addLast(sample.quality)
+        if (qualityWindow.size > 20) qualityWindow.removeFirst()
+        
         lastDistanceKm = currentDistanceKm
         lastNetWh = currentNetWh
 
@@ -69,11 +78,17 @@ class RangeEstimator {
             0f
         }
 
-        // 3. 计算置信度 (综合窗口距离与电池状态置信度)
+        // 3. 计算置信度 (综合窗口距离、电池状态置信度、以及遥测物理质量)
+        val goodSamples = qualityWindow.count { it == SampleQuality.GOOD }
+        val recentGapResets = qualityWindow.count { it == SampleQuality.GAP_RESET }
+        val dataHealthRatio = goodSamples.toFloat() / max(1, qualityWindow.size)
+
         val confidence = when {
             batteryState.confidence < 0.1f -> RangeConfidence.LOW // 电压极度不稳定
+            dataHealthRatio < 0.5f -> RangeConfidence.LOW         // 采样抖动剧烈
+            recentGapResets > 2 -> RangeConfidence.LOW           // 频繁断连
             rangeWindowDistanceKm < MIN_RANGE_WINDOW_DISTANCE_KM -> RangeConfidence.LOW
-            rangeWindowDistanceKm < 1.0 -> RangeConfidence.MEDIUM
+            rangeWindowDistanceKm < 1.0 || dataHealthRatio < 0.8f -> RangeConfidence.MEDIUM
             else -> RangeConfidence.HIGH
         }
 

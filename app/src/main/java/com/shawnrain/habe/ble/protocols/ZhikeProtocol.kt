@@ -5,6 +5,9 @@ import com.shawnrain.habe.ble.VehicleMetrics
 import com.shawnrain.habe.debug.AppLogger
 import java.util.Locale
 import kotlin.math.abs
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 // Settings Data Model based on GEKOO Protocol
 data class ZhikeSettings(
@@ -34,11 +37,17 @@ class ZhikeProtocol : ControllerProtocol {
     private var pendingSettings: ZhikeSettings? = null
     private var lastRealtimeMetrics: VehicleMetrics? = null
     private var lastRealtimeAtMs: Long = 0L
-    
+
+    private val _events = MutableSharedFlow<ZhikeProtocolEvent>(extraBufferCapacity = 8)
+    val events: SharedFlow<ZhikeProtocolEvent> = _events.asSharedFlow()
+
     companion object {
         private const val TAG = "ZhikeProtocol"
         private const val FRAME_HEADER = 0xAA.toByte()
         private const val CMD_REALTIME = 0x13.toByte()
+        private const val CMD_PARAM_READ = 0x11.toByte()
+        private const val CMD_PARAM_WRITE = 0x12.toByte()
+        private const val CMD_WRITE_MODE = 0x21.toByte()
         private const val MAX_REASONABLE_CURRENT_A = 5_000f
     }
 
@@ -47,6 +56,27 @@ class ZhikeProtocol : ControllerProtocol {
         pendingSettings = null
         lastRealtimeMetrics = null
         lastRealtimeAtMs = 0L
+    }
+
+    /**
+     * 发出写入模式就绪事件
+     */
+    fun emitWriteModeReady() {
+        _events.tryEmit(ZhikeProtocolEvent.WriteModeReady)
+    }
+
+    /**
+     * 发出写入成功事件
+     */
+    fun emitWriteSuccess() {
+        _events.tryEmit(ZhikeProtocolEvent.WriteSuccess)
+    }
+
+    /**
+     * 发出写入失败事件
+     */
+    fun emitWriteFailure(reason: String) {
+        _events.tryEmit(ZhikeProtocolEvent.WriteFailure(reason))
     }
 
     fun consumePendingSettings(): ZhikeSettings? {
@@ -219,7 +249,14 @@ class ZhikeProtocol : ControllerProtocol {
     ) {
         when (cmd) {
             CMD_REALTIME -> {
-                if (frame.size == 4) return // Skip 4-byte command ACK
+                if (frame.size == 4) {
+                    // 4-byte ACK from realtime start/stop — check if it's write mode ready
+                    if (frame[2] == 0x01.toByte() && frame[3] == 0x02.toByte()) {
+                        AppLogger.i(TAG, "收到写入模式就绪 ACK")
+                        emitWriteModeReady()
+                    }
+                    return
+                }
 
                 val words = extractWords(frame)
                 val realtimeWords = words.dropLast(1)
@@ -282,6 +319,33 @@ class ZhikeProtocol : ControllerProtocol {
                 val polePairs = settings.polePairs
                 if (polePairs in 1..99) {
                     onConfigChange("polePairs" to polePairs)
+                }
+                _events.tryEmit(ZhikeProtocolEvent.ParameterReadComplete)
+            }
+            0x21.toByte() -> {
+                // 写入模式 ACK
+                if (frame.size >= 4) {
+                    val ackByte = frame[3].toInt() and 0xFF
+                    if (ackByte == 0x01) {
+                        AppLogger.i(TAG, "写入模式就绪 ACK 收到")
+                        emitWriteModeReady()
+                    } else {
+                        AppLogger.w(TAG, "写入模式进入失败 ack=$ackByte")
+                        emitWriteFailure("写入模式进入失败 (ack=$ackByte)")
+                    }
+                }
+            }
+            0x12.toByte() -> {
+                // 参数写入 ACK
+                if (frame.size >= 4) {
+                    val ackByte = frame[3].toInt() and 0xFF
+                    if (ackByte == 0x01 || ackByte == 0x00) {
+                        AppLogger.i(TAG, "参数写入成功 ACK 收到")
+                        emitWriteSuccess()
+                    } else {
+                        AppLogger.w(TAG, "参数写入失败 ack=$ackByte")
+                        emitWriteFailure("参数写入失败 (ack=$ackByte)")
+                    }
                 }
             }
         }

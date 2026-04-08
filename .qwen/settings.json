@@ -44,7 +44,12 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(git tag *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Read(//Users/shawnrain/Downloads/**)",
+      "Bash(file_path *)",
+      "Bash(lines *)",
+      "Bash(python)",
+      "Bash(sed *)"
     ]
   },
   "$version": 3

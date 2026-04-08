@@ -13,9 +13,9 @@ enum class RangeConfidence {
  * 续航估计结果
  */
 data class RangeEstimate(
-    val estimatedRangeKm: Float = 0f,
-    val remainingEnergyWh: Float = 0f,
-    val averageWindowEfficiencyWhKm: Float = 0f,
+    val estimatedRangeKm: Float = 0.0f,
+    val remainingEnergyWh: EnergyWh = 0.0f,
+    val averageWindowEfficiencyWhKm: EfficiencyWhKm = 0.0f,
     val isWindowFresh: Boolean = false,
     val confidence: RangeConfidence = RangeConfidence.LOW
 )

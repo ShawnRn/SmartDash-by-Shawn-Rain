@@ -8,10 +8,10 @@ import kotlin.math.abs
  * 处理去重、异常值过滤、以及采样时间间隔 (dt) 的合法性检查。
  */
 class TelemetryStreamProcessor {
-    private var lastRawVoltage = 0f
-    private var lastRawBusCurrent = 0f
-    private var lastRawPhaseCurrent = 0f
-    private var lastRawRpm = 0f
+    private var lastRawVoltage = 0.0f
+    private var lastRawBusCurrent = 0.0f
+    private var lastRawPhaseCurrent = 0.0f
+    private var lastRawRpm = 0.0f
     private var lastTimestampMs = 0L
     private var frameSequence = 0L
 
@@ -29,12 +29,12 @@ class TelemetryStreamProcessor {
             isDuplicate -> SampleQuality.DUPLICATE
             dtMs < 45L -> SampleQuality.TOO_DENSE
             dtMs > 3000L -> SampleQuality.GAP_RESET
-            rawMetrics.voltage !in 15f..120f -> SampleQuality.OUTLIER
-            abs(rawMetrics.busCurrent) > 550f -> SampleQuality.OUTLIER
-            abs(rawMetrics.rpm) > 20000f -> SampleQuality.OUTLIER
-            rawMetrics.controllerSpeedKmH > 300f -> SampleQuality.OUTLIER
+            rawMetrics.voltage !in 15.0f..120.0f -> SampleQuality.OUTLIER
+            abs(rawMetrics.busCurrent) > 550.0f -> SampleQuality.OUTLIER
+            abs(rawMetrics.rpm) > 20000.0f -> SampleQuality.OUTLIER
+            rawMetrics.controllerSpeedKmH > 300.0f -> SampleQuality.OUTLIER
             // RPM 与 速度逻辑矛盾 (例如转速 1000+ 但速度为 0)
-            abs(rawMetrics.rpm) > 1000f && rawMetrics.controllerSpeedKmH < 1f -> SampleQuality.OUTLIER
+            abs(rawMetrics.rpm) > 1000.0f && rawMetrics.controllerSpeedKmH < 1.0f -> SampleQuality.OUTLIER
             else -> SampleQuality.GOOD
         }
 
@@ -74,10 +74,10 @@ class TelemetryStreamProcessor {
     }
 
     fun reset() {
-        lastRawVoltage = 0f
-        lastRawBusCurrent = 0f
-        lastRawPhaseCurrent = 0f
-        lastRawRpm = 0f
+        lastRawVoltage = 0.0f
+        lastRawBusCurrent = 0.0f
+        lastRawPhaseCurrent = 0.0f
+        lastRawRpm = 0.0f
         lastTimestampMs = 0L
         frameSequence = 0L
     }

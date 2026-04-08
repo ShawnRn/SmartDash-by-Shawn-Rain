@@ -70,22 +70,22 @@ data class TelemetrySample(
 - `50 ms <= dt <= 2000 ms`：允许积分
 - `dt > 3000 ms`：视为断流，重置积分窗口，不跨段硬积分
 
-### 4. 统一能量口径
+### 4. 统一能量标准 (United Energy Standard)
 
-内部至少维护 3 本账：
+为了防止逻辑复杂化后出现的口径分裂风险，SmartDash 强制执行以下能量口径标准：
 
-- `tractionEnergyWh`
-- `regenEnergyWh`
-- `netBatteryEnergyWh`
+- **Display (UI)**: 所有面向用户的能耗 (Efficiency) 显示，**必须默认强制采用 `Net Wh` (Traction - Regen) 口径**。
+- **Estimation (Range)**: 续航预测模型**必须**基于 `Net Wh` 能效基准。
+- **Analysis**: 仅在后台分析或特定详情页允许区分毛能耗 (Traction) 与回收贡献 (Regen)。
+- **Data Model**: 能效字段应显式区分为 `avgNetEfficiencyWhKm` 与 `avgTractionEfficiencyWhKm`。
 
-并明确：
+### 5. 统计去污 (Statistics Cleaning)
 
-- `SoC / remainingEnergyWh` 主要跟 `netBatteryEnergyWh` 相关
-- 驾驶风格分析主要看 `tractionEnergyWh`
-- 回收效果主要看 `regenEnergyWh`
-- `CSV` 导出中要把字段定义写清楚
+- `TOO_DENSE` (采样间隔过密) 或 `DUPLICATE` 样本：
+    - **可以**参与 `Wh / Ah` 的物理积分（以保持总量连续性）。
+    - **禁止**参与 `avgSpeed`、`avgPower`、`avgEfficiency`、`maxSpeed` 等统计均值与极值的计算，防止由于调度抖动导致的统计权重偏离真实物理均值。
 
-### 5. `SoC` 必须区分内部估算值与显示值
+### 6. `SoC` 必须区分内部估算值与显示值
 
 - 内部值可快速响应
 - 显示值必须限速、防抖、缓变

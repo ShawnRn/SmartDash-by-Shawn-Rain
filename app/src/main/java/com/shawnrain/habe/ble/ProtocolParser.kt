@@ -13,29 +13,32 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
+import com.shawnrain.habe.data.telemetry.EnergyWh
+import com.shawnrain.habe.data.telemetry.EfficiencyWhKm
+
 /**
  * Global parsed metrics from BLE.
  */
 data class VehicleMetrics(
-    val speedKmH: Float = 0f,
-    val controllerSpeedKmH: Float = 0f,
-    val busCurrent: Float = 0f,
-    val phaseCurrent: Float = 0f,
-    val voltage: Float = 0f,
-    val voltageSag: Float = 0f,
-    val totalPowerW: Float = 0f,
-    val mosfetTemp: Float = 0f,
-    val controllerTemp: Float = 0f,
-    val soc: Float = 0f,
-    val estimatedRangeKm: Float = 0f,
-    val rpm: Float = 0f,
-    val tripDistance: Double = 0.0,
-    val efficiencyWhKm: Float = 0f,
-    val avgEfficiencyWhKm: Float = 0f,
-    val totalEnergyWh: Float = 0f,
-    val recoveredEnergyWh: Float = 0f,
-    val peakRegenPowerKw: Float = 0f,
-    val maxControllerTemp: Float = 0f,
+    val speedKmH: Float = 0.0f,
+    val controllerSpeedKmH: Float = 0.0f,
+    val busCurrent: Float = 0.0f,
+    val phaseCurrent: Float = 0.0f,
+    val voltage: Float = 0.0f,
+    val voltageSag: Float = 0.0f,
+    val totalPowerW: Float = 0.0f,
+    val mosfetTemp: Float = 0.0f,
+    val controllerTemp: Float = 0.0f,
+    val soc: Float = 0.0f,
+    val estimatedRangeKm: Float = 0.0f,
+    val rpm: Float = 0.0f,
+    val tripDistance: Float = 0.0f,
+    val efficiencyWhKm: EfficiencyWhKm = 0.0f,
+    val avgEfficiencyWhKm: EfficiencyWhKm = 0.0f,
+    val totalEnergyWh: EnergyWh = 0.0f,
+    val recoveredEnergyWh: EnergyWh = 0.0f,
+    val peakRegenPowerKw: Float = 0.0f,
+    val maxControllerTemp: Float = 0.0f,
     val faultCode: Int = 0,
     val isBraking: Boolean = false,
     val isCruise: Boolean = false,

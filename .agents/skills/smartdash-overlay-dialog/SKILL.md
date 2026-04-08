@@ -19,9 +19,9 @@ Do not invent a fresh popup style.
 
 Match the existing SmartDash overlay language from:
 
-- `app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt`
-- `app/src/main/java/com/shawnrain/habe/ui/navigation/PredictiveBackMotion.kt`
-- `app/src/main/java/com/shawnrain/habe/ui/navigation/DialogWindowEffects.kt`
+- `app/src/main/java/com/shawnrain/sdash/ui/speedtest/SpeedtestScreen.kt`
+- `app/src/main/java/com/shawnrain/sdash/ui/navigation/PredictiveBackMotion.kt`
+- `app/src/main/java/com/shawnrain/sdash/ui/navigation/DialogWindowEffects.kt`
 - `.agents/workflows/overlay-dialog.md`
 - `.agents/workflows/predictive-back.md`
 

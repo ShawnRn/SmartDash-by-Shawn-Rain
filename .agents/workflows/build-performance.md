@@ -35,7 +35,7 @@ android.enableR8.desugaring=true
 | "出个包" | `.agents/scripts/build-release.sh` |
 | "编译验证" | `./gradlew :app:compileDebugKotlin --console plain` |
 | "改 UI 看效果" | `./gradlew :app:assembleDebug && adb install -r ...` |
-| "先编一个 devRelease 包，别刷太多输出" | `cd ".../habe_android" && export JAVA_HOME=... && set -o pipefail && .agents/scripts/build-dev-release.sh 2>&1 | tail -5` |
+| "先编一个 devRelease 包，别刷太多输出" | `cd ".../SmartDash" && export JAVA_HOME=... && set -o pipefail && .agents/scripts/build-dev-release.sh 2>&1 | tail -5` |
 
 ## 环境变量
 
@@ -49,7 +49,7 @@ export ANDROID_HOME=/Users/shawnrain/android-sdk
 ## 低干扰构建模式
 
 ```bash
-cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vibe-Coding/habe_android" \
+cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vibe-Coding/SmartDash" \
   && export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
   && set -o pipefail \
   && .agents/scripts/build-dev-release.sh 2>&1 | tail -5
@@ -58,6 +58,30 @@ cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vib
 - 适用于 Codex / 桌面代理 / 远程终端等容易被大量日志拖慢的环境
 - `tail -5` 仅显示尾部摘要，减少终端绘制开销
 - `set -o pipefail` 防止构建失败被 `tail` 掩盖
+
+## devRelease configuration cache 问题
+
+`devRelease` 构建可能报 configuration cache 序列化错误：
+
+```
+Configuration cache state could not be cached: field `generatedModuleFile` of `JdkImageInput` ...
+```
+
+**解决方案**：添加 `--no-configuration-cache` 参数：
+
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+./gradlew :app:assembleDevRelease \
+  -Dorg.gradle.java.home=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
+  --no-configuration-cache --console plain
+```
+
+或者清理 cache 后重试：
+
+```bash
+rm -rf .gradle/configuration-cache/
+./gradlew --stop
+```
 
 ## 性能排查
 

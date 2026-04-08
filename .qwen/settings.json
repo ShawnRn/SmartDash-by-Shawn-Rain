@@ -50,7 +50,8 @@
       "Bash(lines *)",
       "Bash(python)",
       "Bash(sed *)",
-      "Bash(gh *)"
+      "Bash(gh *)",
+      "Bash(tr *)"
     ]
   },
   "$version": 3

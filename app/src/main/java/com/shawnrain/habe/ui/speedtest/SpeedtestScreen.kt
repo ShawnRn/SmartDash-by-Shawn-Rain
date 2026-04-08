@@ -728,6 +728,7 @@ private fun RideHistoryCard(
     var showShareActions by remember(record.id) { mutableStateOf(false) }
     var isRemoving by remember(record.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
     val displayDistanceMeters = remember(record.distanceMeters, record.samples) {
         max(
             record.distanceMeters,
@@ -759,7 +760,10 @@ private fun RideHistoryCard(
                 .fillMaxWidth()
                 .combinedClickable(
                     onClick = onOpen,
-                    onLongClick = onLongPress
+                    onLongClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onLongPress()
+                    }
                 ),
             shape = bezierRoundedShape(26.dp),
             color = if (selected) {
@@ -799,7 +803,11 @@ private fun RideHistoryCard(
                     metrics = summaryMetrics,
                     columns = 2
                 )
-                if (!selectionMode) {
+                AnimatedVisibility(
+                    visible = !selectionMode,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)

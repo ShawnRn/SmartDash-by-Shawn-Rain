@@ -35,12 +35,22 @@ jobs:
           ./gradlew :app:assembleRelease --console plain
 
       - name: Verify APK output
+        id: apk
         shell: bash
         run: |
           APK_PATH="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' ! -name '*-unsigned.apk' | head -n 1)"
           test -n "${APK_PATH}"
           echo "APK_PATH=${APK_PATH}"
+          echo "apk_path=${APK_PATH}" >> "${GITHUB_OUTPUT}"
           sha256sum "${APK_PATH}"
+
+      - name: Upload verified release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartdash-verify-release-${{ github.run_number }}
+          path: ${{ steps.apk.outputs.apk_path }}
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Verify manifest fields
         shell: bash

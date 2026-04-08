@@ -55,7 +55,9 @@ class BatteryStateEstimator {
         filteredCurrent = if (filteredCurrent.isNaN()) rawCurrent else ema(filteredCurrent, rawCurrent)
 
         // 2. 内阻学习 (基于电流阶跃)
-        updateLearnedResistance(rawVoltage, rawCurrent, now)
+        if (sample.allowLearning) {
+            updateLearnedResistance(rawVoltage, rawCurrent, now)
+        }
 
         // 3. 计算补偿后的 OCV SoC
         val ocvCompensated = filteredVoltage + (filteredCurrent.coerceAtLeast(0f) * learnedInternalResistanceOhm)
@@ -73,8 +75,11 @@ class BatteryStateEstimator {
         val netAh = accumulator.netBatteryAh
         val socByAh = (baseSocPercent - ((netAh / capacityAh) * 100.0)).toFloat().coerceIn(0f, 100f)
 
-        // 5. 静置检测与融合
-        val isStationary = abs(filteredCurrent) < STATIONARY_CURRENT_THRESHOLD_A
+        // 5. 静置检测与融合 (除了电流，还需参考速度和转速防止虚假静置)
+        val isStationary = abs(filteredCurrent) < STATIONARY_CURRENT_THRESHOLD_A &&
+                sample.controllerSpeedKmH < 0.8f &&
+                sample.rpm < 10f
+                
         if (isStationary) {
             if (stationarySinceMs == 0L) stationarySinceMs = now
         } else {

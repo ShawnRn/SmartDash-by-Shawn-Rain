@@ -10,16 +10,19 @@ import kotlin.math.abs
 class TelemetryStreamProcessor {
     private var lastRawVoltage = 0f
     private var lastRawBusCurrent = 0f
+    private var lastRawPhaseCurrent = 0f
     private var lastRawRpm = 0f
     private var lastTimestampMs = 0L
+    private var frameSequence = 0L
 
     fun process(rawMetrics: VehicleMetrics, nowMs: Long = System.currentTimeMillis()): TelemetrySample {
         val dtMs = if (lastTimestampMs > 0L) (nowMs - lastTimestampMs).coerceAtLeast(0L) else 0L
 
-        // 识别重复或过密采样
-        val isDuplicate = dtMs < 5L && 
+        // 识别重复或过密采样 (Android BLE 下窗口扩大至 50ms)
+        val isDuplicate = dtMs < 50L && 
                 abs(rawMetrics.voltage - lastRawVoltage) < 0.01f &&
                 abs(rawMetrics.busCurrent - lastRawBusCurrent) < 0.01f &&
+                abs(rawMetrics.phaseCurrent - lastRawPhaseCurrent) < 0.01f &&
                 abs(rawMetrics.rpm - lastRawRpm) < 0.1f
 
         val quality = when {
@@ -36,8 +39,11 @@ class TelemetryStreamProcessor {
         val allowIntegration = (quality == SampleQuality.GOOD) && (dtMs in 46L..2500L)
         val allowLearning = quality == SampleQuality.GOOD && dtMs in 100L..1500L
 
+        if (!isDuplicate) frameSequence++
+
         val sample = TelemetrySample(
             timestampMs = nowMs,
+            sourceFrameId = frameSequence,
             voltageV = rawMetrics.voltage,
             busCurrentA = rawMetrics.busCurrent,
             phaseCurrentA = rawMetrics.phaseCurrent,
@@ -56,6 +62,7 @@ class TelemetryStreamProcessor {
         // 更新状态，用于下一帧比对
         lastRawVoltage = rawMetrics.voltage
         lastRawBusCurrent = rawMetrics.busCurrent
+        lastRawPhaseCurrent = rawMetrics.phaseCurrent
         lastRawRpm = rawMetrics.rpm
         lastTimestampMs = nowMs
 

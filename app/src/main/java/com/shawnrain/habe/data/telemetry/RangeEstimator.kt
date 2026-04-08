@@ -23,14 +23,14 @@ class RangeEstimator {
     private var rangeWindowEnergyWh = 0.0
     
     private var lastDistanceKm = 0.0
-    private var lastTractionWh = 0.0
+    private var lastNetWh = 0.0
 
     fun reset() {
         rangeWindow.clear()
         rangeWindowDistanceKm = 0.0
         rangeWindowEnergyWh = 0.0
         lastDistanceKm = 0.0
-        lastTractionWh = 0.0
+        lastNetWh = 0.0
     }
 
     fun estimate(
@@ -40,27 +40,27 @@ class RangeEstimator {
         batteryCapacityAh: Float,
         usableEnergyRatio: Float
     ): RangeEstimate {
-        // 1. 更新滑动窗口 (基于 Traction Wh, 不计入回充能量以降级到真实能耗口径)
+        // 1. 更新滑动窗口 (基于 Net Wh, 即 Traction - Regen, 更贴合电池真实的能量循环)
         val currentDistanceKm = accumulator.totalDistanceMeters / 1000.0
-        val currentTractionWh = accumulator.tractionEnergyWh.toDouble()
+        val currentNetWh = accumulator.netBatteryEnergyWh.toDouble()
         
         val deltaDistanceKm = (currentDistanceKm - lastDistanceKm).coerceAtLeast(0.0)
-        val deltaTractionWh = (currentTractionWh - lastTractionWh).coerceAtLeast(0.0)
+        val deltaNetWh = (currentNetWh - lastNetWh).coerceAtLeast(0.0)
         
         if (deltaDistanceKm > 0.001) {
             rangeWindow.addLast(
                 RangeWindowSample(
                     distanceKm = deltaDistanceKm,
-                    energyWh = deltaTractionWh
+                    energyWh = deltaNetWh
                 )
             )
             rangeWindowDistanceKm += deltaDistanceKm
-            rangeWindowEnergyWh += deltaTractionWh
+            rangeWindowEnergyWh += deltaNetWh
             trimRangeWindow()
         }
         
         lastDistanceKm = currentDistanceKm
-        lastTractionWh = currentTractionWh
+        lastNetWh = currentNetWh
 
         // 2. 计算窗口效率
         val avgEfficiencyWhKm = if (rangeWindowDistanceKm >= MIN_RANGE_WINDOW_DISTANCE_KM) {
@@ -69,7 +69,14 @@ class RangeEstimator {
             0f
         }
 
-        // 3. 计算剩余能量与里程
+        // 3. 计算置信度
+        val confidence = when {
+            rangeWindowDistanceKm < MIN_RANGE_WINDOW_DISTANCE_KM -> RangeConfidence.LOW
+            rangeWindowDistanceKm < 1.0 -> RangeConfidence.MEDIUM
+            else -> RangeConfidence.HIGH
+        }
+
+        // 4. 计算剩余能量与里程
         val nominalPackVoltage = batterySeries * NOMINAL_CELL_VOLTAGE
         val totalNominalWh = batteryCapacityAh * nominalPackVoltage
         val remainingWh = (batteryState.socPercent / 100f) * totalNominalWh * usableEnergyRatio.coerceIn(0.7f, 1.0f)
@@ -84,7 +91,8 @@ class RangeEstimator {
             estimatedRangeKm = rangeKm,
             remainingEnergyWh = remainingWh,
             averageWindowEfficiencyWhKm = avgEfficiencyWhKm,
-            isWindowFresh = rangeWindowDistanceKm >= MIN_RANGE_WINDOW_DISTANCE_KM
+            isWindowFresh = rangeWindowDistanceKm >= MIN_RANGE_WINDOW_DISTANCE_KM,
+            confidence = confidence
         )
     }
 

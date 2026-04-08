@@ -211,7 +211,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var autoReconnectSuppressedUntilMs = 0L
     private var autoReconnectScanActive = false
     private var autoReconnectWatchdogJob: Job? = null
-    private var _dashboardLastSampleAtMs = 0L
+    private val _latestTelemetrySample = MutableStateFlow<TelemetrySample?>(null)
+    val latestTelemetrySample: StateFlow<TelemetrySample?> = _latestTelemetrySample.asStateFlow()
+    private var _lastRideHistorySampleAtMs = 0L
     private var _tripDistanceMeters = 0.0
     private var _rideLastDistanceUpdateAtMs = 0L
     private var _rideLastDistanceSpeedKmh = 0f
@@ -225,7 +227,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var lastRangeReferenceSpeedKmh = 30f
     private var _lastRideLocation: Location? = null
     private var _restingVoltageBaseline: Float = Float.NaN
-    private var lastSampleAtMs: Long = 0L
     private val rideTrackPoints = mutableListOf<RideTrackPoint>()
     private val rideSamples = mutableListOf<RideMetricSample>()
     private var rideStartMode: RideStartMode? = null
@@ -340,7 +341,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         polePairs,
         _isRideActive,
         ProtocolParser.activeProtocolId,
-        _latestZhikeSettings
+        _latestZhikeSettings,
+        latestTelemetrySample
     ) { args ->
         val bleMetrics = args[0] as VehicleMetrics
         val bmsMetrics = args[1] as BmsMetrics
@@ -352,6 +354,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val rideActive = args[7] as Boolean
         val activeProtocolId = args[8] as String?
         val zhikeSettings = args[9] as ZhikeSettings?
+        val sample = args[10] as TelemetrySample?
 
         calculateVehicleMetrics(
             bleMetrics = bleMetrics,
@@ -363,7 +366,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             polePairCount = polePairCount,
             rideActive = rideActive,
             activeProtocolId = activeProtocolId,
-            zhikeSettings = zhikeSettings
+            zhikeSettings = zhikeSettings,
+            sample = sample
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VehicleMetrics())
     val rideDirectionLabel: StateFlow<String> = combine(
@@ -388,7 +392,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         polePairCount: Int,
         rideActive: Boolean,
         activeProtocolId: String?,
-        zhikeSettings: ZhikeSettings?
+        zhikeSettings: ZhikeSettings?,
+        sample: TelemetrySample?
     ): VehicleMetrics {
         val accumulatorState = rideAccumulator.state
         val (volt, curr) = if (bSource == DataSource.BMS) {
@@ -428,30 +433,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             batterySeries = currentVehicleProfile.batterySeries,
             activeProtocolId = activeProtocolId
         )
-        val batteryState = batteryStateEstimator.estimate(
-            sample = TelemetrySample(
-                timestampMs = now,
-                sourceFrameId = now,
-                voltageV = volt,
-                busCurrentA = curr,
-                phaseCurrentA = bleMetrics.phaseCurrent,
-                rpm = bleMetrics.rpm,
-                controllerSpeedKmH = controllerSpeed,
-                motorTempC = bleMetrics.mosfetTemp,
-                controllerTempC = bleMetrics.controllerTemp,
-                braking = bleMetrics.isBraking,
-                cruise = bleMetrics.isCruise,
-                quality = SampleQuality.GOOD,
-                dtMs = (now - lastSampleAtMs).coerceIn(0, 5000),
-                allowIntegration = rideActive,
-                allowLearning = rideActive
-            ),
-            accumulator = accumulatorState,
-            batteryCapacityAh = currentVehicleProfile.batteryCapacityAh,
-            batterySeries = currentVehicleProfile.batterySeries,
-            fallbackSocPercent = fallbackSoc
-        )
-        lastSampleAtMs = now
+        val batteryState = sample?.let {
+            batteryStateEstimator.estimate(
+                sample = it,
+                accumulator = accumulatorState,
+                batteryCapacityAh = currentVehicleProfile.batteryCapacityAh,
+                batterySeries = currentVehicleProfile.batterySeries,
+                fallbackSocPercent = fallbackSoc
+            )
+        } ?: _batteryState.value ?: BatteryState()
+        
         _batteryState.value = batteryState
 
         val rangeEstimate = rangeEstimator.estimate(
@@ -1338,6 +1329,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         ProtocolParser.metrics.onEach {
             _currentRpm.value = it.rpm
             val sample = telemetryStreamProcessor.process(it)
+            _latestTelemetrySample.value = sample
             if (_isRideActive.value && !isRidePausedForStop()) {
                 rideAccumulator.accumulate(sample)
             }
@@ -1558,9 +1550,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _rideStopCandidateAtMs = null
         }
 
-        if (now - _dashboardLastSampleAtMs >= RIDE_SAMPLE_INTERVAL_MS) {
+        if (now - _lastRideHistorySampleAtMs >= RIDE_SAMPLE_INTERVAL_MS) {
             recordRideSample(metrics, now)
-            _dashboardLastSampleAtMs = now
+            _lastRideHistorySampleAtMs = now
         }
 
         maybePersistVehicleSnapshot(now)
@@ -1737,10 +1729,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         rideSamples.clear()
         rideStartMode = mode
         _autoRideSuppressedUntilStop.value = false
-        _dashboardLastSampleAtMs = 0L
+        _lastRideHistorySampleAtMs = 0L
         
         batteryStateEstimator.reset(currentVehicle.value.learnedInternalResistanceOhm)
         rangeEstimator.reset()
+        rideAccumulator.reset()
+        telemetryStreamProcessor.reset()
         
         _isRideActive.value = true
     }

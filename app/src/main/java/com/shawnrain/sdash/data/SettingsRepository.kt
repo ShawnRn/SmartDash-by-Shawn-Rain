@@ -20,6 +20,9 @@ import com.shawnrain.sdash.data.sync.BackupPreviewVehicle
 import com.shawnrain.sdash.data.sync.BackupRetentionPolicy
 import com.shawnrain.sdash.debug.AppLogLevel
 import com.shawnrain.sdash.debug.AppLogger
+import com.shawnrain.sdash.ui.poster.PosterSettings
+import com.shawnrain.sdash.ui.poster.PosterTemplates
+import com.shawnrain.sdash.ui.poster.model.PosterAspectRatio
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.flow.combine
@@ -85,9 +88,14 @@ class SettingsRepository(private val context: Context) {
         const val K_LAST_CONTROLLER_DEVICE_ADDRESS = "last_controller_device_address"
         const val K_LAST_CONTROLLER_DEVICE_NAME = "last_controller_device_name"
         const val K_LAST_CONTROLLER_PROTOCOL_ID = "last_controller_protocol_id"
+        const val K_POSTER_TEMPLATE = "poster_template"
+        const val K_POSTER_ASPECT_RATIO = "poster_aspect_ratio"
+        const val K_POSTER_SHOW_TRACK = "poster_show_track"
+        const val K_POSTER_SHOW_WATERMARK = "poster_show_watermark"
         val LOG_LEVEL = stringPreferencesKey("log_level")
         val OVERLAY_ENABLED = booleanPreferencesKey("overlay_enabled")
         val DRIVE_BACKUP_RETENTION = stringPreferencesKey("drive_backup_retention")
+        val RIDE_HISTORY_NORMALIZATION_VERSION = intPreferencesKey("ride_history_normalization_version")
 
         private fun syncMetaName(name: String): String = "$SYNC_META_PREFIX$name"
         private fun syncMetaKey(name: String) = longPreferencesKey(syncMetaName(name))
@@ -286,6 +294,27 @@ class SettingsRepository(private val context: Context) {
         BackupRetentionPolicy.fromName(pref.safeGet(DRIVE_BACKUP_RETENTION))
     }
 
+    val rideHistoryNormalizationVersion: Flow<Int> = preferencesFlow.map { pref ->
+        pref.safeGet(RIDE_HISTORY_NORMALIZATION_VERSION) ?: 0
+    }
+
+    val posterSettings: Flow<PosterSettings> = preferencesFlow.map { pref ->
+        val defaults = PosterSettings()
+        val aspectRatio = pref.safeGet(stringPreferencesKey(K_POSTER_ASPECT_RATIO))
+            ?.let { runCatching { PosterAspectRatio.valueOf(it) }.getOrNull() }
+            ?: defaults.defaultAspectRatio
+        val templateId = pref.safeGet(stringPreferencesKey(K_POSTER_TEMPLATE))
+            ?.takeIf { it.isNotBlank() }
+            ?.let { PosterTemplates.byId(it).id }
+            ?: defaults.defaultTemplate
+        PosterSettings(
+            defaultAspectRatio = aspectRatio,
+            defaultTemplate = templateId,
+            showTrack = pref.safeGet(booleanPreferencesKey(K_POSTER_SHOW_TRACK)) ?: defaults.showTrack,
+            showWatermark = pref.safeGet(booleanPreferencesKey(K_POSTER_SHOW_WATERMARK)) ?: defaults.showWatermark
+        )
+    }
+
     val lastControllerDeviceAddress: Flow<String?> = preferencesFlow.map { pref ->
         val profiles = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
         val currentId = profiles.firstOrNull { it.id == pref.safeGet(CURRENT_VEHICLE_ID) }?.id ?: profiles.first().id
@@ -482,6 +511,28 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit {
             it[OVERLAY_ENABLED] = enabled
             markSyncedAt(it, OVERLAY_ENABLED.name)
+        }
+    }
+
+    suspend fun saveRideHistoryNormalizationVersion(version: Int) {
+        context.dataStore.edit {
+            it[RIDE_HISTORY_NORMALIZATION_VERSION] = version
+        }
+    }
+
+    suspend fun savePosterSettings(settings: PosterSettings) {
+        context.dataStore.edit {
+            it[stringPreferencesKey(K_POSTER_TEMPLATE)] = PosterTemplates.byId(settings.defaultTemplate).id
+            it[stringPreferencesKey(K_POSTER_ASPECT_RATIO)] = settings.defaultAspectRatio.name
+            it[booleanPreferencesKey(K_POSTER_SHOW_TRACK)] = settings.showTrack
+            it[booleanPreferencesKey(K_POSTER_SHOW_WATERMARK)] = settings.showWatermark
+            markSyncedAt(
+                it,
+                K_POSTER_TEMPLATE,
+                K_POSTER_ASPECT_RATIO,
+                K_POSTER_SHOW_TRACK,
+                K_POSTER_SHOW_WATERMARK
+            )
         }
     }
 

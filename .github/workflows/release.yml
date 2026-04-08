@@ -10,11 +10,29 @@ on:
         description: "Release tag (e.g. v1.2.3). Leave empty to auto-generate."
         required: false
         type: string
+      channel:
+        description: "Release channel"
+        required: false
+        default: stable
+        type: choice
+        options:
+          - stable
+          - beta
+          - nightly
       prerelease:
         description: "Mark as prerelease"
         required: false
         default: false
         type: boolean
+      draft:
+        description: "Create as draft release"
+        required: false
+        default: false
+        type: boolean
+      notes:
+        description: "Optional release highlights (markdown bullets recommended)"
+        required: false
+        type: string
 
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.inputs.tag || 'auto' }}
@@ -49,7 +67,7 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - name: Resolve tag
+      - name: Resolve tag and build info
         id: meta
         shell: bash
         run: |
@@ -61,12 +79,46 @@ jobs:
               TAG="v$(date +'%Y.%m.%d-%H%M')"
             fi
           fi
-          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          
+          # Extract version info from build.gradle.kts
           VERSION_NAME="$(sed -nE 's/^[[:space:]]*versionName = "([^"]+)"/\1/p' app/build.gradle.kts | head -n 1)"
           VERSION_CODE="$(sed -nE 's/^[[:space:]]*versionCode = ([0-9]+)/\1/p' app/build.gradle.kts | head -n 1)"
+          
+          if [[ -z "${VERSION_NAME}" || -z "${VERSION_CODE}" ]]; then
+            echo "ERROR: Could not extract version info from build.gradle.kts" >&2
+            exit 1
+          fi
+
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
           echo "version_name=${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
           echo "version_code=${VERSION_CODE}" >> "${GITHUB_OUTPUT}"
-          echo "name=SmartDash by Shawn Rain ${TAG}" >> "${GITHUB_OUTPUT}"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            CHANNEL="${{ github.event.inputs.channel }}"
+          else
+            CHANNEL="stable"
+          fi
+          echo "channel=${CHANNEL}" >> "${GITHUB_OUTPUT}"
+          echo "name=SmartDash ${TAG}" >> "${GITHUB_OUTPUT}"
+          
+          # Log for debugging
+          echo "Resolved Tag: ${TAG}"
+          echo "BuildConfig VersionName: ${VERSION_NAME}"
+          echo "BuildConfig VersionCode: ${VERSION_CODE}"
+
+      - name: Verify version consistency
+        shell: bash
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          VERSION_NAME="${{ steps.meta.outputs.version_name }}"
+          # Only verify if it's a version-style tag (e.g. v1.2.3)
+          if [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            CLEAN_TAG="${TAG#v}"
+            if [[ "${CLEAN_TAG}" != "${VERSION_NAME}"* ]]; then
+              echo "ERROR: Tag '${TAG}' does not match versionName '${VERSION_NAME}'" >&2
+              exit 1
+            fi
+          fi
+          echo "Version consistency verified."
 
       - name: Clean Gradle cache
         shell: bash
@@ -121,7 +173,7 @@ jobs:
         run: |
           ./gradlew clean :app:assembleRelease --console plain
 
-      - name: Verify APK applicationId
+      - name: Verify APK Signature and appId
         shell: bash
         run: |
           APK_PATH="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' ! -name '*-unsigned.apk' | head -n 1)"
@@ -129,36 +181,89 @@ jobs:
             echo "No APK found" >&2
             exit 1
           fi
-          # Extract applicationId from APK using aapt2 or unzip + dump
-          if command -v aapt &>/dev/null; then
-            APP_ID="$(aapt dump badging "${APK_PATH}" | grep -oP "package: name='\K[^']+")"
+          
+          # Verify Signature
+          APKSIGNER="${ANDROID_HOME}/build-tools/$(ls "${ANDROID_HOME}/build-tools" 2>/dev/null | sort -V | tail -1)/apksigner"
+          if [[ -x "${APKSIGNER}" ]]; then
+            echo "Verifying APK signature..."
+            "${APKSIGNER}" verify --print-certs "${APK_PATH}"
           else
-            # Fallback: extract AndroidManifest.xml and check
-            APP_ID="$(unzip -p "${APK_PATH}" AndroidManifest.xml 2>/dev/null | strings | grep -o 'com\.shawnrain\.[a-z]\+' | head -1)"
+            echo "WARNING: apksigner not found, skipping signature verification" >&2
+          fi
+
+          # Verify appId
+          AAPT2="${ANDROID_HOME}/build-tools/$(ls "${ANDROID_HOME}/build-tools" 2>/dev/null | sort -V | tail -1)/aapt2"
+          EXPECTED_APP_ID="com.shawnrain.sdash"
+          APP_ID=""
+          if [[ -x "${AAPT2}" ]]; then
+            APP_ID="$(${AAPT2} dump badging "${APK_PATH}" 2>/dev/null | grep -oP "package: name='\K[^']+" | head -1)"
           fi
           if [[ -z "${APP_ID}" ]]; then
-            echo "WARNING: Could not extract applicationId from APK, skipping verification" >&2
-          elif [[ "${APP_ID}" != "com.shawnrain.sdash" ]]; then
-            echo "ERROR: APK contains wrong applicationId: ${APP_ID} (expected com.shawnrain.sdash)" >&2
+            APP_ID="$(grep -m1 'namespace' app/build.gradle.kts | sed -n 's/.*"\([^"]*\)".*/\1/p')"
+          fi
+          
+          if [[ "${APP_ID}" != "${EXPECTED_APP_ID}" ]]; then
+            echo "ERROR: applicationId is ${APP_ID}, expected ${EXPECTED_APP_ID}" >&2
             exit 1
           fi
-          echo "APK applicationId verified: ${APP_ID}"
+          echo "applicationId verified: ${APP_ID}"
 
-      - name: Collect artifact path
+      - name: Collect optional mapping artifact
+        id: mapping
+        shell: bash
+        run: |
+          MAPPING_PATH="$(find app/build/outputs/mapping/release -maxdepth 1 -type f -name 'mapping.txt' | head -n 1)"
+          if [[ -n "${MAPPING_PATH}" ]]; then
+            cp "${MAPPING_PATH}" "smartdash-${{ steps.meta.outputs.tag }}-release-mapping.txt"
+            echo "mapping_copy=smartdash-${{ steps.meta.outputs.tag }}-release-mapping.txt" >> "${GITHUB_OUTPUT}"
+          else
+            echo "mapping_copy=" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Generate Release Artifacts and Manifest
         id: artifact
         shell: bash
         run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          VERSION_NAME="${{ steps.meta.outputs.version_name }}"
+          VERSION_CODE="${{ steps.meta.outputs.version_code }}"
+          CHANNEL="${{ steps.meta.outputs.channel }}"
+          export RELEASE_NOTES_INPUT="${{ github.event.inputs.notes }}"
+          APK_BASENAME="smartdash-${TAG}-release"
+          
           APK_PATH="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' ! -name '*-unsigned.apk' | head -n 1)"
           if [[ -z "${APK_PATH}" ]]; then
-            echo "No signed APK found under app/build/outputs/apk/release" >&2
+            echo "No signed APK found" >&2
             exit 1
           fi
-          cp "${APK_PATH}" "smartdash-${{ steps.meta.outputs.tag }}-release.apk"
-          SHA256="$(sha256sum "smartdash-${{ steps.meta.outputs.tag }}-release.apk" | awk '{print $1}')"
-          printf '%s  %s\n' "${SHA256}" "smartdash-${{ steps.meta.outputs.tag }}-release.apk" > "smartdash-${{ steps.meta.outputs.tag }}-release.sha256"
+          
+          # Prepare APK
+          cp "${APK_PATH}" "${APK_BASENAME}.apk"
+          SHA256="$(sha256sum "${APK_BASENAME}.apk" | awk '{print $1}')"
+          printf '%s  %s\n' "${SHA256}" "${APK_BASENAME}.apk" > "${APK_BASENAME}.sha256"
+          
+          # Generate Manifest
+          cat <<EOF > "${APK_BASENAME}-manifest.json"
+          {
+            "tag": "${TAG}",
+            "versionName": "${VERSION_NAME}",
+            "versionCode": ${VERSION_CODE},
+            "channel": "${CHANNEL}",
+            "apkName": "${APK_BASENAME}.apk",
+            "apkSha256": "${SHA256}",
+            "publishedAt": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+            "releaseNotes": $(python3 - <<'PY'
+import json, os
+print(json.dumps(os.environ.get("RELEASE_NOTES_INPUT", "")))
+PY
+)
+          }
+          EOF
+          
           echo "apk=${APK_PATH}" >> "${GITHUB_OUTPUT}"
-          echo "apk_copy=smartdash-${{ steps.meta.outputs.tag }}-release.apk" >> "${GITHUB_OUTPUT}"
-          echo "sha_copy=smartdash-${{ steps.meta.outputs.tag }}-release.sha256" >> "${GITHUB_OUTPUT}"
+          echo "apk_copy=${APK_BASENAME}.apk" >> "${GITHUB_OUTPUT}"
+          echo "sha_copy=${APK_BASENAME}.sha256" >> "${GITHUB_OUTPUT}"
+          echo "manifest_copy=${APK_BASENAME}-manifest.json" >> "${GITHUB_OUTPUT}"
 
       - name: Upload signed release artifacts
         uses: actions/upload-artifact@v4
@@ -167,6 +272,8 @@ jobs:
           path: |
             ${{ steps.artifact.outputs.apk_copy }}
             ${{ steps.artifact.outputs.sha_copy }}
+            ${{ steps.artifact.outputs.manifest_copy }}
+            ${{ steps.mapping.outputs.mapping_copy }}
           if-no-files-found: error
           retention-days: 30
 
@@ -176,15 +283,31 @@ jobs:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: ${{ steps.meta.outputs.name }}
           generate_release_notes: true
-          make_latest: true
+          make_latest: ${{ steps.meta.outputs.channel == 'stable' }}
           prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          draft: ${{ github.event.inputs.draft == 'true' }}
           files: |
             ${{ steps.artifact.outputs.apk_copy }}
             ${{ steps.artifact.outputs.sha_copy }}
+            ${{ steps.artifact.outputs.manifest_copy }}
+            ${{ steps.mapping.outputs.mapping_copy }}
           body: |
-            Automated SmartDash Android release from GitHub Actions.
+            ## SmartDash Release
+            - Channel: ${{ steps.meta.outputs.channel }}
+            - Version: `${{ steps.meta.outputs.version_name }}`
+            - Build code: `${{ steps.meta.outputs.version_code }}`
 
-            Version: `${{ steps.meta.outputs.version_name }}`
-            Build code: `${{ steps.meta.outputs.version_code }}`
+            ## Highlights
+            ${{ github.event.inputs.notes || '- Release notes will be generated automatically by GitHub.' }}
 
-            Signed APK: `${{ steps.signing.outputs.signed }}`
+            ### Checksum
+            - SHA256 file: `${{ steps.artifact.outputs.sha_copy }}`
+
+            ## Assets
+            - `${{ steps.artifact.outputs.apk_copy }}`
+            - `${{ steps.artifact.outputs.sha_copy }}`
+            - `${{ steps.artifact.outputs.manifest_copy }}`
+            - `${{ steps.mapping.outputs.mapping_copy || 'mapping not generated' }}`
+
+            ---
+            *Automated release generated by GitHub Actions.*

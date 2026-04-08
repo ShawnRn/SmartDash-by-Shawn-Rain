@@ -129,6 +129,9 @@ import com.shawnrain.sdash.ui.navigation.P2PageHeader
 import com.shawnrain.sdash.ui.navigation.PredictiveBackPopupTransform
 import com.shawnrain.sdash.ui.navigation.PopupBackdropBlurLayer
 import com.shawnrain.sdash.ui.navigation.rememberPredictiveBackMotion
+import com.shawnrain.sdash.ui.poster.PosterPreviewScreen
+import com.shawnrain.sdash.ui.poster.PosterSettings
+import com.shawnrain.sdash.ui.poster.PosterTemplates
 import com.shawnrain.sdash.ui.text.withDisplaySpacing
 import com.shawnrain.sdash.ui.theme.bezierPillShape
 import com.shawnrain.sdash.ui.theme.bezierRoundedShape
@@ -180,7 +183,7 @@ private enum class RideChartMetric(val title: String, val unit: String, val colo
     EFFICIENCY("能耗", "Wh/km", Color(0xFF8CE0FF)),
     AVG_EFFICIENCY("平均能耗", "Wh/km", Color(0xFF6EE7F2)),
     RANGE("续航", "km", Color(0xFFD8F28F)),
-    TOTAL_ENERGY("总能耗", "Wh", Color(0xFFFFB4A2)),
+    TOTAL_ENERGY("净耗电量", "Wh", Color(0xFFFFB4A2)),
     RECOVERED_ENERGY("回收能量", "Wh", Color(0xFF86EFAC)),
     MAX_CONTROLLER_TEMP("控制器最高温度", "°C", Color(0xFFF59E8B)),
     SOC("电量", "%", Color(0xFF98E57A)),
@@ -196,6 +199,7 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val speedTestHistory by viewModel.speedTestHistory.collectAsState()
     val rideHistory by viewModel.rideHistory.collectAsState()
     val driveSyncState by viewModel.driveSyncState.collectAsState()
+    val posterSettings by viewModel.posterSettings.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -214,6 +218,8 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             .minByOrNull { it.timeMs }
     }
     var selectedRideRecord by remember { mutableStateOf<RideHistoryRecord?>(null) }
+    var previewRideRecord by remember { mutableStateOf<RideHistoryRecord?>(null) }
+    var previewSpeedTestRecord by remember { mutableStateOf<SpeedTestRecord?>(null) }
     var selectedRideIds by remember { mutableStateOf(setOf<String>()) }
     val pagerState = rememberPagerState(
         initialPage = 0,
@@ -337,7 +343,7 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                                         SpeedTestHistoryCard(
                                             record = record,
                                             onShare = {
-                                                context.startActivity(viewModel.createSpeedTestShareIntent(record))
+                                                previewSpeedTestRecord = record
                                             },
                                             onDelete = { viewModel.deleteSpeedTestRecord(record.id) }
                                         )
@@ -368,8 +374,11 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                                     item { EmptyCard("还没有行程记录", "开始骑行后系统会自动创建记录，停车一段时间后自动归档") }
                                 } else {
                                     items(rideHistory, key = { it.id }) { record ->
+                                        val displayRecord = remember(record) {
+                                            viewModel.presentRideHistoryRecord(record)
+                                        }
                                         RideHistoryCard(
-                                            record = record,
+                                            record = displayRecord,
                                             selectionMode = rideSelectionMode,
                                             selected = record.id in selectedRideIds,
                                             onOpen = {
@@ -380,17 +389,17 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                                                         selectedRideIds + record.id
                                                     }
                                                 } else {
-                                                    selectedRideRecord = record
+                                                    selectedRideRecord = displayRecord
                                                 }
                                             },
                                             onLongPress = {
                                                 selectedRideIds = selectedRideIds + record.id
                                             },
                                             onShare = {
-                                                context.startActivity(viewModel.createRideShareIntent(record))
+                                                previewRideRecord = displayRecord
                                             },
                                             onSaveToAlbum = {
-                                                runCatching { viewModel.saveRidePosterToGallery(record) }
+                                                runCatching { viewModel.saveRidePosterToGallery(displayRecord) }
                                                     .onSuccess { fileName ->
                                                         scope.launch { snackbarHostState.showSnackbar("已保存到相册: $fileName") }
                                                     }
@@ -399,7 +408,7 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                                                     }
                                             },
                                             onExportCsv = {
-                                                context.startActivity(viewModel.createRideCsvShareIntent(record))
+                                                context.startActivity(viewModel.createRideCsvShareIntent(displayRecord))
                                             },
                                             onDelete = { viewModel.deleteRideHistoryRecord(record.id) }
                                         )
@@ -445,6 +454,24 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                     ) {
                         Text("取消")
                     }
+                    OutlinedButton(
+                        onClick = {
+                            val targetId = selectedRideIds.singleOrNull()
+                            if (targetId == null) {
+                                scope.launch { snackbarHostState.showSnackbar("请选择 1 条行程记录后再修复") }
+                            } else {
+                                scope.launch {
+                                    val message = viewModel.repairRideHistoryRecord(targetId)
+                                    snackbarHostState.showSnackbar(message)
+                                    selectedRideIds = emptySet()
+                                }
+                            }
+                        },
+                        enabled = selectedRideIds.size == 1,
+                        shape = bezierPillShape()
+                    ) {
+                        Text("修复")
+                    }
                     Button(
                         onClick = {
                             val merged = viewModel.mergeRideHistoryRecords(selectedRideIds)
@@ -471,7 +498,7 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             record = record,
             onDismiss = { selectedRideRecord = null },
             onShare = {
-                context.startActivity(viewModel.createRideShareIntent(record))
+                previewRideRecord = record
             },
             onSaveToAlbum = {
                 runCatching { viewModel.saveRidePosterToGallery(record) }
@@ -486,6 +513,122 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                 context.startActivity(viewModel.createRideCsvShareIntent(record))
             }
         )
+    }
+
+    previewRideRecord?.let { record ->
+        PosterPreviewDialog(
+            title = "预览行程海报",
+            onDismiss = { previewRideRecord = null }
+        ) {
+            PosterPreviewScreen(
+                title = "预览行程海报",
+                initialSettings = posterSettings,
+                buildSpec = { settings ->
+                    val template = PosterTemplates.byId(settings.defaultTemplate)
+                    com.shawnrain.sdash.ui.poster.PosterFactory().buildRidePosterSpec(
+                        record = record,
+                        aspectRatio = settings.defaultAspectRatio,
+                        template = template
+                    ).copy(
+                        options = com.shawnrain.sdash.ui.poster.model.PosterRenderOptions(
+                            showTrack = settings.showTrack,
+                            showWatermark = settings.showWatermark,
+                            emphasizeTrack = template.showTrackFirst,
+                            compactMetrics = template.compactMetrics
+                        )
+                    )
+                },
+                onSettingsChange = viewModel::savePosterSettings,
+                onShare = { settings ->
+                    context.startActivity(viewModel.createRideShareIntent(record, settings))
+                },
+                onSave = { settings ->
+                    runCatching { viewModel.saveRidePosterToGallery(record, settings) }
+                        .onSuccess { fileName ->
+                            previewRideRecord = null
+                            scope.launch { snackbarHostState.showSnackbar("已保存到相册: $fileName") }
+                        }
+                        .onFailure {
+                            scope.launch { snackbarHostState.showSnackbar("保存到相册失败") }
+                        }
+                }
+            )
+        }
+    }
+
+    previewSpeedTestRecord?.let { record ->
+        PosterPreviewDialog(
+            title = "预览加速海报",
+            onDismiss = { previewSpeedTestRecord = null }
+        ) {
+            PosterPreviewScreen(
+                title = "预览加速海报",
+                initialSettings = posterSettings,
+                buildSpec = { settings ->
+                    val template = PosterTemplates.byId(settings.defaultTemplate)
+                    com.shawnrain.sdash.ui.poster.PosterFactory().buildSpeedTestPosterSpec(
+                        record = record,
+                        aspectRatio = settings.defaultAspectRatio,
+                        template = template
+                    ).copy(
+                        options = com.shawnrain.sdash.ui.poster.model.PosterRenderOptions(
+                            showTrack = settings.showTrack,
+                            showWatermark = settings.showWatermark,
+                            emphasizeTrack = template.showTrackFirst,
+                            compactMetrics = template.compactMetrics
+                        )
+                    )
+                },
+                onSettingsChange = viewModel::savePosterSettings,
+                onShare = { settings ->
+                    context.startActivity(viewModel.createSpeedTestShareIntent(record, settings))
+                },
+                onSave = { settings ->
+                    runCatching { viewModel.saveSpeedTestPosterToGallery(record, settings) }
+                        .onSuccess { fileName ->
+                            previewSpeedTestRecord = null
+                            scope.launch { snackbarHostState.showSnackbar("已保存到相册: $fileName") }
+                        }
+                        .onFailure {
+                            scope.launch { snackbarHostState.showSnackbar("保存到相册失败") }
+                        }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun PosterPreviewDialog(
+    title: String,
+    onDismiss: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        ApplyDialogWindowBlurEffect(blurRadius = 28.dp, fullscreen = true)
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "关闭")
+                    }
+                }
+                content()
+            }
+        }
     }
 }
 
@@ -733,12 +876,7 @@ private fun RideHistoryCard(
     var isRemoving by remember(record.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
-    val displayDistanceMeters = remember(record.distanceMeters, record.samples) {
-        maxOf(
-            record.distanceMeters,
-            record.samples.maxOfOrNull { it.distanceMeters } ?: 0.0f
-        )
-    }
+    val displayDistanceMeters = record.distanceMeters
     val displayAvgSpeedKmh = remember(record.avgSpeedKmh, displayDistanceMeters, record.durationMs) {
         if (record.durationMs > 0L && displayDistanceMeters > 1.0f) {
             ((displayDistanceMeters / 1000.0f) / (record.durationMs.toFloat() / 3_600_000.0f)).coerceAtLeast(0.0f)
@@ -759,84 +897,86 @@ private fun RideHistoryCard(
         visible = !isRemoving,
         exit = fadeOut()
     ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .combinedClickable(
-                    onClick = onOpen,
-                    onLongClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onLongPress()
+        Box {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .combinedClickable(
+                        onClick = onOpen,
+                        onLongClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onLongPress()
+                        }
+                    ),
+                shape = bezierRoundedShape(26.dp),
+                color = if (selected) {
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
+                },
+                border = if (selected) {
+                    BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.72f))
+                } else {
+                    null
+                }
+            ) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(formatRideTitle(record.title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                            if (selectionMode) {
+                                Text(
+                                    text = if (selected) "已选择" else "点按选择",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "${formatDate(record.startedAtMs)} · ${formatDuration(record.durationMs)}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                ),
-            shape = bezierRoundedShape(26.dp),
-            color = if (selected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
-            },
-            border = if (selected) {
-                BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.72f))
-            } else {
-                null
-            }
-        ) {
-            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    StatMetricGrid(
+                        metrics = summaryMetrics,
+                        columns = 2
+                    )
+                    AnimatedVisibility(
+                        visible = !selectionMode,
+                        enter = fadeIn() + expandVertically(expandFrom = Alignment.Top, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)),
+                        exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top, animationSpec = spring(stiffness = Spring.StiffnessMedium))
                     ) {
-                        Text(formatRideTitle(record.title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                        if (selectionMode) {
-                            Text(
-                                text = if (selected) "已选择" else "点按选择",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            HistoryActionChip(
+                                onClick = onOpen,
+                                text = "详情",
+                                icon = { Icon(Icons.Default.AutoGraph, contentDescription = null) },
+                                modifier = Modifier.weight(1f)
+                            )
+                            HistoryActionChip(
+                                onClick = { showShareActions = true },
+                                text = "分享",
+                                icon = { Icon(Icons.Default.Share, contentDescription = null) },
+                                modifier = Modifier.weight(1f)
+                            )
+                            HistoryActionChip(
+                                onClick = { showDeleteConfirm = true },
+                                text = "删除",
+                                icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) },
+                                modifier = Modifier.weight(1f),
+                                danger = true
                             )
                         }
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        "${formatDate(record.startedAtMs)} · ${formatDuration(record.durationMs)}",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                StatMetricGrid(
-                    metrics = summaryMetrics,
-                    columns = 2
-                )
-                AnimatedVisibility(
-                    visible = !selectionMode,
-                    enter = fadeIn() + expandVertically(expandFrom = Alignment.Top, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)),
-                    exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top, animationSpec = spring(stiffness = Spring.StiffnessMedium))
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        HistoryActionChip(
-                            onClick = onOpen,
-                            text = "详情",
-                            icon = { Icon(Icons.Default.AutoGraph, contentDescription = null) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        HistoryActionChip(
-                            onClick = { showShareActions = true },
-                            text = "分享",
-                            icon = { Icon(Icons.Default.Share, contentDescription = null) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        HistoryActionChip(
-                            onClick = { showDeleteConfirm = true },
-                            text = "删除",
-                            icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) },
-                            modifier = Modifier.weight(1f),
-                            danger = true
-                        )
                     }
                 }
             }
@@ -940,11 +1080,8 @@ private fun RideHistoryDetailLayer(
     var selectedCompareMetrics by remember(record.id) { mutableStateOf<Set<RideChartMetric>>(emptySet()) }
     var showShareActions by remember(record.id) { mutableStateOf(false) }
     var dismissDragOffset by remember(record.id) { mutableFloatStateOf(0f) }
-    val samples = remember(record.id, record.samples) { normalizeRideDetailSamples(record) }
-    var selectedIndex by remember(record.id) { mutableIntStateOf((samples.lastIndex).coerceAtLeast(0)) }
-    val overviewCards = remember(record.id, samples) {
-        buildRideOverviewCards(record, samples, MetricType.entries.toList())
-    }
+    val detailModel = remember(record) { buildRideDetailModel(record) }
+    var selectedIndex by remember(detailModel.record.id) { mutableIntStateOf((detailModel.samples.lastIndex).coerceAtLeast(0)) }
     val navigationBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val enterDurationMs = 300
     val exitDurationMs = 220
@@ -1082,8 +1219,9 @@ private fun RideHistoryDetailLayer(
                         }
                         RideHistoryDetailBody(
                             record = record,
-                            samples = samples,
-                            overviewCards = overviewCards,
+                            samples = detailModel.samples,
+                            overviewCards = detailModel.overviewCards,
+                            routePoints = detailModel.routePoints,
                             heavySectionsReady = heavySectionsReady,
                             selectedIndex = selectedIndex,
                             onSelectIndex = { selectedIndex = it },
@@ -1181,7 +1319,7 @@ private fun RideHistoryDetailLayer(
     fullscreenMetric?.let { metric ->
         RideMetricFullscreenDialog(
             title = formatRideTitle(record.title),
-            samples = samples,
+            samples = detailModel.samples,
             metric = metric,
             onDismiss = { fullscreenMetric = null }
         )
@@ -1189,8 +1327,8 @@ private fun RideHistoryDetailLayer(
 
     if (fullscreenRoute) {
         RouteFullscreenDialog(
-            record = record,
-            samples = samples,
+            record = detailModel.record,
+            samples = detailModel.samples,
             onDismiss = { fullscreenRoute = false }
         )
     }
@@ -1198,7 +1336,7 @@ private fun RideHistoryDetailLayer(
     if (multiCompareMetrics.isNotEmpty()) {
         RideMultiMetricCompareDialog(
             title = formatRideTitle(record.title),
-            samples = samples,
+            samples = detailModel.samples,
             metrics = multiCompareMetrics,
             onDismiss = { multiCompareMetrics = emptyList() }
         )
@@ -1210,6 +1348,7 @@ private fun RideHistoryDetailBody(
     record: RideHistoryRecord,
     samples: List<RideMetricSample>,
     overviewCards: List<RideOverviewCard>,
+    routePoints: List<RoutePreviewPoint>,
     heavySectionsReady: Boolean,
     selectedIndex: Int,
     onSelectIndex: (Int) -> Unit,
@@ -1373,7 +1512,7 @@ private fun RideHistoryDetailBody(
                         Text("GPS 轨迹路线", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     if (heavySectionsReady) {
                         RoutePreview(
-                            record = record,
+                            routePoints = routePoints,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(220.dp),
@@ -1430,11 +1569,8 @@ private fun RideHistoryDetailSheet(
 ) {
     var fullscreenMetric by remember(record.id) { mutableStateOf<RideChartMetric?>(null) }
     var showShareActions by remember(record.id) { mutableStateOf(false) }
-    val samples = remember(record.id, record.samples) { normalizeRideDetailSamples(record) }
-    var selectedIndex by remember(record.id) { mutableIntStateOf((samples.lastIndex).coerceAtLeast(0)) }
-    val overviewCards = remember(record.id, samples) {
-        buildRideOverviewCards(record, samples, MetricType.entries.toList())
-    }
+    val detailModel = remember(record) { buildRideDetailModel(record) }
+    var selectedIndex by remember(detailModel.record.id) { mutableIntStateOf((detailModel.samples.lastIndex).coerceAtLeast(0)) }
     val navigationBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     BlurredModalBottomSheet(onDismissRequest = onDismiss) {
         PredictiveBackPopupTransform(
@@ -1473,11 +1609,11 @@ private fun RideHistoryDetailSheet(
                             "卡片展示的是整段行程统计值；底部固定显示速度图表，点击任一参数卡片可打开对应横屏全屏图表。",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        if (overviewCards.isEmpty()) {
+                        if (detailModel.overviewCards.isEmpty()) {
                             Text("暂无可查看的采样数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                overviewCards.chunked(2).forEach { row ->
+                                detailModel.overviewCards.chunked(2).forEach { row ->
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -1505,7 +1641,7 @@ private fun RideHistoryDetailSheet(
                 }
             }
             item {
-                val voltageSagSummary = remember(record.id, samples) { summarizeVoltageSag(samples) }
+                val voltageSagSummary = remember(detailModel.record.id, detailModel.samples) { summarizeVoltageSag(detailModel.samples) }
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = bezierRoundedShape(24.dp),
@@ -1533,7 +1669,7 @@ private fun RideHistoryDetailSheet(
             }
             item {
                 RideMetricChart(
-                    samples = samples,
+                    samples = detailModel.samples,
                     metric = RideChartMetric.SPEED,
                     selectedIndex = selectedIndex,
                     onSelectIndex = { selectedIndex = it }
@@ -1548,7 +1684,7 @@ private fun RideHistoryDetailSheet(
                     Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Text("GPS 轨迹路线", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         RoutePreview(
-                            record = record,
+                            routePoints = detailModel.routePoints,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(220.dp)
@@ -1603,7 +1739,7 @@ private fun RideHistoryDetailSheet(
     fullscreenMetric?.let { metric ->
         RideMetricFullscreenDialog(
             title = formatRideTitle(record.title),
-            samples = samples,
+            samples = detailModel.samples,
             metric = metric,
             onDismiss = { fullscreenMetric = null }
         )
@@ -3104,85 +3240,6 @@ private fun linearTrendEndpoints(values: List<Float>): Pair<Float, Float> {
 private fun formatMermaidNumber(value: Float): String =
     String.format(Locale.US, "%.2f", value)
 
-private fun normalizeRideDetailSamples(record: RideHistoryRecord): List<RideMetricSample> {
-    val rawSamples = record.samples
-    if (rawSamples.isEmpty()) return rawSamples
-
-    val hasCumulativeEnergy = rawSamples.any { it.totalEnergyWh > 0.01f }
-    val hasAverageEfficiency = rawSamples.any { it.avgEfficiencyWhKm > 0.01f }
-    val hasRecoveredEnergy = rawSamples.any { it.recoveredEnergyWh > 0.01f }
-    val hasMaxControllerTemp = rawSamples.any { it.maxControllerTemp > 0.01f }
-    val finalDistanceMeters = rawSamples.lastOrNull()?.distanceMeters?.takeIf { it > 1.0f }
-        ?: record.distanceMeters.takeIf { it > 1.0f }
-        ?: 0.0f
-    val finalElapsedMs = rawSamples.lastOrNull()?.elapsedMs?.takeIf { it > 0L } ?: 0L
-    var runningMaxControllerTemp = 0.0f
-    var energyOffsetWh = 0f
-    var recoveredOffsetWh = 0f
-    var previousRawEnergyWh = 0f
-    var previousRawRecoveredWh = 0f
-    var runningTotalEnergyWh = 0f
-    var runningTotalRecoveredWh = 0f
-
-    return rawSamples.map { sample ->
-        val progress: Float = when {
-            finalDistanceMeters > 1.0f && sample.distanceMeters > 0.0f ->
-                (sample.distanceMeters / finalDistanceMeters).coerceIn(0.0f, 1.0f)
-            finalElapsedMs > 0L ->
-                (sample.elapsedMs.toFloat() / finalElapsedMs.toFloat()).coerceIn(0f, 1f)
-            else -> 0f
-        }
-        val totalEnergyWh: Float = when {
-            hasCumulativeEnergy -> sample.totalEnergyWh
-            record.totalEnergyWh > 0.01f -> record.totalEnergyWh * progress
-            else -> sample.totalEnergyWh
-        }
-        if (hasCumulativeEnergy && totalEnergyWh + 0.05f < previousRawEnergyWh) {
-            energyOffsetWh += previousRawEnergyWh
-        }
-        previousRawEnergyWh = totalEnergyWh
-        val mergedTotalEnergyWh = maxOf(
-            runningTotalEnergyWh,
-            (energyOffsetWh + totalEnergyWh).coerceAtLeast(0f)
-        )
-        runningTotalEnergyWh = mergedTotalEnergyWh
-        val avgEfficiencyWhKm: Float = when {
-            sample.distanceMeters > 10.0f && mergedTotalEnergyWh > 0.01f ->
-                mergedTotalEnergyWh / (sample.distanceMeters / 1000.0f)
-            record.avgNetEfficiencyWhKm > 0.1f -> record.avgNetEfficiencyWhKm
-            record.avgEfficiencyWhKm > 0.1f -> record.avgEfficiencyWhKm
-            else -> sample.avgNetEfficiencyWhKm.takeIf { it > 0.01f } ?: sample.avgEfficiencyWhKm
-        }
-        val recoveredEnergyWh: Float = when {
-            hasRecoveredEnergy -> sample.recoveredEnergyWh
-            else -> 0f
-        }
-        if (hasRecoveredEnergy && recoveredEnergyWh + 0.05f < previousRawRecoveredWh) {
-            recoveredOffsetWh += previousRawRecoveredWh
-        }
-        previousRawRecoveredWh = recoveredEnergyWh
-        val mergedRecoveredEnergyWh = maxOf(
-            runningTotalRecoveredWh,
-            (recoveredOffsetWh + recoveredEnergyWh).coerceAtLeast(0f)
-        )
-        runningTotalRecoveredWh = mergedRecoveredEnergyWh
-        runningMaxControllerTemp = maxOf(
-            runningMaxControllerTemp,
-            maxOf(sample.controllerTemp, sample.maxControllerTemp)
-        )
-        val maxControllerTemp: Float = when {
-            hasMaxControllerTemp && sample.maxControllerTemp > 0.01f -> sample.maxControllerTemp
-            else -> runningMaxControllerTemp
-        }
-        sample.copy(
-            totalEnergyWh = mergedTotalEnergyWh,
-            avgEfficiencyWhKm = avgEfficiencyWhKm,
-            recoveredEnergyWh = mergedRecoveredEnergyWh,
-            maxControllerTemp = maxControllerTemp
-        )
-    }
-}
-
 private data class RideOverviewCard(
     val type: MetricType,
     val title: String,
@@ -3190,6 +3247,23 @@ private data class RideOverviewCard(
     val supporting: String,
     val metric: RideChartMetric
 )
+
+private data class RideDetailModel(
+    val record: RideHistoryRecord,
+    val samples: List<RideMetricSample>,
+    val overviewCards: List<RideOverviewCard>,
+    val routePoints: List<RoutePreviewPoint>
+)
+
+private fun buildRideDetailModel(record: RideHistoryRecord): RideDetailModel {
+    val samples = record.samples
+    return RideDetailModel(
+        record = record,
+        samples = samples,
+        overviewCards = buildRideOverviewCards(record, samples, MetricType.entries.toList()),
+        routePoints = buildRoutePreviewPoints(record)
+    )
+}
 
 @Composable
 private fun RideOverviewMetricCard(
@@ -3407,7 +3481,7 @@ private fun buildRideOverviewCards(
         ),
         MetricType.TOTAL_ENERGY to RideOverviewCard(
             type = MetricType.TOTAL_ENERGY,
-            title = "总能耗",
+            title = "净耗电量",
             value = metricOf(record.totalEnergyWh, "Wh"),
             supporting = "回收 ${formatFloat(recoveredEnergyWh)} Wh",
             metric = RideChartMetric.TOTAL_ENERGY
@@ -3436,13 +3510,10 @@ private fun buildRideOverviewCards(
 
 @Composable
 private fun RoutePreview(
-    record: RideHistoryRecord,
+    routePoints: List<RoutePreviewPoint>,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null
 ) {
-    val routePoints = remember(record.id, record.samples, record.trackPoints) {
-        buildRoutePreviewPoints(record)
-    }
     val clickableModifier = onClick?.let {
         Modifier
             .clickable(onClick = it)
@@ -3865,6 +3936,7 @@ private fun RideMetricSample.metricValue(metric: RideChartMetric): Float {
     return when (metric) {
         RideChartMetric.SPEED -> speedKmH
         RideChartMetric.POWER -> powerKw
+        RideChartMetric.REGEN_POWER -> (-powerKw * 1000.0f).coerceAtLeast(0.0f)
         RideChartMetric.VOLTAGE -> voltage
         RideChartMetric.VOLTAGE_SAG -> voltageSag
         RideChartMetric.BUS_CURRENT -> busCurrent

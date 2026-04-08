@@ -124,6 +124,8 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val activeProtocol by viewModel.activeProtocolLabel.collectAsStateWithLifecycle()
     val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
     val autoConnectState by viewModel.autoConnectState.collectAsStateWithLifecycle()
+    val isRideActive by viewModel.isRideActive.collectAsStateWithLifecycle()
+    val rideDirectionLabel by viewModel.rideDirectionLabel.collectAsStateWithLifecycle()
     val haptic = LocalHapticFeedback.current
     val view = LocalView.current
     val context = LocalContext.current
@@ -138,18 +140,19 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     var lastReorderHapticAt by remember { mutableLongStateOf(0L) }
     val itemBounds = remember { mutableStateMapOf<MetricType, Rect>() }
     val displayedDashboardItems = remember { mutableStateListOf<MetricType>() }
+    val gridItems = if (isEditMode || draggingItem != null) displayedDashboardItems else dashboardItems
 
-    LaunchedEffect(dashboardItems, draggingItem) {
-        if (draggingItem == null) {
+    LaunchedEffect(dashboardItems, draggingItem, isEditMode) {
+        if ((isEditMode || draggingItem != null) && draggingItem == null) {
             displayedDashboardItems.clear()
             displayedDashboardItems.addAll(dashboardItems)
         }
     }
 
-    val isRegen by remember { derivedStateOf { metrics.busCurrent < 0 } }
+    val isRegen = metrics.busCurrent < 0
     val primaryColor = MaterialTheme.colorScheme.primary
-    val ringColor by remember(isRegen) { derivedStateOf { if (isRegen) Color(0xFF10B981) else primaryColor } }
-    val isControllerConnected by remember { derivedStateOf { connectionState is ConnectionState.Connected } }
+    val ringColor = if (isRegen) Color(0xFF10B981) else primaryColor
+    val isControllerConnected = connectionState is ConnectionState.Connected
 
     // Use auto-connect state for natural status messages
     val connectionStatusLabel by remember {
@@ -223,9 +226,6 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                     .fillMaxSize()
                     .padding(horizontal = 16.dp)
             ) {
-                val isRideActive by viewModel.isRideActive.collectAsState()
-                val rideDirectionLabel by viewModel.rideDirectionLabel.collectAsState()
-
                 DashboardTopSection(
                     isEditMode = isEditMode,
                     isRideActive = isRideActive,
@@ -265,7 +265,7 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                     contentPadding = PaddingValues(top = 4.dp, bottom = 48.dp)
                 ) {
                     dashboardItemsGridContent(
-                        items = displayedDashboardItems,
+                        items = gridItems,
                         metrics = metrics,
                         isEditMode = isEditMode,
                         draggingItem = draggingItem,
@@ -328,7 +328,7 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                 ) {
                     Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
                         Text("添加数据模块", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 16.dp))
-                        val available = MetricType.entries.filter { it !in displayedDashboardItems }
+                        val available = MetricType.entries.filter { it !in gridItems }
                         if (available.isEmpty()) {
                             Text("所有支持的数据模块均已添加", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
                         } else {

@@ -16,6 +16,9 @@ import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewModelScope
 import com.shawnrain.sdash.ble.AutoConnectManager
 import com.shawnrain.sdash.ble.AutoConnectState
@@ -54,10 +57,13 @@ import com.shawnrain.sdash.data.sync.BackupMetadata
 import com.shawnrain.sdash.data.sync.BackupPreview
 import com.shawnrain.sdash.data.sync.BackupRetentionPolicy
 import com.shawnrain.sdash.data.sync.SyncState
-import com.shawnrain.sdash.data.update.AppReleaseInfo
 import com.shawnrain.sdash.data.update.AppUpdateManager
-import com.shawnrain.sdash.data.update.AppUpdateUiState
+import com.shawnrain.sdash.data.update.AppUpdatePackage
+import com.shawnrain.sdash.data.update.AppUpdatePreferences
+import com.shawnrain.sdash.data.update.AppUpdateState
+import com.shawnrain.sdash.data.update.InstalledAppVersion
 import com.shawnrain.sdash.data.history.RideHistoryRecord
+import com.shawnrain.sdash.data.history.RideRecordNormalizer
 import com.shawnrain.sdash.data.history.RideMetricSample
 import com.shawnrain.sdash.data.history.RideTrackPoint
 import com.shawnrain.sdash.data.telemetry.BatteryState
@@ -75,6 +81,10 @@ import com.shawnrain.sdash.data.speedtest.SpeedTestRecord
 import com.shawnrain.sdash.data.speedtest.SpeedTestSessionUiState
 import com.shawnrain.sdash.data.speedtest.SpeedTestTrackPoint
 import com.shawnrain.sdash.ui.poster.PosterRenderer
+import com.shawnrain.sdash.ui.poster.PosterFactory
+import com.shawnrain.sdash.ui.poster.PosterSettings
+import com.shawnrain.sdash.ui.poster.PosterTemplates
+import com.shawnrain.sdash.ui.poster.PosterRendererV2
 import com.shawnrain.sdash.ui.text.withDisplaySpacing
 import java.io.File
 import java.io.FileOutputStream
@@ -128,8 +138,8 @@ data class DriveBackupPreviewUiState(
     val errorMessage: String? = null
 )
 
-private val EmptyAppUpdateState = AppUpdateUiState(
-    currentVersion = com.shawnrain.sdash.data.update.InstalledAppVersion(
+private val EmptyAppUpdateState = AppUpdateState.Idle(
+    currentVersion = InstalledAppVersion(
         versionName = "0.0.0",
         versionCode = 0L
     )
@@ -204,6 +214,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val ENERGY_INTEGRATION_MIN_POWER_W = 35f
         private const val ENERGY_INTEGRATION_MIN_CURRENT_A = 0.8f
         private const val MAX_SOC_SOURCE_DEVIATION_PERCENT = 28f
+        private const val SILENT_APP_UPDATE_THROTTLE_MS = 6 * 60 * 60 * 1000L
     }
 
     private val bleManager = BleManager(application)
@@ -211,7 +222,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val settingsRepository = SettingsRepository(application)
     private val lanBackupTransfer = LanBackupTransfer()
     private val driveSyncManager = GoogleDriveSyncManager(application)
+    private val syncScheduler = com.shawnrain.sdash.data.sync.SyncScheduler(application, settingsRepository)
     private val appUpdateManager = AppUpdateManager(application)
+    private val updatePreferences = AppUpdatePreferences(application)
+    private val rideRecordNormalizer = RideRecordNormalizer()
+    private val posterFactory = PosterFactory()
     val gpsTracker = GpsTracker(application)
     private val headingTracker = HeadingTracker(application)
     private val directionStabilizer = DirectionStabilizer()
@@ -807,10 +822,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val driveSyncState: StateFlow<SyncState> = _driveSyncState.asStateFlow()
     private val _driveBackupPreview = MutableStateFlow(DriveBackupPreviewUiState())
     val driveBackupPreview: StateFlow<DriveBackupPreviewUiState> = _driveBackupPreview.asStateFlow()
-    private val _appUpdateState = MutableStateFlow(
-        EmptyAppUpdateState.copy(currentVersion = appUpdateManager.getInstalledVersion())
-    )
-    val appUpdateState: StateFlow<AppUpdateUiState> = _appUpdateState.asStateFlow()
+    private val _appUpdateState = MutableStateFlow<AppUpdateState>(EmptyAppUpdateState)
+    val appUpdateState: StateFlow<AppUpdateState> = _appUpdateState.asStateFlow()
+    private val _appUpdateLastCheckedAt = MutableStateFlow(0L)
+    val appUpdateLastCheckedAt: StateFlow<Long> = _appUpdateLastCheckedAt.asStateFlow()
+    private val _posterSettings = MutableStateFlow(PosterSettings())
+    val posterSettings: StateFlow<PosterSettings> = _posterSettings.asStateFlow()
 
     fun checkDriveSignInStatus(): kotlinx.coroutines.Job = viewModelScope.launch {
         if (driveSyncManager.isSignedIn()) {
@@ -1103,6 +1120,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * Trigger a silent auto-sync to Google Drive after a ride is saved.
+     * This ensures ride history is backed up without user intervention.
+     */
+    private suspend fun triggerAutoSyncAfterRideSave() {
+        if (!driveSyncManager.isSignedIn()) return
+        if (autoSyncJob?.isActive == true) return
+
+        try {
+            val backupJson = settingsRepository.exportBackupJson()
+            val result = driveSyncManager.uploadBackup(backupJson)
+            result.fold(
+                onSuccess = {
+                    val currentState = _driveSyncState.value
+                    if (currentState is SyncState.SignedIn) {
+                        _driveSyncState.value = currentState.copy(
+                            lastSyncTime = System.currentTimeMillis()
+                        )
+                    }
+                    hasAutoSyncedThisSession = true
+                    AppLogger.i(TAG, "行程保存后自动同步到 Google Drive 成功")
+                },
+                onFailure = { error ->
+                    AppLogger.w(TAG, "行程保存后自动同步到 Google Drive 失败: ${error.message}")
+                }
+            )
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "行程保存后自动同步到 Google Drive 异常: ${e.message}")
+        }
+    }
+
+    /**
      * Check for remote updates once (no background polling).
      * Called on app start and when user opens sync settings.
      */
@@ -1201,69 +1249,83 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun checkForAppUpdate(silent: Boolean = false): kotlinx.coroutines.Job = viewModelScope.launch {
+        if (silent) {
+            val lastCheckedAt = updatePreferences.lastCheckedAt.first()
+            if (lastCheckedAt > 0L && System.currentTimeMillis() - lastCheckedAt < SILENT_APP_UPDATE_THROTTLE_MS) {
+                _appUpdateLastCheckedAt.value = lastCheckedAt
+                return@launch
+            }
+        }
         val currentVersion = appUpdateManager.getInstalledVersion()
-        _appUpdateState.value = _appUpdateState.value.copy(
-            currentVersion = currentVersion,
-            isChecking = true,
-            errorMessage = null
-        )
-        val result = appUpdateManager.checkForUpdate()
+        _appUpdateState.value = AppUpdateState.Checking(currentVersion)
+        
+        val result = appUpdateManager.checkForUpdate(honorIgnoredTag = silent)
         result.fold(
-            onSuccess = { release ->
-                _appUpdateState.value = _appUpdateState.value.copy(
-                    currentVersion = currentVersion,
-                    isChecking = false,
-                    availableRelease = release,
-                    lastCheckedAt = System.currentTimeMillis(),
-                    errorMessage = null
-                )
+            onSuccess = { pkg ->
+                _appUpdateLastCheckedAt.value = updatePreferences.lastCheckedAt.first()
+                _appUpdateState.value = if (pkg != null) {
+                    val downloadedPath = appUpdateManager.findDownloadedApkPath(pkg.tag)
+                    if (downloadedPath != null) {
+                        AppUpdateState.Downloaded(currentVersion, pkg, downloadedPath)
+                    } else {
+                        AppUpdateState.Available(currentVersion, pkg)
+                    }
+                } else {
+                    AppUpdateState.UpToDate(currentVersion, System.currentTimeMillis())
+                }
+                
                 AppLogger.i(
                     TAG,
-                    if (release == null) {
+                    if (pkg == null) {
                         "App update check complete: already latest ${currentVersion.displayName}"
                     } else {
-                        "App update available: ${release.versionName} build=${release.buildCode ?: 0L}"
+                        "App update available: ${pkg.versionName} build=${pkg.versionCode} channel=${pkg.channel}"
                     }
                 )
             },
             onFailure = { error ->
-                _appUpdateState.value = _appUpdateState.value.copy(
-                    currentVersion = currentVersion,
-                    isChecking = false,
-                    lastCheckedAt = System.currentTimeMillis(),
-                    errorMessage = if (silent) null else (error.message ?: "检查更新失败")
-                )
+                _appUpdateLastCheckedAt.value = updatePreferences.lastCheckedAt.first()
+                _appUpdateState.value = if (silent) {
+                    AppUpdateState.Idle(currentVersion)
+                } else {
+                    AppUpdateState.Error(
+                        currentVersion = currentVersion,
+                        message = error.message ?: "检查更新失败",
+                        stage = "checking"
+                    )
+                }
                 AppLogger.w(TAG, "App update check failed: ${error.message}")
             }
         )
     }
 
-    fun downloadAppUpdate(release: AppReleaseInfo? = _appUpdateState.value.availableRelease): kotlinx.coroutines.Job? {
-        val targetRelease = release ?: return null
+    fun downloadAppUpdate(pkg: AppUpdatePackage? = null): kotlinx.coroutines.Job? {
+        val targetPkg = pkg 
+            ?: (appUpdateState.value as? AppUpdateState.Available)?.pkg
+            ?: (appUpdateState.value as? AppUpdateState.Error)?.let { if (it.stage == "downloading") (appUpdateState.value as? AppUpdateState.Available)?.pkg else null }
+            ?: return null
+            
         return viewModelScope.launch {
-            _appUpdateState.value = _appUpdateState.value.copy(
-                isDownloading = true,
-                downloadProgress = 0f,
-                errorMessage = null
-            )
-            val result = appUpdateManager.downloadReleaseApk(targetRelease) { progress ->
-                _appUpdateState.value = _appUpdateState.value.copy(downloadProgress = progress)
+            val currentVersion = appUpdateManager.getInstalledVersion()
+            _appUpdateState.value = AppUpdateState.Downloading(currentVersion, targetPkg, 0f)
+            
+            val result = appUpdateManager.downloadReleaseApk(targetPkg) { progress ->
+                _appUpdateState.value = AppUpdateState.Downloading(currentVersion, targetPkg, progress)
             }
             result.fold(
                 onSuccess = { file ->
-                    _appUpdateState.value = _appUpdateState.value.copy(
-                        isDownloading = false,
-                        downloadProgress = 1f,
-                        downloadedApkPath = file.absolutePath,
-                        errorMessage = null
+                    _appUpdateState.value = AppUpdateState.Downloaded(
+                        currentVersion = currentVersion,
+                        pkg = targetPkg,
+                        apkPath = file.absolutePath
                     )
                     AppLogger.i(TAG, "App update downloaded path=${file.absolutePath}")
                 },
                 onFailure = { error ->
-                    _appUpdateState.value = _appUpdateState.value.copy(
-                        isDownloading = false,
-                        downloadProgress = null,
-                        errorMessage = error.message ?: "下载更新失败"
+                    _appUpdateState.value = AppUpdateState.Error(
+                        currentVersion = currentVersion,
+                        message = error.message ?: "下载更新失败",
+                        stage = "downloading"
                     )
                     AppLogger.w(TAG, "App update download failed: ${error.message}")
                 }
@@ -1274,7 +1336,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun canInstallDownloadedAppUpdate(): Boolean = appUpdateManager.canRequestPackageInstalls()
 
     fun createInstallDownloadedAppUpdateIntent(): Intent? {
-        val apkPath = _appUpdateState.value.downloadedApkPath ?: return null
+        val state = appUpdateState.value
+        val apkPath = when (state) {
+            is AppUpdateState.Downloaded -> state.apkPath
+            is AppUpdateState.InstallPermissionRequired -> state.apkPath
+            else -> null
+        } ?: return null
         val apkFile = File(apkPath).takeIf { it.exists() } ?: return null
         return appUpdateManager.createInstallIntent(apkFile)
     }
@@ -1283,7 +1350,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         appUpdateManager.createManageUnknownSourcesIntent()
 
     fun clearAppUpdateError() {
-        _appUpdateState.value = _appUpdateState.value.copy(errorMessage = null)
+        val current = _appUpdateState.value
+        if (current is AppUpdateState.Error) {
+            _appUpdateState.value = AppUpdateState.Idle(current.currentVersion)
+        }
+    }
+
+    fun ignoreCurrentAppUpdate(): Job? {
+        val pkg = when (val state = _appUpdateState.value) {
+            is AppUpdateState.Available -> state.pkg
+            is AppUpdateState.Downloading -> state.pkg
+            is AppUpdateState.Downloaded -> state.pkg
+            is AppUpdateState.InstallPermissionRequired -> state.pkg
+            else -> null
+        } ?: return null
+        return viewModelScope.launch {
+            appUpdateManager.ignoreRelease(pkg.tag)
+            _appUpdateState.value = AppUpdateState.UpToDate(
+                currentVersion = appUpdateManager.getInstalledVersion(),
+                checkedAt = System.currentTimeMillis()
+            )
+        }
+    }
+
+    fun savePosterSettings(settings: PosterSettings) {
+        if (_posterSettings.value == settings) return
+        _posterSettings.value = settings
+        viewModelScope.launch {
+            settingsRepository.savePosterSettings(settings)
+        }
     }
 
     val gpsCalibrationState: StateFlow<GpsCalibrationState> = autoCalibrator.state
@@ -1364,6 +1459,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }.launchIn(viewModelScope)
 
+        settingsRepository.posterSettings.onEach { settings ->
+            _posterSettings.value = settings
+        }.launchIn(viewModelScope)
+
+        updatePreferences.lastCheckedAt.onEach { checkedAt ->
+            _appUpdateLastCheckedAt.value = checkedAt
+        }.launchIn(viewModelScope)
+
         settingsRepository.logLevel.onEach { level ->
             AppLogger.setMinLevel(level)
         }.launchIn(viewModelScope)
@@ -1373,13 +1476,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }.launchIn(viewModelScope)
 
         settingsRepository.rideHistory.onEach { history ->
-            val normalized = normalizeRideHistoryRecords(history)
-            _rideHistory.value = normalized
-            if (normalized != history) {
-                viewModelScope.launch {
-                    settingsRepository.saveRideHistory(normalized)
-                }
-            }
+            _rideHistory.value = history
         }.launchIn(viewModelScope)
 
         currentVehicle.onEach { profile ->
@@ -1397,14 +1494,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bleManager.rawData.onEach { ProtocolParser.parse(it) }.launchIn(viewModelScope)
         bmsBleManager.rawData.onEach { BmsParser.parse(it) }.launchIn(viewModelScope)
         ProtocolParser.zhikeSettings.onEach { _latestZhikeSettings.value = it }.launchIn(viewModelScope)
-        ProtocolParser.metrics.onEach {
-            _currentRpm.value = it.rpm.toFloat()
-            val sample = telemetryStreamProcessor.process(it)
-            _latestTelemetrySample.value = sample
-            if (_isRideActive.value && !isRidePausedForStop()) {
-                rideAccumulator.accumulate(sample)
+        ProtocolParser.metrics
+            .map { raw ->
+                // Resolve controller speed before entering the telemetry/integration chain
+                raw.copy(
+                    controllerSpeedKmH = resolveControllerSpeed(
+                        bleMetrics = raw,
+                        activeProtocolId = ProtocolParser.activeProtocolId.value,
+                        wheelCircumferenceMm = wheelCircumference.value,
+                        polePairCount = polePairs.value,
+                        zhikeSettings = _latestZhikeSettings.value
+                    )
+                )
             }
-        }.launchIn(viewModelScope)
+            .onEach { resolved ->
+                _currentRpm.value = resolved.rpm.toFloat()
+                val sample = telemetryStreamProcessor.process(resolved)
+                _latestTelemetrySample.value = sample
+                if (_isRideActive.value && !isRidePausedForStop()) {
+                    rideAccumulator.accumulate(sample)
+                }
+            }.launchIn(viewModelScope)
         combine(
             ProtocolParser.latestMetrics,
             ProtocolParser.activeProtocolId,
@@ -1424,6 +1534,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }.launchIn(viewModelScope)
         autoCalibrator.startObserving()
         headingTracker.start()
+
+        // App lifecycle: trigger sync pull on foreground
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
+                // App came to foreground: pull any remote updates
+                syncScheduler.onAppForeground()
+            }
+        })
 
         ProtocolParser.autoConfigUpdates.onEach { (key, value) ->
             if (key == "polePairs") {
@@ -1759,6 +1877,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _speedTestHistory.value = updatedHistory.sortedByDescending { it.timestampMs }.take(HISTORY_LIMIT)
             viewModelScope.launch {
                 settingsRepository.saveSpeedTestHistory(_speedTestHistory.value)
+                // Auto-sync speed test to Google Drive (V2 sync engine)
+                _speedTestHistory.value.firstOrNull()?.let { syncScheduler.onSpeedTestSaved(it.id) }
             }
             _speedTestSession.value = _speedTestSession.value.copy(
                 isActive = false,
@@ -1909,6 +2029,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch {
                 settingsRepository.saveRideHistory(_rideHistory.value)
                 persistVehicleSnapshot()
+                // Auto-sync to Google Drive after saving ride (V2 sync engine)
+                syncScheduler.onRideSaved(historyRecord.id)
             }
         }
         _lastRideLocation = null
@@ -1942,21 +2064,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun normalizeRideHistoryRecords(records: List<RideHistoryRecord>): List<RideHistoryRecord> {
         if (records.isEmpty()) return records
-        val profile = currentVehicle.value
         var changedCount = 0
         val normalized = records.map { record ->
-            normalizeRideHistoryRecord(
-                record = record,
-                wheelCircumferenceMm = profile.wheelCircumferenceMm.toFloat(),
-                polePairs = profile.polePairs
-            ).also { updated ->
-                if (updated != record) changedCount += 1
-            }
+            val updated = presentRideHistoryRecord(record)
+
+            if (updated != record) changedCount += 1
+            updated
         }
         if (changedCount > 0) {
             AppLogger.i(TAG, "Ride history normalized for $changedCount record(s)")
         }
         return normalized
+    }
+
+    fun presentRideHistoryRecord(record: RideHistoryRecord): RideHistoryRecord {
+        val profile = currentVehicle.value
+        val normalized = normalizeRideHistoryRecord(
+            record = record,
+            wheelCircumferenceMm = profile.wheelCircumferenceMm.toFloat(),
+            polePairs = profile.polePairs
+        )
+        return rideRecordNormalizer.normalize(normalized)
+    }
+
+    private fun needsRideHistoryRepair(
+        original: RideHistoryRecord,
+        candidate: RideHistoryRecord
+    ): Boolean {
+        if (rideRecordNormalizer.isBroken(original)) return true
+        if (candidate == original) return false
+
+        return abs(original.distanceMeters - candidate.distanceMeters) > 10f ||
+            abs(original.totalEnergyWh - candidate.totalEnergyWh) > 5f ||
+            abs(original.tractionEnergyWh - candidate.tractionEnergyWh) > 5f ||
+            abs(original.regenEnergyWh - candidate.regenEnergyWh) > 5f ||
+            abs(original.avgNetEfficiencyWhKm - candidate.avgNetEfficiencyWhKm) > 1f ||
+            abs(original.maxSpeedKmh - candidate.maxSpeedKmh) > 0.5f
+    }
+
+    suspend fun repairRideHistoryRecord(id: String): String {
+        val currentHistory = _rideHistory.value
+        val targetIndex = currentHistory.indexOfFirst { it.id == id }
+        if (targetIndex == -1) return "未找到这条行程记录"
+
+        val original = currentHistory[targetIndex]
+        val repaired = presentRideHistoryRecord(original)
+        if (!needsRideHistoryRepair(original, repaired)) {
+            return "当前记录无需修复"
+        }
+
+        val updatedHistory = currentHistory.toMutableList().apply {
+            this[targetIndex] = repaired
+        }
+        settingsRepository.saveRideHistory(updatedHistory)
+        _rideHistory.value = updatedHistory
+        AppLogger.i(TAG, "Ride history repaired id=$id")
+        return "已按新版算法修复"
     }
 
     private fun normalizeRideHistoryRecord(
@@ -1974,14 +2137,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val finalDistanceMeters = energyNormalizedSamples.lastOrNull()?.distanceMeters?.takeIf { it > 1.0f }
             ?: distanceNormalized.distanceMeters
+        val maxSpeedKmh = maxOf(
+            distanceNormalized.maxSpeedKmh,
+            energyNormalizedSamples.maxOfOrNull { it.speedKmH } ?: 0.0f
+        )
+        val tractionEnergyWh = maxOf(
+            distanceNormalized.tractionEnergyWh.coerceAtLeast(0.0f),
+            energyNormalizedSamples.maxOfOrNull { it.tractionEnergyWh } ?: 0.0f
+        )
+        val regenEnergyWh = maxOf(
+            distanceNormalized.regenEnergyWh.coerceAtLeast(0.0f),
+            energyNormalizedSamples.maxOfOrNull { maxOf(it.regenEnergyWh, it.recoveredEnergyWh) } ?: 0.0f
+        )
         val totalEnergyWh = maxOf(
             distanceNormalized.totalEnergyWh.coerceAtLeast(0.0f),
-            energyNormalizedSamples.maxOfOrNull { it.totalEnergyWh } ?: 0.0f
+            energyNormalizedSamples.maxOfOrNull { it.totalEnergyWh } ?: 0.0f,
+            tractionEnergyWh - regenEnergyWh
         )
-        val avgEfficiencyWhKm = if (finalDistanceMeters > 20.0f && totalEnergyWh > 0.01f) {
+        val avgNetEfficiencyWhKm = if (finalDistanceMeters > 20.0f && totalEnergyWh > 0.01f) {
             totalEnergyWh / (finalDistanceMeters / 1000.0f)
         } else {
-            distanceNormalized.avgEfficiencyWhKm
+            maxOf(distanceNormalized.avgEfficiencyWhKm, distanceNormalized.avgNetEfficiencyWhKm)
+        }
+        val avgTractionEfficiencyWhKm = if (finalDistanceMeters > 20.0f && tractionEnergyWh > 0.01f) {
+            tractionEnergyWh / (finalDistanceMeters / 1000.0f)
+        } else {
+            distanceNormalized.avgTractionEfficiencyWhKm
         }
         val avgSpeedKmh = if (distanceNormalized.durationMs > 0L && finalDistanceMeters > 1.0f) {
             (finalDistanceMeters / 1000.0f) / (distanceNormalized.durationMs.toFloat() / 3_600_000.0f)
@@ -1990,9 +2171,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         return distanceNormalized.copy(
             distanceMeters = finalDistanceMeters,
+            maxSpeedKmh = maxSpeedKmh,
             avgSpeedKmh = avgSpeedKmh,
             totalEnergyWh = totalEnergyWh,
-            avgEfficiencyWhKm = avgEfficiencyWhKm,
+            tractionEnergyWh = tractionEnergyWh,
+            regenEnergyWh = regenEnergyWh,
+            avgEfficiencyWhKm = avgNetEfficiencyWhKm,
+            avgNetEfficiencyWhKm = avgNetEfficiencyWhKm,
+            avgTractionEfficiencyWhKm = avgTractionEfficiencyWhKm,
             samples = energyNormalizedSamples
         )
     }
@@ -2124,20 +2310,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } ?: lastValidSoc
 
             val normalizedAvgEfficiencyWhKm = calcEfficiency(sample, energy, record)
+            val normalizedAvgNetEfficiencyWhKm = if (sample.distanceMeters > 10.0f && energy.totalEnergyWh > 0.01f) {
+                energy.totalEnergyWh / (sample.distanceMeters / 1000f)
+            } else {
+                normalizedAvgEfficiencyWhKm
+            }
+            val normalizedAvgTractionEfficiencyWhKm = if (sample.distanceMeters > 10.0f && energy.tractionEnergyWh > 0.01f) {
+                energy.tractionEnergyWh / (sample.distanceMeters / 1000f)
+            } else {
+                sample.avgTractionEfficiencyWhKm
+            }
 
             sample.copy(
                 soc = normalizedSoc,
                 totalEnergyWh = energy.totalEnergyWh,
-                recoveredEnergyWh = energy.recoveredEnergyWh,
-                avgEfficiencyWhKm = normalizedAvgEfficiencyWhKm
+                tractionEnergyWh = energy.tractionEnergyWh,
+                regenEnergyWh = energy.regenEnergyWh,
+                recoveredEnergyWh = energy.regenEnergyWh,
+                avgEfficiencyWhKm = normalizedAvgEfficiencyWhKm,
+                avgNetEfficiencyWhKm = normalizedAvgNetEfficiencyWhKm,
+                avgTractionEfficiencyWhKm = normalizedAvgTractionEfficiencyWhKm
             )
         }
     }
 
     private data class SampleEnergyTotals(
         val totalEnergyWh: Float,
-        val recoveredEnergyWh: Float
+        val tractionEnergyWh: Float,
+        val regenEnergyWh: Float
     )
+
+    private fun shouldPreferRebuiltNetEnergy(
+        cumulativeNetEnergyWh: Float,
+        rebuiltTractionEnergyWh: Float,
+        rebuiltRegenEnergyWh: Float
+    ): Boolean {
+        val rebuiltNetEnergyWh = (rebuiltTractionEnergyWh - rebuiltRegenEnergyWh).coerceAtLeast(0f)
+        if (rebuiltNetEnergyWh <= 0.5f || cumulativeNetEnergyWh <= 0.5f) return false
+        val suspiciousVsNet = cumulativeNetEnergyWh > rebuiltNetEnergyWh * 2.5f
+        val suspiciousVsTraction = cumulativeNetEnergyWh > rebuiltTractionEnergyWh + 20f
+        return suspiciousVsNet || suspiciousVsTraction
+    }
 
     private fun normalizeSampleEnergySeries(
         samples: List<RideMetricSample>,
@@ -2146,7 +2359,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (samples.isEmpty()) return emptyList()
 
         val hasCumulativeEnergy = samples.any { it.totalEnergyWh > 0.01f }
+        val hasTractionEnergy = samples.any { it.tractionEnergyWh > 0.01f }
         val hasRecoveredEnergy = samples.any { it.recoveredEnergyWh > 0.01f }
+        val hasRegenEnergy = samples.any { it.regenEnergyWh > 0.01f }
+        val canRebuildTractionEnergy = samples.size > 1 && samples.any {
+            it.powerKw > 0.02f || it.busCurrent > 0.2f
+        }
         val canRebuildRecoveredEnergy = samples.size > 1 && samples.any {
             it.powerKw < -0.02f || it.busCurrent < -0.2f
         }
@@ -2154,10 +2372,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val finalElapsedMs = samples.lastOrNull()?.elapsedMs?.takeIf { it > 0L } ?: 0L
 
         var energyOffsetWh = 0f
+        var tractionOffsetWh = 0f
         var recoveredOffsetWh = 0f
         var previousRawEnergyWh = 0f
+        var previousRawTractionWh = 0f
         var previousRawRecoveredWh = 0f
         var runningTotalEnergyWh = 0f
+        var runningTractionWh = 0f
         var runningRecoveredWh = 0f
         var previousSample: RideMetricSample? = null
 
@@ -2188,6 +2409,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 runningTotalEnergyWh + integrateEnergyDeltaWh(previousSample, sample, recovering = false)
             }
 
+            val rawTractionEnergyWh = when {
+                hasTractionEnergy -> sample.tractionEnergyWh.coerceAtLeast(0f)
+                recordTotalEnergyWh > 0.01f -> (recordTotalEnergyWh * progress).coerceAtLeast(0f)
+                else -> 0f
+            }
+            if (hasTractionEnergy && rawTractionEnergyWh + 0.05f < previousRawTractionWh) {
+                tractionOffsetWh += previousRawTractionWh
+            }
+            previousRawTractionWh = rawTractionEnergyWh
+            runningTractionWh = if (canRebuildTractionEnergy) {
+                runningTractionWh + integrateEnergyDeltaWh(previousSample, sample, recovering = false)
+            } else if (hasTractionEnergy) {
+                maxOf(
+                    runningTractionWh,
+                    (tractionOffsetWh + rawTractionEnergyWh).coerceAtLeast(0f)
+                )
+            } else {
+                maxOf(runningTractionWh, runningTotalEnergyWh)
+            }
+
             val rawRecoveredEnergyWh = sample.recoveredEnergyWh.coerceAtLeast(0f)
             if (hasRecoveredEnergy && rawRecoveredEnergyWh + 0.05f < previousRawRecoveredWh) {
                 recoveredOffsetWh += previousRawRecoveredWh
@@ -2195,19 +2436,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             previousRawRecoveredWh = rawRecoveredEnergyWh
             runningRecoveredWh = if (canRebuildRecoveredEnergy) {
                 runningRecoveredWh + integrateEnergyDeltaWh(previousSample, sample, recovering = true)
-            } else if (hasRecoveredEnergy) {
+            } else if (hasRecoveredEnergy || hasRegenEnergy) {
                 maxOf(
                     runningRecoveredWh,
-                    (recoveredOffsetWh + rawRecoveredEnergyWh).coerceAtLeast(0f)
+                    (recoveredOffsetWh + maxOf(sample.regenEnergyWh, rawRecoveredEnergyWh)).coerceAtLeast(0f)
                 )
             } else {
                 0f
             }
 
+            val rebuiltNetEnergyWh = (runningTractionWh - runningRecoveredWh).coerceAtLeast(0f)
+            val netEnergyWh = when {
+                hasCumulativeEnergy && shouldPreferRebuiltNetEnergy(
+                    cumulativeNetEnergyWh = runningTotalEnergyWh,
+                    rebuiltTractionEnergyWh = runningTractionWh,
+                    rebuiltRegenEnergyWh = runningRecoveredWh
+                ) -> rebuiltNetEnergyWh
+                hasCumulativeEnergy -> runningTotalEnergyWh
+                canRebuildTractionEnergy || canRebuildRecoveredEnergy -> rebuiltNetEnergyWh
+                else -> runningTotalEnergyWh.coerceAtLeast(0f)
+            }
+
             previousSample = sample
             SampleEnergyTotals(
-                totalEnergyWh = runningTotalEnergyWh.coerceAtLeast(0f),
-                recoveredEnergyWh = runningRecoveredWh.coerceAtLeast(0f)
+                totalEnergyWh = netEnergyWh,
+                tractionEnergyWh = runningTractionWh.coerceAtLeast(0f),
+                regenEnergyWh = runningRecoveredWh.coerceAtLeast(0f)
             )
         }
     }
@@ -2664,6 +2918,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _rideHistory.value = _rideHistory.value.filterNot { it.id == id }
         viewModelScope.launch {
             settingsRepository.saveRideHistory(_rideHistory.value)
+            // Auto-sync to Google Drive after deleting ride
+            triggerAutoSyncAfterRideSave()
         }
     }
 
@@ -2776,6 +3032,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _rideHistory.value = updated.take(HISTORY_LIMIT)
         viewModelScope.launch {
             settingsRepository.saveRideHistory(_rideHistory.value)
+            // Auto-sync to Google Drive after merging rides
+            triggerAutoSyncAfterRideSave()
         }
         _calibrationMessage.value = "已合并 ${selected.size} 条行程记录"
         return mergedRecord
@@ -2793,13 +3051,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val energy = normalizedEnergy[index]
             sample.copy(
                 totalEnergyWh = energy.totalEnergyWh,
-                recoveredEnergyWh = energy.recoveredEnergyWh
+                tractionEnergyWh = energy.tractionEnergyWh,
+                regenEnergyWh = energy.regenEnergyWh,
+                recoveredEnergyWh = energy.regenEnergyWh
             )
         }
     }
 
-    fun createSpeedTestShareIntent(record: SpeedTestRecord): Intent {
-        val bitmap = PosterRenderer(getApplication()).renderSpeedTest(record)
+    fun createSpeedTestShareIntent(
+        record: SpeedTestRecord,
+        settings: PosterSettings = PosterSettings()
+    ): Intent {
+        val bitmap = renderSpeedTestPoster(record, settings)
         val uri = exportBitmap(bitmap, "speedtest-${record.id}.png")
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "image/png"
@@ -2815,8 +3078,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return Intent.createChooser(shareIntent, "分享加速成绩")
     }
 
-    fun createRideShareIntent(record: RideHistoryRecord): Intent {
-        val bitmap = PosterRenderer(getApplication()).renderRideHistory(record)
+    fun createRideShareIntent(
+        record: RideHistoryRecord,
+        settings: PosterSettings = PosterSettings()
+    ): Intent {
+        val bitmap = renderRidePoster(record, settings)
         val uri = exportBitmap(bitmap, "ride-${record.id}.png")
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "image/png"
@@ -2832,16 +3098,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return Intent.createChooser(shareIntent, "分享行程记录")
     }
 
-    fun saveRidePosterToGallery(record: RideHistoryRecord): String {
-        val bitmap = PosterRenderer(getApplication()).renderRideHistory(record)
+    fun saveRidePosterToGallery(
+        record: RideHistoryRecord,
+        settings: PosterSettings = PosterSettings()
+    ): String {
+        val bitmap = renderRidePoster(record, settings)
         val fileName = "habe-ride-${record.id}.png"
         saveBitmapToGallery(bitmap, fileName)
         return fileName
     }
 
+    fun saveSpeedTestPosterToGallery(
+        record: SpeedTestRecord,
+        settings: PosterSettings = PosterSettings()
+    ): String {
+        val bitmap = renderSpeedTestPoster(record, settings)
+        val fileName = "habe-speedtest-${record.id}.png"
+        saveBitmapToGallery(bitmap, fileName)
+        return fileName
+    }
+
     fun createRideCsvShareIntent(record: RideHistoryRecord): Intent {
-        val csvUri = exportText(buildRideCsv(record), "ride-${record.id}.csv")
-        AppLogger.i(TAG, "导出行程 CSV file=ride-${record.id}.csv samples=${record.samples.size}")
+        val presentedRecord = presentRideHistoryRecord(record)
+        val csvUri = exportText(buildRideCsv(presentedRecord), "ride-${record.id}.csv")
+        AppLogger.i(TAG, "导出行程 CSV file=ride-${record.id}.csv samples=${presentedRecord.samples.size}")
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "text/csv"
             putExtra(Intent.EXTRA_STREAM, csvUri)
@@ -2854,6 +3134,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         return Intent.createChooser(shareIntent, "导出行程原始数据")
+    }
+
+    private fun renderRidePoster(record: RideHistoryRecord, settings: PosterSettings): android.graphics.Bitmap {
+        val presentedRecord = presentRideHistoryRecord(record)
+        val template = PosterTemplates.byId(settings.defaultTemplate)
+        val spec = posterFactory.buildRidePosterSpec(
+            record = presentedRecord,
+            aspectRatio = settings.defaultAspectRatio,
+            template = template
+        ).copy(
+            options = posterFactory.buildRidePosterSpec(presentedRecord, settings.defaultAspectRatio, template).options.copy(
+                showTrack = settings.showTrack,
+                showWatermark = settings.showWatermark
+            )
+        )
+        return PosterRendererV2(getApplication()).render(spec)
+    }
+
+    private fun renderSpeedTestPoster(record: SpeedTestRecord, settings: PosterSettings): android.graphics.Bitmap {
+        val template = PosterTemplates.byId(settings.defaultTemplate)
+        val spec = posterFactory.buildSpeedTestPosterSpec(
+            record = record,
+            aspectRatio = settings.defaultAspectRatio,
+            template = template
+        ).copy(
+            options = posterFactory.buildSpeedTestPosterSpec(record, settings.defaultAspectRatio, template).options.copy(
+                showTrack = settings.showTrack,
+                showWatermark = settings.showWatermark
+            )
+        )
+        return PosterRendererV2(getApplication()).render(spec)
     }
 
     private fun exportBitmap(bitmap: android.graphics.Bitmap, fileName: String): Uri {

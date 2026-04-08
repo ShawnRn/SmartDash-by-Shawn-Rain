@@ -1,5 +1,6 @@
 package com.shawnrain.sdash.data.telemetry
 
+import com.shawnrain.sdash.debug.AppLogger
 import kotlin.math.abs
 
 /**
@@ -15,18 +16,22 @@ class RideAccumulator {
         val isTooDense = sample.quality == SampleQuality.TOO_DENSE
         val isOutlier = sample.quality == SampleQuality.OUTLIER || sample.quality == SampleQuality.GAP_RESET
 
+        val distanceSpeedKmh = sample.distanceSpeedKmH
+            .takeIf { it.isFinite() && it > 0f }
+            ?: 0f
+
         // 统计量去污：重复包和过密包不参与平均值计算 (防止采样权重因调度抖动而失真)
         if (!isDuplicate && !isTooDense) {
             _state = _state.copy(
                 sampleCount = _state.sampleCount + 1,
-                totalSpeedSum = _state.totalSpeedSum + sample.controllerSpeedKmH
+                totalSpeedSum = _state.totalSpeedSum + sample.displaySpeedKmH.coerceAtLeast(0f)
             )
         }
 
         // 峰值去污：异常包、重复包和过密包不参与峰值锁定 (防止脉冲噪声或过度采样污染极值)
         if (!isDuplicate && !isTooDense && !isOutlier) {
             _state = _state.copy(
-                maxSpeedKmh = maxOf(_state.maxSpeedKmh, sample.controllerSpeedKmH),
+                maxSpeedKmh = maxOf(_state.maxSpeedKmh, distanceSpeedKmh),
                 maxControllerTempC = maxOf(_state.maxControllerTempC, sample.controllerTempC),
                 maxMotorTempC = maxOf(_state.maxMotorTempC, sample.motorTempC)
             )
@@ -64,18 +69,23 @@ class RideAccumulator {
         val netWh = tractionWh - regenWh
 
         // 增加速度门槛防止静止噪音漂移
-        val deltaDistance = if (sample.controllerSpeedKmH > 0.8f) {
-            sample.controllerSpeedKmH * dtHours * 1000.0f
+        val deltaDistance = if (distanceSpeedKmh > 0.8f) {
+            distanceSpeedKmh * dtHours * 1000.0f
         } else {
             0.0f
         }
         val distanceMeters = _state.totalDistanceMeters + deltaDistance
 
-        val movingTimeMs = if (sample.controllerSpeedKmH > 1.0f) {
-            _state.movingTimeMs + sample.dtMs
+        val movingTimeMs = if (distanceSpeedKmh > 1.0f) {
+            _state.movingTimeMs + safeDtMs
         } else {
             _state.movingTimeMs
         }
+
+        AppLogger.d(
+            "RideAccumulator",
+            "integrate dt=${safeDtMs}ms speed=${distanceSpeedKmh} dist=${distanceMeters} netWh=${netWh}"
+        )
 
         _state = _state.copy(
             tractionEnergyWh = tractionWh,

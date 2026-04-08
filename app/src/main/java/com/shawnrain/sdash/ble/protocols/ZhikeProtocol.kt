@@ -325,6 +325,7 @@ class ZhikeProtocol : ControllerProtocol {
                     busCurrent = busCurrent,
                     phaseCurrent = normalizedPhaseCurrent,
                     speedKmH = sanitizedSpeed,
+                    controllerSpeedKmH = sanitizedSpeed,
                     rpm = abs(rpmSigned),
                     mosfetTemp = controllerTemp,
                     controllerTemp = controllerTemp,

@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
@@ -58,6 +59,7 @@ import androidx.compose.material.icons.filled.SystemUpdateAlt
 import androidx.compose.material3.*
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.ui.text.font.FontWeight
@@ -99,9 +101,12 @@ import com.shawnrain.sdash.data.sync.BackupPreview
 import com.shawnrain.sdash.data.sync.BackupRetentionPolicy
 import com.shawnrain.sdash.data.sync.GoogleDriveAuth
 import com.shawnrain.sdash.data.sync.SyncState
-import com.shawnrain.sdash.data.update.AppReleaseInfo
-import com.shawnrain.sdash.data.update.AppUpdateUiState
+import com.shawnrain.sdash.data.update.AppUpdatePackage
+import com.shawnrain.sdash.data.update.AppUpdateState
 import com.shawnrain.sdash.debug.AppLogLevel
+import com.shawnrain.sdash.ui.poster.PosterSettings
+import com.shawnrain.sdash.ui.poster.PosterTemplates
+import com.shawnrain.sdash.ui.poster.model.PosterAspectRatio
 import com.shawnrain.sdash.ui.navigation.ApplyDialogWindowBlurEffect
 import com.shawnrain.sdash.ui.navigation.BlurredAlertDialog
 import com.shawnrain.sdash.ui.navigation.BlurredModalBottomSheet
@@ -145,6 +150,8 @@ fun SettingsScreen(
     val driveBackupPreview by viewModel.driveBackupPreview.collectAsState()
     val driveBackupRetentionPolicy by viewModel.driveBackupRetentionPolicy.collectAsState()
     val appUpdateState by viewModel.appUpdateState.collectAsState()
+    val appUpdateLastCheckedAt by viewModel.appUpdateLastCheckedAt.collectAsState()
+    val posterSettings by viewModel.posterSettings.collectAsState()
     val bottomContentPadding = 28.dp
     var stickyDriveSignedInState by remember { mutableStateOf<SyncState.SignedIn?>(null) }
     LaunchedEffect(driveSyncState) {
@@ -1087,6 +1094,13 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
+            PosterDefaultsCard(
+                settings = posterSettings,
+                onSettingsChange = viewModel::savePosterSettings
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
             AboutSmartDashEntryCard(
                 appUpdateState = appUpdateState,
                 onOpen = { showAboutSmartDashSheet = true }
@@ -1238,7 +1252,11 @@ fun SettingsScreen(
             }
         }
     }
-    val availableRelease = appUpdateState.availableRelease
+    val availableRelease = (appUpdateState as? AppUpdateState.Available)?.pkg 
+        ?: (appUpdateState as? AppUpdateState.Downloading)?.pkg
+        ?: (appUpdateState as? AppUpdateState.Downloaded)?.pkg
+        ?: (appUpdateState as? AppUpdateState.InstallPermissionRequired)?.pkg
+    
     if (showAppUpdateSheet && availableRelease != null) {
         BlurredModalBottomSheet(
             onDismissRequest = { showAppUpdateSheet = false },
@@ -1253,6 +1271,10 @@ fun SettingsScreen(
                     release = availableRelease,
                     canInstallPackage = viewModel.canInstallDownloadedAppUpdate(),
                     onDownload = { viewModel.downloadAppUpdate() },
+                    onIgnore = {
+                        viewModel.ignoreCurrentAppUpdate()
+                        showAppUpdateSheet = false
+                    },
                     onInstall = {
                         val intent = if (viewModel.canInstallDownloadedAppUpdate()) {
                             viewModel.createInstallDownloadedAppUpdateIntent()
@@ -1264,8 +1286,9 @@ fun SettingsScreen(
                         }
                     },
                     onOpenReleasePage = { release ->
+                        val url = release.htmlUrl ?: "https://github.com/ShawnRn/SmartDash-by-Shawn-Rain/releases/tag/${release.tag}"
                         context.startActivity(
-                            Intent(Intent.ACTION_VIEW, android.net.Uri.parse(release.htmlUrl))
+                            Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
                         )
                     },
                     onDismiss = { showAppUpdateSheet = false }
@@ -1277,6 +1300,7 @@ fun SettingsScreen(
         AboutSmartDashDialog(
             appUpdateState = appUpdateState,
             versionLabel = appUpdateState.currentVersion.displayName,
+            appUpdateLastCheckedAt = appUpdateLastCheckedAt,
             onCheckForUpdate = { viewModel.checkForAppUpdate() },
             onOpenUpdateSheet = { showAppUpdateSheet = true },
             onOpenGithub = openGithub,
@@ -1288,7 +1312,7 @@ fun SettingsScreen(
 
 @Composable
 private fun AboutSmartDashEntryCard(
-    appUpdateState: AppUpdateUiState,
+    appUpdateState: AppUpdateState,
     onOpen: () -> Unit
 ) {
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
@@ -1313,8 +1337,9 @@ private fun AboutSmartDashEntryCard(
 
 @Composable
 private fun AboutSmartDashDialog(
-    appUpdateState: AppUpdateUiState,
+    appUpdateState: AppUpdateState,
     versionLabel: String,
+    appUpdateLastCheckedAt: Long,
     onCheckForUpdate: () -> Unit,
     onOpenUpdateSheet: () -> Unit,
     onOpenGithub: () -> Unit,
@@ -1476,6 +1501,7 @@ private fun AboutSmartDashDialog(
                         AboutSmartDashUpdateRow(
                             state = appUpdateState,
                             versionLabel = versionLabel,
+                            lastCheckedAt = appUpdateLastCheckedAt,
                             onCheckForUpdate = onCheckForUpdate,
                             onOpenUpdateSheet = onOpenUpdateSheet
                         )
@@ -1503,22 +1529,27 @@ private fun AboutSmartDashDialog(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AboutSmartDashUpdateRow(
-    state: AppUpdateUiState,
+    state: AppUpdateState,
     versionLabel: String,
+    lastCheckedAt: Long = 0L,
     onCheckForUpdate: () -> Unit,
     onOpenUpdateSheet: () -> Unit
 ) {
-    val actionLabel = when {
-        state.isDownloading -> "查看下载"
-        state.isUpdateAvailable -> "查看更新"
-        state.isChecking -> "检查中…"
+    val channelLabel = availableReleaseChannelLabel(state)
+    val actionLabel = when (state) {
+        is AppUpdateState.Downloading -> "查看下载"
+        is AppUpdateState.Available -> "查看更新"
+        is AppUpdateState.Downloaded -> "立即安装"
+        is AppUpdateState.Checking -> "检查中…"
+        is AppUpdateState.Error -> "检查失败"
         else -> "检查更新"
     }
-    val summary = when {
-        state.isDownloading -> "正在下载 ${((state.downloadProgress ?: 0f).coerceIn(0f, 1f) * 100).toInt()}%"
-        state.isUpdateAvailable -> "发现新版本 v${state.availableRelease?.versionName}"
-        state.errorMessage != null -> state.errorMessage
-        state.lastCheckedAt != null -> "已是最新版本"
+    val summary = when (state) {
+        is AppUpdateState.Downloading -> "正在下载 ${((state.progress ?: 0f) * 100).toInt()}%"
+        is AppUpdateState.Available -> "发现新版本 v${state.pkg.versionName}"
+        is AppUpdateState.Downloaded -> "安装包已就绪"
+        is AppUpdateState.Error -> state.message
+        is AppUpdateState.UpToDate -> "已是最新版本"
         else -> "从 GitHub Releases 拉取最新正式 APK"
     }
 
@@ -1556,6 +1587,13 @@ private fun AboutSmartDashUpdateRow(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (channelLabel != null) {
+                        Text(
+                            channelLabel,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     Text(
                         summary,
                         style = MaterialTheme.typography.bodySmall,
@@ -1566,6 +1604,13 @@ private fun AboutSmartDashUpdateRow(
                         },
                         maxLines = 2
                     )
+                    if (lastCheckedAt > 0L) {
+                        Text(
+                            "上次检查 ${java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(lastCheckedAt)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        )
+                    }
                 }
             }
             if (state.isDownloading) {
@@ -1594,6 +1639,90 @@ private fun AboutSmartDashUpdateRow(
                 ) {
                     Text(actionLabel)
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PosterDefaultsCard(
+    settings: PosterSettings,
+    onSettingsChange: (PosterSettings) -> Unit
+) {
+    fun templateLabel(templateId: String): String = when (templateId) {
+        "performance_dark" -> "性能海报"
+        "ride_minimal" -> "简约行程"
+        "track_focus" -> "轨迹优先"
+        else -> templateId.replace('_', ' ')
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("海报与分享图", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+            Text(
+                "预设分享图的默认模板、比例和显示项。这里的设置会作为分享预览的默认值。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Text("默认比例", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                PosterAspectRatio.entries.forEach { ratio ->
+                    FilterChip(
+                        selected = settings.defaultAspectRatio == ratio,
+                        onClick = { onSettingsChange(settings.copy(defaultAspectRatio = ratio)) },
+                        label = {
+                            Text(
+                                when (ratio) {
+                                    PosterAspectRatio.STORY_9_16 -> "9:16"
+                                    PosterAspectRatio.PORTRAIT_4_5 -> "4:5"
+                                    PosterAspectRatio.SQUARE_1_1 -> "1:1"
+                                }
+                            )
+                        }
+                    )
+                }
+            }
+
+            Text("默认模板", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                PosterTemplates.all().forEach { template ->
+                    FilterChip(
+                        selected = settings.defaultTemplate == template.id,
+                        onClick = { onSettingsChange(settings.copy(defaultTemplate = template.id)) },
+                        label = { Text(templateLabel(template.id)) }
+                    )
+                }
+            }
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                FilterChip(
+                    selected = settings.showTrack,
+                    onClick = { onSettingsChange(settings.copy(showTrack = !settings.showTrack)) },
+                    label = { Text("显示轨迹") }
+                )
+                FilterChip(
+                    selected = settings.showWatermark,
+                    onClick = { onSettingsChange(settings.copy(showWatermark = !settings.showWatermark)) },
+                    label = { Text("显示水印") }
+                )
             }
         }
     }
@@ -1665,24 +1794,30 @@ private fun AboutSmartDashActionRow(
 
 @Composable
 private fun AppUpdateReviewSheet(
-    state: AppUpdateUiState,
-    release: AppReleaseInfo,
+    state: AppUpdateState,
+    release: AppUpdatePackage,
     canInstallPackage: Boolean,
     onDownload: () -> Unit,
+    onIgnore: () -> Unit,
     onInstall: () -> Unit,
-    onOpenReleasePage: (AppReleaseInfo) -> Unit,
+    onOpenReleasePage: (AppUpdatePackage) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val progress = state.downloadProgress?.coerceIn(0f, 1f) ?: 0f
+    val progress = (state as? AppUpdateState.Downloading)?.progress ?: 0f
+    val hasDownloaded = state is AppUpdateState.Downloaded || state is AppUpdateState.InstallPermissionRequired
+    val isDownloading = state is AppUpdateState.Downloading
+    val highlights = remember(release.releaseNotes) { extractReleaseHighlights(release.releaseNotes) }
+    var notesExpanded by remember(release.tag) { mutableStateOf(false) }
+    
     val installActionLabel = when {
-        !state.hasDownloadedApk -> "下载更新"
+        !hasDownloaded -> "下载更新"
         canInstallPackage -> "安装更新"
         else -> "允许安装"
     }
     val supportText = when {
-        state.hasDownloadedApk && !canInstallPackage -> "安装前需要先允许 SmartDash 安装未知来源应用。"
-        state.hasDownloadedApk && !state.isDownloading -> "安装包已经准备好，可以直接开始安装。"
-        state.isDownloading -> "安装包会下载到本地缓存，完成后可直接开始安装。"
+        hasDownloaded && !canInstallPackage -> "安装前需要先允许 SmartDash 安装未知来源应用。"
+        hasDownloaded && !isDownloading -> "安装包已经准备好，可以直接开始安装。"
+        isDownloading -> "安装包会下载到本地缓存，完成后可直接开始安装。"
         else -> "这版会从 GitHub Releases 拉取正式 APK，并保持和现有 overlay 一致的体验。"
     }
 
@@ -1696,7 +1831,7 @@ private fun AppUpdateReviewSheet(
     ) {
         Text("版本更新", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
         Text(
-            "当前 ${state.currentVersion.displayName}，可更新到 v${release.versionName}${release.buildCode?.let { " (build $it)" } ?: ""}。",
+            "当前 ${state.currentVersion.displayName}，可更新到 v${release.versionName} (build ${release.versionCode})。",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -1719,14 +1854,14 @@ private fun AppUpdateReviewSheet(
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
-                            release.title,
+                            release.tag,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            release.publishedAt?.replace("T", " ")?.removeSuffix("Z") ?: release.tagName,
+                            formatReleasePublishedAt(release),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -1738,25 +1873,53 @@ private fun AppUpdateReviewSheet(
                         color = MaterialTheme.colorScheme.primaryContainer
                     ) {
                         Text(
-                            "GitHub Release",
+                            formatReleaseChannel(release),
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
                 }
+                if (!release.sha256.isNullOrBlank()) {
+                    Text(
+                        "SHA256 已随安装包一起校验",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
                 Text(
                     supportText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (state.isDownloading) {
+                if (isDownloading) {
                     LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
                     Text(
                         "下载中 ${(progress * 100).toInt()}%",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
+                }
+            }
+        }
+        if (highlights.isNotEmpty()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("本次更新亮点", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    highlights.forEach { line ->
+                        Text(
+                            "• $line",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
@@ -1771,7 +1934,44 @@ private fun AppUpdateReviewSheet(
             ) {
                 Text("更新说明", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 Text(
-                    release.notes.ifBlank { "这次发布没有额外说明。" },
+                    (release.releaseNotes ?: "").ifBlank { "这次发布没有额外说明。" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = if (notesExpanded) Int.MAX_VALUE else 8,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (!release.releaseNotes.isNullOrBlank()) {
+                    TextButton(
+                        onClick = { notesExpanded = !notesExpanded },
+                        shape = bezierPillShape()
+                    ) {
+                        Text(if (notesExpanded) "收起说明" else "展开完整说明")
+                    }
+                }
+            }
+        }
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.18f)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text("版本摘要", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    "通道：${formatReleaseChannel(release)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "发布时间：${formatReleasePublishedAt(release)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "构建号：${release.versionCode}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1790,18 +1990,18 @@ private fun AppUpdateReviewSheet(
             }
             Button(
                 onClick = {
-                    if (state.hasDownloadedApk) {
+                    if (hasDownloaded) {
                         onInstall()
                     } else {
                         onDownload()
                     }
                 },
                 modifier = Modifier.weight(1f),
-                enabled = !state.isDownloading,
+                enabled = !isDownloading,
                 shape = bezierPillShape()
             ) {
                 Icon(
-                    imageVector = if (state.hasDownloadedApk) Icons.Default.SystemUpdateAlt else Icons.Default.Download,
+                    imageVector = if (hasDownloaded) Icons.Default.SystemUpdateAlt else Icons.Default.Download,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp)
                 )
@@ -1809,14 +2009,61 @@ private fun AppUpdateReviewSheet(
                 Text(installActionLabel)
             }
         }
-        TextButton(
-            onClick = onDismiss,
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-            shape = bezierPillShape()
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("稍后再说")
+            TextButton(
+                onClick = onIgnore,
+                enabled = !hasDownloaded && !isDownloading,
+                shape = bezierPillShape()
+            ) {
+                Text("忽略此版本")
+            }
+            TextButton(
+                onClick = onDismiss,
+                shape = bezierPillShape()
+            ) {
+                Text("稍后再说")
+            }
         }
     }
+}
+
+private fun extractReleaseHighlights(notes: String?): List<String> {
+    if (notes.isNullOrBlank()) return emptyList()
+    return notes.lineSequence()
+        .map { it.trim() }
+        .filter { it.startsWith("- ") || it.startsWith("* ") }
+        .map { it.drop(2).trim() }
+        .filter { it.isNotBlank() }
+        .take(3)
+        .toList()
+}
+
+private fun formatReleaseChannel(release: AppUpdatePackage): String = when (release.channel.name) {
+    "BETA" -> "Beta Channel"
+    "NIGHTLY" -> "Nightly Channel"
+    else -> "Stable Channel"
+}
+
+private fun formatReleasePublishedAt(release: AppUpdatePackage): String {
+    return release.publishedAt
+        ?.replace("T", " ")
+        ?.removeSuffix("Z")
+        ?.ifBlank { release.tag }
+        ?: release.tag
+}
+
+private fun availableReleaseChannelLabel(state: AppUpdateState): String? {
+    val release = when (state) {
+        is AppUpdateState.Available -> state.pkg
+        is AppUpdateState.Downloading -> state.pkg
+        is AppUpdateState.Downloaded -> state.pkg
+        is AppUpdateState.InstallPermissionRequired -> state.pkg
+        else -> null
+    } ?: return null
+    return "${formatReleaseChannel(release)} • build ${release.versionCode}"
 }
 
 @Composable

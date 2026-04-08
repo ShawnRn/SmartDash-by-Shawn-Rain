@@ -1,30 +1,23 @@
-name: Android Nightly
+name: SmartDash Nightly
 
 on:
-  schedule:
-    - cron: "30 18 * * *"
   workflow_dispatch:
-
-concurrency:
-  group: nightly-${{ github.workflow }}
-  cancel-in-progress: true
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  schedule:
+    - cron: "0 18 * * *"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   nightly-build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      CI: true
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
@@ -33,14 +26,61 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - name: Lint + Unit Test + Debug Build
+      - name: Resolve nightly metadata
+        id: meta
         shell: bash
-        run: ./gradlew :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --console plain
+        run: |
+          TAG="v$(date -u +'%Y.%m.%d-%H%M')-nightly"
+          VERSION_NAME="$(sed -nE 's/^[[:space:]]*versionName = "([^"]+)"/\1/p' app/build.gradle.kts | head -n 1)"
+          VERSION_CODE="$(sed -nE 's/^[[:space:]]*versionCode = ([0-9]+)/\1/p' app/build.gradle.kts | head -n 1)"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "version_name=${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "version_code=${VERSION_CODE}" >> "${GITHUB_OUTPUT}"
 
-      - name: Upload nightly debug artifact
-        uses: actions/upload-artifact@v4
+      - name: Build release APK
+        shell: bash
+        run: |
+          ./gradlew clean :app:assembleRelease --console plain
+
+      - name: Package nightly artifacts
+        id: artifact
+        shell: bash
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          APK_BASENAME="smartdash-${TAG}-release"
+          APK_PATH="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' ! -name '*-unsigned.apk' | head -n 1)"
+          cp "${APK_PATH}" "${APK_BASENAME}.apk"
+          SHA256="$(sha256sum "${APK_BASENAME}.apk" | awk '{print $1}')"
+          printf '%s  %s\n' "${SHA256}" "${APK_BASENAME}.apk" > "${APK_BASENAME}.sha256"
+          cat <<EOF > "${APK_BASENAME}-manifest.json"
+          {
+            "tag": "${TAG}",
+            "versionName": "${{ steps.meta.outputs.version_name }}",
+            "versionCode": ${{ steps.meta.outputs.version_code }},
+            "channel": "nightly",
+            "apkName": "${APK_BASENAME}.apk",
+            "apkSha256": "${SHA256}",
+            "publishedAt": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+            "releaseNotes": "Automated nightly build"
+          }
+          EOF
+          echo "apk_copy=${APK_BASENAME}.apk" >> "${GITHUB_OUTPUT}"
+          echo "sha_copy=${APK_BASENAME}.sha256" >> "${GITHUB_OUTPUT}"
+          echo "manifest_copy=${APK_BASENAME}-manifest.json" >> "${GITHUB_OUTPUT}"
+
+      - name: Create nightly release
+        uses: softprops/action-gh-release@v2
         with:
-          name: habe-nightly-debug-${{ github.run_number }}
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 14
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: SmartDash Nightly ${{ steps.meta.outputs.tag }}
+          prerelease: true
+          make_latest: false
+          files: |
+            ${{ steps.artifact.outputs.apk_copy }}
+            ${{ steps.artifact.outputs.sha_copy }}
+            ${{ steps.artifact.outputs.manifest_copy }}
+          body: |
+            ## SmartDash Nightly
+            - Channel: nightly
+            - Version: `${{ steps.meta.outputs.version_name }}`
+            - Build code: `${{ steps.meta.outputs.version_code }}`

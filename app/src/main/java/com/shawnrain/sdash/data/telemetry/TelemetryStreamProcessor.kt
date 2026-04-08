@@ -1,7 +1,6 @@
 package com.shawnrain.sdash.data.telemetry
 
 import com.shawnrain.sdash.ble.VehicleMetrics
-import com.shawnrain.sdash.debug.AppLogger
 import kotlin.math.abs
 
 /**
@@ -9,10 +8,6 @@ import kotlin.math.abs
  * 处理去重、异常值过滤、以及采样时间间隔 (dt) 的合法性检查。
  */
 class TelemetryStreamProcessor {
-    companion object {
-        private const val TAG = "TelemetryStreamProcessor"
-    }
-
     private var lastRawVoltage = 0.0f
     private var lastRawBusCurrent = 0.0f
     private var lastRawPhaseCurrent = 0.0f
@@ -109,13 +104,6 @@ class TelemetryStreamProcessor {
             allowIntegration = allowIntegration,
             allowLearning = allowLearning
         )
-
-        if (allowIntegration && resolvedControllerSpeed > 0f) {
-            AppLogger.d(
-                TAG,
-                "sample dt=${dtMs} displaySpeed=${displaySpeed} controllerSpeed=${rawMetrics.controllerSpeedKmH} distanceSpeed=${resolvedControllerSpeed}"
-            )
-        }
 
         // 更新状态，用于下一帧比对 (already guaranteed finite here)
         lastRawVoltage = rawMetrics.voltage

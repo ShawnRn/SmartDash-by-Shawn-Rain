@@ -41,6 +41,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -232,7 +233,7 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                                 ZhikeWriteState.WaitingWriteAck to "5. 确认",
                                 ZhikeWriteState.Verifying to "6. 核对"
                             )
-                            val currentStateIndex = steps.indexOfFirst { writeState is ZhikeWriteState && it.first::class == writeState::class }
+                            val currentStateIndex = steps.indexOfFirst { it.first::class == writeState::class }
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1099,7 +1100,10 @@ private fun SelectionParameterRow(
                 enabled = !isVersionLocked,
                 modifier = Modifier
                     .width(164.dp)
-                    .menuAnchor(),
+                    .menuAnchor(
+                        type = MenuAnchorType.PrimaryNotEditable,
+                        enabled = !isVersionLocked
+                    ),
                 trailingIcon = {
                     ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
                 },

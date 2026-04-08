@@ -112,6 +112,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -300,6 +301,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _rangeEstimate = MutableStateFlow<RangeEstimate?>(null)
     private val telemetryStreamProcessor = TelemetryStreamProcessor()
     private val rideAccumulator = RideAccumulator()
+    private val telemetryDispatcher = Dispatchers.Default
     private var lastKnownSocPercent: Float = Float.NaN
     private var lastKnownRangeKm: Float = Float.NaN
     private var lastRangeDisplayCommitDistanceKm: Float = Float.NaN
@@ -408,7 +410,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             zhikeSettings = zhikeSettings,
             sample = sample
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VehicleMetrics())
+    }
+        .flowOn(telemetryDispatcher)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VehicleMetrics())
 
     // --- Direction stabilization: stable heading based on GPS + sensor fusion ---
     val stableDirectionDegrees: StateFlow<Float> = combine(
@@ -1494,10 +1498,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bleManager.rawData.onEach { ProtocolParser.parse(it) }.launchIn(viewModelScope)
         bmsBleManager.rawData.onEach { BmsParser.parse(it) }.launchIn(viewModelScope)
         ProtocolParser.zhikeSettings.onEach { _latestZhikeSettings.value = it }.launchIn(viewModelScope)
-        ProtocolParser.metrics
-            .map { raw ->
-                // Resolve controller speed before entering the telemetry/integration chain
-                raw.copy(
+        viewModelScope.launch(telemetryDispatcher) {
+            ProtocolParser.metrics.collect { raw ->
+                val resolved = raw.copy(
                     controllerSpeedKmH = resolveControllerSpeed(
                         bleMetrics = raw,
                         activeProtocolId = ProtocolParser.activeProtocolId.value,
@@ -1506,15 +1509,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         zhikeSettings = _latestZhikeSettings.value
                     )
                 )
-            }
-            .onEach { resolved ->
                 _currentRpm.value = resolved.rpm.toFloat()
                 val sample = telemetryStreamProcessor.process(resolved)
                 _latestTelemetrySample.value = sample
                 if (_isRideActive.value && !isRidePausedForStop()) {
                     rideAccumulator.accumulate(sample)
                 }
-            }.launchIn(viewModelScope)
+            }
+        }
         combine(
             ProtocolParser.latestMetrics,
             ProtocolParser.activeProtocolId,

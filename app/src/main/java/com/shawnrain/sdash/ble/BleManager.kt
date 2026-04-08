@@ -300,8 +300,27 @@ class BleManager(private val context: Context) {
         gatt.setCharacteristicNotification(char, false)
         val descriptor = char.getDescriptor(UUID.fromString(CCC_DESCRIPTOR))
         if (descriptor != null) {
-            descriptor.value = BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-            gatt.writeDescriptor(descriptor)
+            writeDescriptorCompat(
+                gatt = gatt,
+                descriptor = descriptor,
+                value = BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+            )
+        }
+    }
+
+    private fun writeDescriptorCompat(
+        gatt: BluetoothGatt,
+        descriptor: BluetoothGattDescriptor,
+        value: ByteArray
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            gatt.writeDescriptor(descriptor, value)
+        } else {
+            @Suppress("DEPRECATION")
+            run {
+                descriptor.value = value
+                gatt.writeDescriptor(descriptor)
+            }
         }
     }
 
@@ -615,9 +634,8 @@ class BleManager(private val context: Context) {
                 } else {
                     BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
                 }
-                descriptor.value = value
                 AppLogger.d(TAG, "启用通知 ${char.uuidString()} desc=${descriptor.uuid}")
-                gatt.writeDescriptor(descriptor)
+                writeDescriptorCompat(gatt = gatt, descriptor = descriptor, value = value)
             }
         }
 

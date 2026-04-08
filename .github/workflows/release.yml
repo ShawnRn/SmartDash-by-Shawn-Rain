@@ -252,6 +252,7 @@ jobs:
             "apkName": "${APK_BASENAME}.apk",
             "apkSha256": "${SHA256}",
             "publishedAt": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+            "htmlUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}",
             "releaseNotes": $(python3 - <<'PY'
 import json, os
 print(json.dumps(os.environ.get("RELEASE_NOTES_INPUT", "")))
@@ -259,11 +260,13 @@ PY
 )
           }
           EOF
+          cp "${APK_BASENAME}-manifest.json" "release-manifest.json"
           
           echo "apk=${APK_PATH}" >> "${GITHUB_OUTPUT}"
           echo "apk_copy=${APK_BASENAME}.apk" >> "${GITHUB_OUTPUT}"
           echo "sha_copy=${APK_BASENAME}.sha256" >> "${GITHUB_OUTPUT}"
           echo "manifest_copy=${APK_BASENAME}-manifest.json" >> "${GITHUB_OUTPUT}"
+          echo "canonical_manifest=release-manifest.json" >> "${GITHUB_OUTPUT}"
 
       - name: Upload signed release artifacts
         uses: actions/upload-artifact@v4
@@ -273,6 +276,7 @@ PY
             ${{ steps.artifact.outputs.apk_copy }}
             ${{ steps.artifact.outputs.sha_copy }}
             ${{ steps.artifact.outputs.manifest_copy }}
+            ${{ steps.artifact.outputs.canonical_manifest }}
             ${{ steps.mapping.outputs.mapping_copy }}
           if-no-files-found: error
           retention-days: 30
@@ -290,6 +294,7 @@ PY
             ${{ steps.artifact.outputs.apk_copy }}
             ${{ steps.artifact.outputs.sha_copy }}
             ${{ steps.artifact.outputs.manifest_copy }}
+            ${{ steps.artifact.outputs.canonical_manifest }}
             ${{ steps.mapping.outputs.mapping_copy }}
           body: |
             ## SmartDash Release
@@ -307,6 +312,7 @@ PY
             - `${{ steps.artifact.outputs.apk_copy }}`
             - `${{ steps.artifact.outputs.sha_copy }}`
             - `${{ steps.artifact.outputs.manifest_copy }}`
+            - `${{ steps.artifact.outputs.canonical_manifest }}`
             - `${{ steps.mapping.outputs.mapping_copy || 'mapping not generated' }}`
 
             ---

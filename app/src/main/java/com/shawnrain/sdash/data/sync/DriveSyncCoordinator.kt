@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.shawnrain.sdash.data.sync
 
 import android.content.Context

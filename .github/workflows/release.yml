@@ -68,6 +68,12 @@ jobs:
           echo "version_code=${VERSION_CODE}" >> "${GITHUB_OUTPUT}"
           echo "name=SmartDash by Shawn Rain ${TAG}" >> "${GITHUB_OUTPUT}"
 
+      - name: Clean Gradle cache
+        shell: bash
+        run: |
+          rm -rf ~/.gradle/caches/build-cache-1
+          rm -rf .gradle/configuration-cache
+
       - name: Validate release signing secrets
         env:
           HABE_RELEASE_STORE_FILE_BASE64: ${{ secrets.HABE_RELEASE_STORE_FILE_BASE64 }}
@@ -100,7 +106,8 @@ jobs:
 
       - name: Build release APK
         shell: bash
-        run: ./gradlew :app:assembleRelease --console plain
+        run: |
+          ./gradlew clean :app:assembleRelease --console plain
 
       - name: Collect artifact path
         id: artifact

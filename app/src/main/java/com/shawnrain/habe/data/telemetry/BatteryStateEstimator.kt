@@ -27,6 +27,14 @@ class BatteryStateEstimator {
     private var baseSocPercent = Float.NaN
     private var currentSocAhPercent = Float.NaN
 
+    private var lastSampleId: Long? = null
+    private var lastBatteryState: BatteryState? = null
+    
+    // 电压稳定性追踪 (用于判定是否处于回弹期)
+    private val voltageWindow = FloatArray(8)
+    private var voltageWindowPadding = 0
+    private var voltageWindowIndex = 0
+
     fun reset(initialResistance: Float = 0f) {
         filteredVoltage = Float.NaN
         filteredCurrent = Float.NaN
@@ -37,6 +45,10 @@ class BatteryStateEstimator {
         stationarySinceMs = 0L
         baseSocPercent = Float.NaN
         currentSocAhPercent = Float.NaN
+        lastSampleId = null
+        lastBatteryState = null
+        voltageWindowPadding = 0
+        voltageWindowIndex = 0
     }
 
     fun estimate(
@@ -46,24 +58,44 @@ class BatteryStateEstimator {
         batterySeries: Int,
         fallbackSocPercent: Float? = null
     ): BatteryState {
+        // 0. 幂等性保护：同一帧不重复消费 (防止 UI 刷新干扰 EMA 和静置时长)
+        if (sample.sourceFrameId == lastSampleId && lastBatteryState != null) {
+            return lastBatteryState!!
+        }
+
         val now = sample.timestampMs
         val rawVoltage = sample.voltageV
         val rawCurrent = sample.busCurrentA
-        
-        // 1. 电压电流平滑 (EMA)
+
+        // 1. 电压稳定性追踪 (用于判定是否处于回弹期)
+        voltageWindow[voltageWindowIndex] = rawVoltage
+        voltageWindowIndex = (voltageWindowIndex + 1) % voltageWindow.size
+        if (voltageWindowPadding < voltageWindow.size) voltageWindowPadding++
+
+        val isVoltageStable = if (voltageWindowPadding >= 4) {
+            var minV = Float.MAX_VALUE
+            var maxV = Float.MIN_VALUE
+            for (i in 0 until voltageWindowPadding) {
+                minV = minOf(minV, voltageWindow[i])
+                maxV = maxOf(maxV, voltageWindow[i])
+            }
+            (maxV - minV) < 0.18f // 8 帧内波动小于 0.18V 则认为稳定 (适配采样抖动)
+        } else false
+
+        // 2. 电压电流平滑 (EMA)
         filteredVoltage = if (filteredVoltage.isNaN()) rawVoltage else ema(filteredVoltage, rawVoltage)
         filteredCurrent = if (filteredCurrent.isNaN()) rawCurrent else ema(filteredCurrent, rawCurrent)
 
-        // 2. 内阻学习 (基于电流阶跃)
+        // 3. 内阻学习 (基于电流阶阶跃)
         if (sample.allowLearning) {
             updateLearnedResistance(rawVoltage, rawCurrent, now)
         }
 
-        // 3. 计算补偿后的 OCV SoC
+        // 4. 计算补偿后的 OCV SoC
         val ocvCompensated = filteredVoltage + (filteredCurrent.coerceAtLeast(0f) * learnedInternalResistanceOhm)
         val socByOcv = socFromPackVoltage(ocvCompensated, batterySeries)
 
-        // 4. 计算基于 Ah 积分的 SoC
+        // 5. 计算基于 Ah 积分的 SoC
         val capacityAh = batteryCapacityAh.coerceAtLeast(1f)
         val initialSoc = fallbackSocPercent?.takeIf { it in 1f..100f } ?: socByOcv
         
@@ -71,14 +103,14 @@ class BatteryStateEstimator {
             baseSocPercent = initialSoc
         }
         
-        // 使用物理累积器中的净 Ah (从 accumulator 来的 netBatteryAh)
         val netAh = accumulator.netBatteryAh
         val socByAh = (baseSocPercent - ((netAh / capacityAh) * 100.0)).toFloat().coerceIn(0f, 100f)
 
-        // 5. 静置检测与融合 (除了电流，还需参考速度和转速防止虚假静置)
+        // 6. 静置检测与融合 (除电流、速度、转速外，引入电压稳定性门控)
         val isStationary = abs(filteredCurrent) < STATIONARY_CURRENT_THRESHOLD_A &&
                 sample.controllerSpeedKmH < 0.8f &&
-                sample.rpm < 10f
+                sample.rpm < 10f &&
+                isVoltageStable
                 
         if (isStationary) {
             if (stationarySinceMs == 0L) stationarySinceMs = now
@@ -95,8 +127,9 @@ class BatteryStateEstimator {
         previousRawVoltage = rawVoltage
         previousRawCurrent = rawCurrent
         lastSampleAtMs = now
-
-        return BatteryState(
+        lastSampleId = sample.sourceFrameId
+        
+        val result = BatteryState(
             socPercent = fusedSoc,
             socByAhPercent = socByAh,
             socByOcvPercent = socByOcv,
@@ -106,6 +139,8 @@ class BatteryStateEstimator {
             isStationary = isStationary,
             confidence = calculateConfidence(isStationary, stationaryDuration)
         )
+        lastBatteryState = result
+        return result
     }
 
     private fun ema(prev: Float, curr: Float) = (EMA_ALPHA * curr) + ((1f - EMA_ALPHA) * prev)

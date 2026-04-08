@@ -480,6 +480,7 @@ Release 签名约定：
 - `.agents/workflows/bootstrap-mac.md`
 - `.agents/workflows/release-signing.md`
 - `.agents/workflows/user-owned-release-signing.md`
+- `.agents/workflows/github-release.md` — GitHub Actions 自动发版流程（tag 推送/手动触发/签名 Secret 配置/产物验证）
 - `.agents/workflows/preflight.md`
 - `.agents/workflows/build-debug.md`
 - `.agents/workflows/build-dev-release.md`
@@ -496,13 +497,14 @@ Release 签名约定：
 - `.agents/workflows/telemetry-refactor.md`
 - `.agents/workflows/sync-github.md`
 - `.agents/workflows/google-drive-sync.md`
-- `.agents/workflows/direction-stabilization.md`（新增）
+- `.agents/workflows/direction-stabilization.md`
 - `.agents/workflows/mock-zhike-controller.md`
 
 ### 8.3 Skills
 - `.agents/skills/smartdash-overlay-dialog/SKILL.md`: 统一约束设置页「关于」、应用更新、自定义 dialog、overlay、详情弹层的容器几何、图标适配、模糊、预测返回和 dismiss 动线
 - `.agents/skills/ble-telemetry-estimation/SKILL.md`: 统一约束 `BLE` 遥测采样、累计能量、`SoC / range` 估算、`CSV` 导出与回放验证，强调"只由新鲜控制器样本驱动物理积分"
 - `.agents/skills/direction-stabilization/SKILL.md`: 约束方向显示稳定化：速度分层冻结、GPS/传感器门控、死区、指数平滑、转向限速、文字滞回
+- `.agents/skills/github-release/SKILL.md`: GitHub Actions 自动发版：tag 推送/手动触发、签名 Secret 准备、版本升级、产物验证
 - `.agents/skills/material-design/SKILL.md`: Google Material Design 3 实战参考
 - `.agents/skills/code-simplifier/SKILL.md`: 代码简化与清晰度提升
 - `.agents/skills/wxapp-decompose/SKILL.md`: macOS 微信小程序包获取与反编译
@@ -515,19 +517,37 @@ Release 签名约定：
 3. 确认 `gh auth status`、`adb version`、`JAVA_HOME`
 4. 首次热身建议先执行一次 `./gradlew :app:compileDebugKotlin --console plain`，让 Gradle daemon 与 configuration cache 建立好
 
-### 9.2 Release 构建前
+### 9.2 本地 Release 构建
 1. 首次执行 `.agents/scripts/setup-release-signing.sh`
 2. 确认 iCloud Drive 已同步 keystore 文件
 3. 确认 `preflight.sh` 中 `RELEASE_SIGNING=ready`
 4. 跑 `.agents/scripts/build-release.sh`
 
-### 9.3 给用户输出新版本交付或联调
+### 9.3 GitHub Actions 自动发版（推荐用于对外交付）
+
+1. 更新 `app/build.gradle.kts` 中的 `versionCode`（递增）和 `versionName`
+2. 提交变更：`git commit -m "bump: version X.Y.Z"`
+3. 打 tag 并推送：`git tag vX.Y.Z && git push origin main vX.Y.Z`
+4. GitHub Actions 自动构建、签名并发布到 [Releases](https://github.com/ShawnRn/SmartDash-by-Shawn-Rain/releases)
+
+**签名 Secret 配置**（Repository Settings → Secrets → Actions）：
+
+| Secret | 获取方式 |
+|--------|----------|
+| `HABE_RELEASE_STORE_FILE_BASE64` | `base64 -i habe-release.jks \| pbcopy` |
+| `HABE_RELEASE_STORE_PASSWORD` | `security find-generic-password -a "$USER" -s habe.android.release.store.password -w` |
+| `HABE_RELEASE_KEY_ALIAS` | `security find-generic-password -a "$USER" -s habe.android.release.key.alias -w` |
+| `HABE_RELEASE_KEY_PASSWORD` | `security find-generic-password -a "$USER" -s habe.android.release.key.password -w` |
+
+详见：`.agents/workflows/github-release.md`
+
+### 9.4 给用户输出新版本交付或联调
 1. 始终跑 `.agents/scripts/build-release.sh` 确保签名能够无缝覆盖安装
 2. 跑 `.agents/scripts/test-debug.sh` 执行单元测试拦截回归问题
 3. 将生成的 Release `.apk` 路径（位于 `.agents/artifacts/habe-release-xxxx.apk`）指引给用户
 4. 若用户同时明确要求安装到手机，继续直接执行 adb 安装，不要停下来等待二次确认
 
-### 9.4 本地真机高频联调
+### 9.5 本地真机高频联调
 1. 优先跑 `.agents/scripts/install-dev-release.sh`
 2. `devRelease` 继续使用 release 签名，可直接覆盖手机上的当前安装
 3. 首次构建或刚改过 `build.gradle.kts` / `gradle.properties` 时，首包会较慢；第二次开始会明显变快
@@ -544,13 +564,13 @@ cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vib
 
 7. 对 Codex / 桌面代理尤其推荐上面这种"尾部输出"模式，能明显减少终端刷屏导致的系统卡顿感
 
-### 9.5 本地个人极速迭代
+### 9.7 本地个人极速迭代
 1. 需要最快的真机覆盖安装时，优先跑 `.agents/scripts/install-fast-dev-release.sh`
 2. `fastDevRelease` 会跳过 `lintVital`，适合 UI / 交互 / BLE 联调
 3. 若脚本检测到 `project_dex_archive/<variant>` 重复类问题，会自动清理脏 dex 并重试一次
 4. 对外交付前仍应至少再跑一次正式 `.agents/scripts/build-release.sh`
 
-### 9.6 Google Drive 云同步
+### 9.8 Google Drive 云同步
 1. 设置 → 数据迁移 → Google Drive 云同步
 2. 首次使用需登录 Google 账号并授权 `drive.appdata` 权限
 3. OAuth 客户端 ID（`com.shawnrain.sdash`）：`8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.googleusercontent.com`
@@ -560,17 +580,17 @@ cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vib
 7. 加密方案：使用 Google 账号 email 的 SHA-256 哈希派生密钥，同账号跨设备可解密
 8. 旧设备 v1 备份（设备绑定密钥）仍可解密，新备份使用 v2 密码派生密钥
 
-### 9.7 智科专项排查
+### 9.9 智科专项排查
 1. app 设置页将日志级别切到 `VERBOSE`
 2. 跑 `.agents/scripts/logcat-habe.sh --clear`
 3. 复现"扫描 / 连接 / 调参 / 全 0"问题
 4. 从设置页分享日志，并结合 adb logcat 一起分析
 
-### 9.8 同步 GitHub
+### 9.10 同步 GitHub
 1. 确认 `.gitignore` 已排除本地参考与构建产物
 2. 跑 `.agents/scripts/sync-github.sh "<commit message>"`
 
-### 9.9 编译性能排查
+### 9.11 编译性能排查
 1. 检查 `JAVA_HOME` 是否指向 JDK 17：`echo $JAVA_HOME`
 2. 检查 Gradle Daemon 状态：`./gradlew --status`
 3. 查看构建耗时报告：`./gradlew :app:assembleDebug --profile`

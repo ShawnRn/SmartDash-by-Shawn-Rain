@@ -1,3 +1,0 @@
-<view class="container data-v-baadaa0c">
-  <web-view class="data-v-baadaa0c" src="{{url}}"></web-view>
-</view>

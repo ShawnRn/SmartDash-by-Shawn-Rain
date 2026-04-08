@@ -17,13 +17,37 @@ class HeadingTracker(context: Context) : SensorEventListener {
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
     private val rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+
+    // --- Raw source flows (for DirectionStabilizer / external fusion) ---
+    private val _sensorHeadingDegrees = MutableStateFlow<Float?>(null)
+    val sensorHeadingDegrees: StateFlow<Float?> = _sensorHeadingDegrees.asStateFlow()
+
+    private val _locationCourseDegrees = MutableStateFlow<Float?>(null)
+    val locationCourseDegrees: StateFlow<Float?> = _locationCourseDegrees.asStateFlow()
+
+    private val _locationCourseAgeMs = MutableStateFlow<Long?>(null)
+    val locationCourseAgeMs: StateFlow<Long?> = _locationCourseAgeMs.asStateFlow()
+
+    private val _sensorHeadingAgeMs = MutableStateFlow<Long?>(null)
+    val sensorHeadingAgeMs: StateFlow<Long?> = _sensorHeadingAgeMs.asStateFlow()
+
+    private val _locationAccuracyMeters = MutableStateFlow<Float?>(null)
+    val locationAccuracyMeters: StateFlow<Float?> = _locationAccuracyMeters.asStateFlow()
+
+    private val _locationStepDistanceMeters = MutableStateFlow<Float?>(null)
+    val locationStepDistanceMeters: StateFlow<Float?> = _locationStepDistanceMeters.asStateFlow()
+
+    // --- Legacy: retained for backward compatibility ---
     private val _headingDegrees = MutableStateFlow(0f)
     val headingDegrees: StateFlow<Float> = _headingDegrees.asStateFlow()
+
     private var isRegistered = false
     private var lastSensorHeading = 0f
     private var lastSensorTimestampMs = 0L
     private var lastLocationHeading: Float? = null
     private var lastLocationTimestampMs = 0L
+
+    private var lastBearingLocation: android.location.Location? = null
 
     companion object {
         private const val LOCATION_HEADING_MIN_SPEED_MPS = 2.0f
@@ -46,9 +70,18 @@ class HeadingTracker(context: Context) : SensorEventListener {
     }
 
     fun updateFromLocation(location: Location) {
+        val previous = lastBearingLocation
+        val stepDistance = if (previous != null) previous.distanceTo(location) else null
+        lastBearingLocation = location
+
+        _locationAccuracyMeters.value = location.accuracy.takeIf { it.isFinite() }
+        _locationStepDistanceMeters.value = stepDistance?.takeIf { it.isFinite() }
+
         if (location.hasBearing() && location.speed >= LOCATION_HEADING_MIN_SPEED_MPS) {
             lastLocationHeading = normalize(location.bearing)
             lastLocationTimestampMs = location.time.takeIf { it > 0L } ?: System.currentTimeMillis()
+            _locationCourseDegrees.value = normalize(location.bearing)
+            _locationCourseAgeMs.value = 0L
             publishBestHeading()
         }
     }
@@ -66,6 +99,11 @@ class HeadingTracker(context: Context) : SensorEventListener {
         val azimuthDegrees = Math.toDegrees(orientationAngles[0].toDouble()).toFloat()
         lastSensorHeading = normalize(azimuthDegrees)
         lastSensorTimestampMs = System.currentTimeMillis()
+
+        // Update raw sensor flow for DirectionStabilizer
+        _sensorHeadingDegrees.value = lastSensorHeading
+        _sensorHeadingAgeMs.value = 0L
+
         publishBestHeading()
     }
 

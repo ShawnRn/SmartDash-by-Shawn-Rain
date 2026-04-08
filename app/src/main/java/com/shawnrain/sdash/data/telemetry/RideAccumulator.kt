@@ -34,8 +34,13 @@ class RideAccumulator {
 
         if (!sample.allowIntegration) return
 
+        // --- Clamp dtMs for physics integration ---
+        // Prevents over-counting during BLE congestion gaps (dt > 1s)
+        // and over-weighting burst frames (dt < 50ms)
+        val safeDtMs = sample.dtMs.coerceIn(50L, 500L)
+
         val powerW = sample.voltageV * sample.busCurrentA
-        val dtHours = sample.dtMs / 3600000.0f
+        val dtHours = safeDtMs / 3600000.0f
 
         var tractionWh = _state.tractionEnergyWh
         var regenWh = _state.regenEnergyWh

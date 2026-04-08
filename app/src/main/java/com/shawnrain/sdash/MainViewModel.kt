@@ -26,6 +26,10 @@ import com.shawnrain.sdash.ble.VehicleMetrics
 import com.shawnrain.sdash.ble.bms.BmsParser
 import com.shawnrain.sdash.ble.bms.BmsMetrics
 import com.shawnrain.sdash.data.gps.HeadingTracker
+import com.shawnrain.sdash.data.gps.DirectionStabilizer
+import com.shawnrain.sdash.data.gps.DirectionInput
+import com.shawnrain.sdash.data.gps.DirectionSource
+import com.shawnrain.sdash.data.gps.DirectionLabelFormatter
 import com.shawnrain.sdash.data.gps.GpsTracker
 import com.shawnrain.sdash.ble.protocols.WriteFailurePhase
 import com.shawnrain.sdash.ble.protocols.ZhikeParameterCatalog
@@ -210,6 +214,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val appUpdateManager = AppUpdateManager(application)
     val gpsTracker = GpsTracker(application)
     private val headingTracker = HeadingTracker(application)
+    private val directionStabilizer = DirectionStabilizer()
+    private val directionLabelFormatter = DirectionLabelFormatter(hysteresisDeg = 12f)
     private val autoConnectManager = AutoConnectManager(
         context = application,
         bleManager = bleManager,
@@ -388,13 +394,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             sample = sample
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VehicleMetrics())
+
+    // --- Direction stabilization: stable heading based on GPS + sensor fusion ---
+    val stableDirectionDegrees: StateFlow<Float> = combine(
+        metrics,
+        gpsTracker.location,
+        headingTracker.locationCourseDegrees,
+        headingTracker.locationCourseAgeMs,
+        headingTracker.locationAccuracyMeters,
+        headingTracker.locationStepDistanceMeters,
+        headingTracker.sensorHeadingDegrees,
+        headingTracker.sensorHeadingAgeMs
+    ) { args ->
+        val vehicleMetrics = args[0] as VehicleMetrics
+        val location = args[1] as android.location.Location?
+        val gpsCourse = args[2] as Float?
+        val gpsCourseAge = args[3] as Long?
+        val gpsAccuracy = args[4] as Float?
+        val gpsStepDist = args[5] as Float?
+        val sensorHeading = args[6] as Float?
+        val sensorAge = args[7] as Long?
+
+        val nowMs = System.currentTimeMillis()
+        directionStabilizer.update(
+            DirectionInput(
+                nowMs = nowMs,
+                speedKmh = vehicleMetrics.speedKmH,
+                gpsCourseDeg = gpsCourse,
+                gpsCourseAgeMs = gpsCourseAge,
+                gpsAccuracyM = gpsAccuracy,
+                gpsStepDistanceM = gpsStepDist,
+                sensorHeadingDeg = sensorHeading,
+                sensorAgeMs = sensorAge
+            )
+        ).stableDirectionDeg
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
+
     val rideDirectionLabel: StateFlow<String> = combine(
         metrics,
-        headingTracker.headingDegrees
-    ) { vehicleMetrics, headingDegrees ->
+        stableDirectionDegrees
+    ) { vehicleMetrics, stableDirection ->
         when {
             vehicleMetrics.isReverse -> "倒车"
-            else -> formatHeadingLabel(headingDegrees)
+            else -> directionLabelFormatter.format(stableDirection)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "北")
 

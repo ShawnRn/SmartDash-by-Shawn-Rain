@@ -49,8 +49,9 @@ class TelemetryStreamProcessor {
             }
         }
 
-        // 识别重复或过密采样 (Android BLE 下窗口扩大至 50ms)
-        val isDuplicate = dtMs < 50L &&
+        // --- Duplicate detection: only skip when dt is tiny AND all values are nearly identical ---
+        // Reduced from 50ms → 20ms to avoid dropping valid fast-arrival BLE frames
+        val isDuplicate = dtMs < 20L &&
                 abs(rawMetrics.voltage - lastRawVoltage) < 0.01f &&
                 abs(rawMetrics.busCurrent - lastRawBusCurrent) < 0.01f &&
                 abs(rawMetrics.phaseCurrent - lastRawPhaseCurrent) < 0.01f &&
@@ -58,8 +59,8 @@ class TelemetryStreamProcessor {
 
         val quality = when {
             isDuplicate -> SampleQuality.DUPLICATE
-            dtMs < 45L -> SampleQuality.TOO_DENSE
-            dtMs > 3000L -> SampleQuality.GAP_RESET
+            dtMs < 15L -> SampleQuality.TOO_DENSE
+            dtMs > 5000L -> SampleQuality.GAP_RESET
             rawMetrics.voltage !in 15.0f..120.0f -> SampleQuality.OUTLIER
             abs(rawMetrics.busCurrent) > 550.0f -> SampleQuality.OUTLIER
             abs(rawMetrics.rpm) > 20000.0f -> SampleQuality.OUTLIER
@@ -69,10 +70,13 @@ class TelemetryStreamProcessor {
             else -> SampleQuality.GOOD
         }
 
-        // 积分规则：GOOD 或断流后的第一帧 (GAP_RESET) 时可考虑显示更新，
-        // 但积分量必须建立在有效的 dt 之上。
-        val allowIntegration = (quality == SampleQuality.GOOD) && (dtMs in 46L..2500L)
-        val allowLearning = quality == SampleQuality.GOOD && dtMs in 100L..1500L
+        // --- Integration rules ---
+        // Relaxed from 46..2500 → 20..5000 to accommodate real BLE jitter:
+        // - dt ~20-40ms: fast callback bursts, still valid physics for that interval
+        // - dt 2500-5000ms: BLE congestion / GC pause, but power was sustained during that gap
+        // - dt > 5000ms: true gap, mark GAP_RESET, let next GOOD frame start new segment
+        val allowIntegration = (quality == SampleQuality.GOOD) && (dtMs >= 20L)
+        val allowLearning = quality == SampleQuality.GOOD && dtMs in 50L..2000L
 
         if (!isDuplicate) frameSequence++
 

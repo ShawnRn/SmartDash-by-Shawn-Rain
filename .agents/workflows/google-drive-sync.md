@@ -7,14 +7,20 @@
 
 ## OAuth 客户端 ID 配置
 
-当前客户端 ID：`8447150714-6g8ef28e8n2k7n01ek1816kqulpngu45.apps.googleusercontent.com`
+### 当前客户端 ID（com.shawnrain.sdash）
+`8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.googleusercontent.com`
 
-位于 `GoogleDriveAuth.kt` 第 16 行：
+位于 `GoogleDriveAuth.kt`：
 ```kotlin
-private const val CLIENT_ID = "8447150714-6g8ef28e8n2k7n01ek1816kqulpngu45.apps.googleusercontent.com"
+private const val CLIENT_ID = "8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.googleusercontent.com"
 ```
 
-如需更换，前往 [Google Cloud Console](https://console.cloud.google.com/apis/credentials) 创建新的 OAuth 2.0 客户端 ID（Android 类型），填入项目包名 `com.shawnrain.habe` 和 SHA-1 指纹。
+### 旧客户端 ID（com.shawnrain.habe，仍保留以支持旧版本用户）
+`8447150714-6g8ef28e8n2k7n01ek1816kqulpngu45.apps.googleusercontent.com`
+
+如需创建新的客户端 ID，前往 [Google Cloud Console](https://console.cloud.google.com/apis/credentials) 创建 OAuth 2.0 客户端 ID（Android 类型），填入：
+- **Package name**: `com.shawnrain.sdash`
+- **SHA-1 fingerprint**: `9A:A1:A9:6F:2A:DB:C8:A2:62:42:04:8E:1B:5C:7D:4A:4F:A9:C5:F6`
 
 ## 加密方案
 

@@ -10,7 +10,7 @@
 - 以 `.agents/scripts` + `.agents/workflows` 作为本地自动化入口
 
 ## 2. 技术栈与构建基线
-- `namespace` / `applicationId`: `com.shawnrain.habe`
+- `namespace` / `applicationId`: `com.shawnrain.sdash`（2026-04-08 从 `com.shawnrain.habe` 迁移）
 - 品牌名 / 桌面显示名: `SmartDash`
 - Android Gradle Plugin: `8.5.0`
 - `compileSdk`: `36`（`gradle.properties` 中 `android.suppressUnsupportedCompileSdk=36` 压制警告）
@@ -31,6 +31,7 @@
 - Gradle 已启用 daemon / parallel / build cache / configuration cache / R8 fullMode，用于缩短本地迭代构建时间
 - Release 构建已启用 `isMinifyEnabled = true` 和 `isShrinkResources = true`（R8 压缩）
 - `proguard-rules.pro` 位于 `app/` 根目录，保留 Compose、BLE、协议类、云同步类免于混淆
+- `devRelease` 构建可能因 configuration cache 序列化问题失败，需加 `--no-configuration-cache` 参数
 
 ### 编译速度保障
 
@@ -58,10 +59,10 @@
 - 用户说"改 UI 看效果" → `./gradlew :app:assembleDebug && adb install -r ...`
 
 **推荐的低干扰 devRelease 构建方式：**
-- 当目标是“编一个可覆盖安装的联调包”，优先使用输出节流版命令，避免终端刷屏拖慢桌面响应：
+- 当目标是"编一个可覆盖安装的联调包"，优先使用输出节流版命令，避免终端刷屏拖慢桌面响应：
 
 ```bash
-cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vibe-Coding/habe_android" \
+cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vibe-Coding/SmartDash" \
   && export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
   && set -o pipefail \
   && .agents/scripts/build-dev-release.sh 2>&1 | tail -5
@@ -73,7 +74,13 @@ cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vib
   - `tail -5`：只保留构建尾部关键信息，减少桌面终端渲染压力
   - `set -o pipefail`：即使最后接了 `tail`，也不会吞掉构建失败状态
 
-- 若用户只是要“出一个真机联调 APK”而不是最终交付包，优先采用上面这条方式，而不是直接跑全量 `release`
+- 若 `devRelease` 构建报 configuration cache 序列化错误，使用：
+
+```bash
+cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vibe-Coding/SmartDash" \
+  && export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
+  && ./gradlew :app:assembleDevRelease -Dorg.gradle.java.home=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home --no-configuration-cache --console plain
+```
 
 详见：`.agents/workflows/build-performance.md`
 
@@ -91,28 +98,28 @@ Release 签名约定：
   - `habe.android.release.key.alias`
   - `habe.android.release.key.password`
 - 若开启 iCloud Drive 与 iCloud Keychain，可在多台 Mac 间复用同一套 release 签名
-- 若用户明确要求“本人掌握全部签名关键信息”，允许改用：
+- 若用户明确要求"本人掌握全部签名关键信息"，允许改用：
   - `.agents/scripts/create-user-owned-release-signing.sh`
-  - 输出目录默认位于 `~/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vibe-Coding/habe-android-signing-时间戳/`
+  - 输出目录默认位于 `~/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vibe-Coding/sdash-signing-时间戳/`
   - 目录内会包含 keystore、明文签名信息、以及恢复 Keychain 的脚本
   - 这会生成一套新的签名身份，无法直接覆盖安装旧签名版本
 - 不要把任何 keystore、证书、签名配置文件、密码文件提交到 GitHub
 - 签名相关信息只允许存放在：
   - iCloud Drive 中的 keystore 文件
-- macOS / iCloud Keychain 中的密码项
+  - macOS / iCloud Keychain 中的密码项
 - `.agents/scripts/preflight.sh` 会提示仓库内是否存在签名文件
 - `.agents/scripts/sync-github.sh` 会阻止任何签名文件被提交或推送
 
 > **⚠️ 重要强约束 (AI Agent 必读)**
-> 当用户要求“输出/编译一个 APK 给我测试”或“提供最新安装包”时，**必须**调用 `.agents/scripts/build-release.sh` 生成 Release 签名包！
+> 当用户要求"输出/编译一个 APK 给我测试"或"提供最新安装包"时，**必须**调用 `.agents/scripts/build-release.sh` 生成 Release 签名包！
 > 绝对不要默认通过 `build-debug.sh` 输出给用户，因为用户的物理真机已安装了 Release 签名版本，使用 Debug 签名会导致覆盖安装失败或需要清除数据！
-> 当用户明确要求“装到手机上”“安装到手机”“adb 安装”或语义等价的真机安装诉求时，**默认直接执行安装流程，不要再次征求确认**；除非用户明确要求“先别装”或“只出包不安装”。
+> 当用户明确要求"装到手机上""安装到手机""adb 安装"或语义等价的真机安装诉求时，**默认直接执行安装流程，不要再次征求确认**；除非用户明确要求"先别装"或"只出包不安装"。
 >
 > `devRelease` 仅用于本地高频联调提速：
 > - `.agents/scripts/build-dev-release.sh`
 > - `.agents/scripts/install-dev-release.sh`
 > - 仍使用 release 签名，可覆盖用户现有安装
-> - 但当用户明确要求“最新测试安装包/交付 APK”时，仍必须使用正式 `build-release.sh`
+> - 但当用户明确要求"最新测试安装包/交付 APK"时，仍必须使用正式 `build-release.sh`
 >
 > `fastDevRelease` 仅用于本地个人快速联调：
 > - `.agents/scripts/build-fast-dev-release.sh`
@@ -129,27 +136,62 @@ Release 签名约定：
 
 ## 3. 当前代码结构
 核心目录：
-- `app/src/main/java/com/shawnrain/habe/MainActivity.kt`: 主导航与页面装配
-- `app/src/main/java/com/shawnrain/habe/MainViewModel.kt`: 应用级状态、BLE 数据汇总、设置与调参动作、云同步
-- `app/src/main/java/com/shawnrain/habe/ble/`: BLE 引擎、协议路由、控制器解析
-  - `BleManager.kt`: 扫描、连接、通知、写入、轮询
-  - `ProtocolParser.kt`: 协议识别与路由
-  - `protocols/`: 控制器协议实现
+- `app/src/main/java/com/shawnrain/sdash/MainActivity.kt`: 主导航与页面装配
+- `app/src/main/java/com/shawnrain/sdash/MainViewModel.kt`: 应用级状态、BLE 数据汇总、设置与调参动作、云同步、方向稳定化
+- `app/src/main/java/com/shawnrain/sdash/ble/`: BLE 引擎、协议路由、控制器解析
+  - `BleManager.kt`: 扫描、连接、通知、写入、轮询、MTU 协商、写入结果遥测
+  - `ProtocolParser.kt`: 协议识别与路由，`_metrics` 使用 `SharedFlow` 保证每帧必达
+  - `protocols/`: 控制器协议实现（智科/安能特/远驱）
   - `bms/protocols/`: BMS 协议实现（注意：`ble/bms/protocols/` 为正确拼写）
-- `app/src/main/java/com/shawnrain/habe/data/`: DataStore、GPS、校准、骑行会话、能量估算
+- `app/src/main/java/com/shawnrain/sdash/data/`: DataStore、GPS、校准、骑行会话、能量估算
+  - `telemetry/`: 遥测处理管线
+    - `TelemetryStreamProcessor.kt`: BLE 原始指标 → TelemetrySample（去重/质量分类/有限值守卫）
+    - `RideAccumulator.kt`: 物理积分（能量/距离/时间），dtMs 钳位 50-500ms
+    - `BatteryStateEstimator.kt`: SoC 估算（Ah 积分 + OCV 融合 + 内阻学习）
+    - `RangeEstimator.kt`: 续航估算（滑动窗口效率模型）
+    - `BatteryState.kt`: 电池状态输出（SoC/置信度/滤波电压电流）
+    - `RangeEstimate.kt`: 续航输出（里程/剩余能量/窗口效率）
+    - `SampleQuality.kt`: 样本质量枚举（GOOD/DUPLICATE/TOO_DENSE/GAP_RESET/OUTLIER）
+    - `TelemetrySample.kt`: 统一遥测样本数据结构
+    - `TelemetryCommon.kt`: 公共类型（EnergyWh, EfficiencyWhKm）
+  - `gps/`: 方向与位置处理
+    - `GpsTracker.kt`: GPS 速度追踪
+    - `HeadingTracker.kt`: 传感器 + GPS bearing 原始方向融合，暴露 6 个 StateFlow
+    - `DirectionStabilizer.kt`: 5 级方向稳定化管线（冻结/门控/死区/平滑/限速转向）
+    - `DirectionLabelFormatter.kt`: 8 方位文字格式化 + 12° 滞回
   - `sync/`: Google Drive 云同步
     - `BackupModels.kt`: 数据模型（EncryptedBackup, BackupMetadata, SyncState）
     - `EncryptionService.kt`: AES-256-GCM 加密（v1 设备绑定 / v2 密码派生）
-    - `GoogleDriveAuth.kt`: Google Sign-In OAuth 认证
+    - `GoogleDriveAuth.kt`: Google Sign-In OAuth 认证（Client ID 已更新为 sdash 包名）
     - `GoogleDriveSyncManager.kt`: Drive 上传/下载/列表/删除
   - `migration/`: LAN 备份传输
-  - `RideEnergyEstimator.kt`: 当前 `SoC / range / 能量窗口` 估算实现，后续重构优先关注目标
-- `app/src/main/java/com/shawnrain/habe/ui/navigation/PredictiveBackMotion.kt`: 预测性返回动画公共 helper
-- `app/src/main/java/com/shawnrain/habe/ui/navigation/DialogWindowEffects.kt`: Dialog / sheet / overlay 窗口模糊与透明系统栏 helper
-- `app/src/main/java/com/shawnrain/habe/ui/navigation/P2PageHeader.kt`: 二级页公共头部组件
-- `app/src/main/java/com/shawnrain/habe/ui/`: 仪表、连接、设置、BMS、测速界面
-- `app/src/main/java/com/shawnrain/habe/debug/`: 应用内日志系统
+  - `VehicleProfile.kt`: 车辆档案模型，NaN finiteOr 守卫 + JSON 序列化保护
+  - `SettingsRepository.kt`: DataStore 持久化层，normalizedProfile finiteOr + runCatching 防崩
+  - `RideSession.kt`: 骑行会话摘要
+  - `AutoCalibrator.kt`: 自动校准器
+  - `WheelPresets.kt`: 轮径预设
+- `app/src/main/java/com/shawnrain/sdash/ui/`: 仪表、连接、设置、BMS、测速界面
+  - `navigation/PredictiveBackMotion.kt`: 预测性返回动画公共 helper
+  - `navigation/DialogWindowEffects.kt`: Dialog / sheet / overlay 窗口模糊与透明系统栏 helper
+  - `navigation/P2PageHeader.kt`: 二级页公共头部组件
+  - `navigation/SecondaryScreenTopBar.kt`: 二级页顶部导航
+  - `dashboard/DashboardScreen.kt`: 仪表首页
+  - `settings/SettingsScreen.kt`: 设置页
+  - `settings/zhike/ZhikeSettingsScreen.kt`: 智科调参页
+  - `bms/BmsScreen.kt`: BMS 监控页
+  - `speedtest/SpeedtestScreen.kt`: 测速页
+  - `poster/PosterRenderer.kt`: 骑行海报渲染
+  - `text/DisplayTextFormatter.kt`: 显示文本格式化
+  - `theme/Theme.kt`: Material 主题
+  - `theme/BezierRoundedShape.kt`: 贝塞尔圆角形状
+- `app/src/main/java/com/shawnrain/sdash/debug/`: 应用内日志系统
+  - `AppLogger.kt`: 日志系统核心
+- `app/src/main/java/com/shawnrain/sdash/data/history/RideHistoryModels.kt`: 行程记录数据模型
+- `app/src/main/java/com/shawnrain/sdash/data/speedtest/`: 测速数据模型与追踪器
+- `app/src/main/java/com/shawnrain/sdash/data/update/`: 应用更新管理
 - `.agents/skills/smartdash-overlay-dialog/SKILL.md`: SmartDash 统一 overlay / dialog 设计与交互约束
+- `.agents/skills/ble-telemetry-estimation/SKILL.md`: BLE 遥测估算约束
+- `.agents/skills/direction-stabilization/SKILL.md`: 方向显示稳定化约束
 - `.agents/scripts/`: 可执行脚本
 - `.agents/workflows/`: 可复用流程说明
 
@@ -165,7 +207,7 @@ Release 签名约定：
 - 支持拖拽重排仪表卡片
 - 顶层底部 Tab 已恢复轻量级切页动画，不再硬切
 - 顶部状态带现包含 `SoC / 连接状态 / 估计续航`，中间连接状态固定居中，不再受左右文案长度影响
-- 底部导航已移除单独的“连接”Tab，改为点击仪表页顶部“连接状态”弹出连接浮窗
+- 底部导航已移除单独的"连接"Tab，改为点击仪表页顶部"连接状态"弹出连接浮窗
 - 横屏模式切换为专注布局，仅显示顶部 3 个核心指标：
   - 速度
   - 功率
@@ -173,6 +215,7 @@ Release 签名约定：
 - 仪表页进入后保持亮屏
 - 全局圆角已改为连续曲率的贝塞尔 / superellipse 风格
 - Dashboard 横屏时隐藏 app 自身底部导航，但不隐藏系统状态栏和导航栏
+- 右上角方向显示已改为稳定行进方向（非车头朝向），具有低速冻结/死区/平滑/转向限速
 
 ### 4.2 BLE 与协议
 - 已实现基础 BLE 扫描、连接、通知绑定、写特征选择
@@ -192,6 +235,7 @@ Release 签名约定：
   - 写特征选择
   - 指令发送十六进制预览
   - 通知回包十六进制预览
+- `ProtocolParser._metrics` 已从 `MutableStateFlow` 改为 `MutableSharedFlow`，保证每帧必达（修复里程/能耗为 0 的根因）
 
 ### 4.3 智科协议
 - 已实现智科实时帧解析：
@@ -218,6 +262,7 @@ Release 签名约定：
   - 相位角
   - 弱磁电流
   - 反峰制动电流
+- 已实现连续全 0 帧检测与抑制（防止无效遥测流污染上层）
 
 ### 4.4 GPS 与速度校准
 - 已实现基于手机 GPS 的轮径校准会话
@@ -229,7 +274,7 @@ Release 签名约定：
 - 可输出推荐轮径周长并一键应用
 
 ### 4.5 行程记录与图表
-- 行程详情“统计概览”已改为整段行程统计值，不再把单个采样点误当作概览
+- 行程详情"统计概览"已改为整段行程统计值，不再把单个采样点误当作概览
 - 概览参数卡片可直接切换对应图表
 - 行程图表已支持平均值参考线与最高点指示
 - 行程 CSV 已补齐电机温度、估计续航、累计平均能耗、总能耗、回收能量、控制器最高温等字段
@@ -276,6 +321,7 @@ Release 签名约定：
   - 错误状态 5 秒后自动恢复
 - 备份版本管理：文件名含时间戳，Drive 列表按时间倒序
 - 降级兼容：v1 设备绑定密钥（旧设备）→ v2 密码派生密钥（新设备）自动识别版本解密
+- OAuth Client ID 已更新为 `com.shawnrain.sdash` 包名：`8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.googleusercontent.com`
 
 ### 4.9 BLE 可靠性增强
 - `writeBytes()` 不再静默丢弃：返回 `WriteResult`，特征为 null 时记录警告
@@ -295,6 +341,25 @@ Release 签名约定：
   - RPM 与速度不匹配检测：有速度但 RPM 接近 0 时使用前值
   - 防止控制器断连/下电时出现异常高值（如 80km/h 假值）
 
+### 4.10 方向显示稳定化
+- 右上角方向已从"偏车头朝向"改为"偏稳定行进方向"
+- 5 级处理管线：速度冻结 → 来源质量门控 → 死区 → 速度分层指数平滑 → 转向速率限制
+- 低速冻结：速度 < 3 km/h 时方向冻结
+- GPS 优先：速度 > 8 km/h 且 GPS bearing 质量合格时以 GPS 为主
+- 死区：5° 以内变化不更新
+- 平滑：速度分层 alpha（0.00 ~ 0.30）
+- 转向限速：35°/s ~ 90°/s 按速度分层
+- 文字方位：8 方位 + 12° 滞回防止边界跳字
+
+### 4.11 崩溃防护（P0 Hotfix 已完成）
+- `VehicleProfile.toJson()` 所有 Float 字段使用 `finiteOr()` 拦截 NaN
+- `VehicleProfile.fromJson()` 读入时 NaN 清洗 + 二次 coerce 归一化
+- `SettingsRepository.normalizedProfile()` 先 `finiteOr()` 再 `coerceAtLeast/coerceIn`
+- `SettingsRepository.saveVehicleProfiles()` 外层包 `runCatching` 防止 crash 传播
+- `TelemetryStreamProcessor` 所有输入先 `isFinite()` 检查，非有限值标记 OUTLIER
+- `MainViewModel` 三个学习函数（`blendLearnedEfficiencyWhKm`/`calculateLearnedUsableEnergyRatio`/`blendLearnedUsableEnergyRatio`）全部加 NaN 守卫
+- `ZhikeProtocol` 连续全 0 帧不再发射给上层，不覆盖上一次有效遥测
+
 ## 5. 当前迁移状态
 - [x] Android 原生基础架构
 - [x] Compose 仪表主界面
@@ -307,6 +372,13 @@ Release 签名约定：
 - [x] Google Drive 云同步（跨设备、合并、加密）
 - [x] BLE 写入可观测性、扫描超时、权限检查
 - [x] Release 构建启用 R8 压缩与资源压缩
+- [x] 包名迁移 `com.shawnrain.habe` → `com.shawnrain.sdash`
+- [x] NaN 持久化崩溃防护（P0 Hotfix）
+- [x] StateFlow 去重导致里程/能耗为 0 修复（SharedFlow）
+- [x] 全 0 帧抑制 + TelemetryStreamProcessor 有限值守卫
+- [x] dtMs 积分窗口放宽 + RideAccumulator 物理积分安全钳位
+- [x] 方向显示稳定化（5 级管线 + 文字滞回）
+- [x] OAuth Client ID 更新为 sdash 包名
 - [ ] 智科调参项与小程序完全对齐
 - [ ] 智科实车联调闭环验证完全稳定
 - [ ] BMS 多品牌迁移完成
@@ -315,30 +387,32 @@ Release 签名约定：
 
 ## 5.1 遥测估算重构约束 (United Energy Standard)
 - SmartDash 的控制器数据来自 `BLE`，到包时间不均匀，不能把 UI 聚合流当成物理采样时钟
-- **`Wh / Ah / peak / distance` 等累计量必须只由“新鲜控制器样本”驱动**，不能由 `GPS / BMS / 设置项 / UI` 刷新重复触发
+- **`Wh / Ah / peak / distance` 等累计量必须只由"新鲜控制器样本"驱动**，不能由 `GPS / BMS / 设置项 / UI` 刷新重复触发
 - **统一能量标准 (United Energy Standard)**：
     - **Display (UI)**: 所有面向用户的能耗 (Efficiency) 显示，**默认必须强制采用 `Net Wh` (Traction - Regen) 口径**。
     - **Estimation (Range)**: 续航预测模型必须基于 `Net Wh` 能效基准。
     - **Analysis**: 仅在后台分析或特定详情页允许区分毛能耗 (Traction) 与回收贡献 (Regen)。
-- 推荐后续重构链路：`BLE frame -> TelemetryStreamProcessor -> TelemetrySample -> RideAccumulator -> BatteryStateEstimator -> RangeEstimator -> DashboardProjector`
-- `SoC`、`remainingEnergyWh`、`estimatedRangeKm` 必须统一口径；不要把带强先验的车辆档案百分比再反推成“独立容量证据”
+- 当前遥测管线（已完成）：
+  - `BLE frame → ProtocolParser → SharedFlow<VehicleMetrics>`
+  - `→ TelemetryStreamProcessor → TelemetrySample`（去重/质量/有限值守卫）
+  - `→ RideAccumulator.accumulate()`（dtMs clamp 50-500ms，仅 allowIntegration 时积分）
+  - `→ BatteryStateEstimator.estimate()`（Ah+OCV 融合 SoC）
+  - `→ RangeEstimator.estimate()`（滑动窗口效率模型）
+- `SoC`、`remainingEnergyWh`、`estimatedRangeKm` 必须统一口径；不要把带强先验的车辆档案百分比再反推成"独立容量证据"
 - `voltageSag` 需要区分展示值与分析值，避免在短时低流瞬间频繁重写静置基线
 - 任何涉及上述链路的修改，都优先阅读：
   - `.agents/skills/ble-telemetry-estimation/SKILL.md`
   - `.agents/workflows/telemetry-refactor.md`
-  - `audit/Telemetry_Estimation_Refactor_Plan_2026-04-07.md`
 
 ## 6. 已知问题与风险
-- 智科"可连接但数据全 0"问题仍需依赖真机日志继续定位
 - 智科调参页目前只是基础子集，尚未达到小程序同等级别的丰富参数矩阵
 - 当前仓库本地单元测试仍为 `NO-SOURCE`
 - 后台小窗已改为原生 `PiP`，仅在支持 `Picture-in-Picture` 的系统路径下生效
-- `devRelease` 首次构建或 Gradle 脚本变更后，configuration cache 需要重建，首包时间会明显高于后续热构建
+- `devRelease` 首次构建或 Gradle 脚本变更后，configuration cache 需要重建；若遇序列化错误需加 `--no-configuration-cache`
 - 当前 AGP 8.5.0 在 `devRelease` / `release` 上偶发 dex 中间产物重复问题；清理对应 `project_dex_archive/<variant>` 后可恢复
-- `LocalLifecycleOwner` 目前使用 Compose 旧导入，会给出弃用警告，但不影响构建
 - Google Drive 同步依赖 Google Play Services，在无 GMS 设备（如华为鸿蒙）上不可用
-- OAuth 客户端 ID 需手动配置到 `GoogleDriveAuth.kt`，尚未实现动态注入
 - `VehicleProfile.lastModified` 字段已添加但旧数据默认为 0L，首次合并时可能误判为较新
+- SOC / 续航显示仍可能存在一定波动（电压法 + 负载压降 + 动态恢复本质特性），后续可进一步优化平滑参数
 
 ## 7. 智科协议归档
 
@@ -400,14 +474,17 @@ Release 签名约定：
 - `.agents/scripts/install-fast-dev-release.sh`: 构建并安装 `fastDevRelease` 到 adb 设备
 - `.agents/scripts/logcat-habe.sh`: 抓取 BLE / 协议 / HUD 相关日志
 - `.agents/scripts/sync-github.sh`: 构建、测试、提交、推送当前分支
+- `.agents/scripts/create-user-owned-release-signing.sh`: 创建用户自有 release 签名
 
 ### 8.2 Workflows
 - `.agents/workflows/bootstrap-mac.md`
 - `.agents/workflows/release-signing.md`
+- `.agents/workflows/user-owned-release-signing.md`
 - `.agents/workflows/preflight.md`
 - `.agents/workflows/build-debug.md`
 - `.agents/workflows/build-dev-release.md`
 - `.agents/workflows/build-fast-dev-release.md`
+- `.agents/workflows/build-performance.md`
 - `.agents/workflows/overlay-dialog.md`
 - `.agents/workflows/predictive-back.md`
 - `.agents/workflows/test-debug.md`
@@ -418,10 +495,17 @@ Release 签名约定：
 - `.agents/workflows/zhike-diagnose.md`
 - `.agents/workflows/telemetry-refactor.md`
 - `.agents/workflows/sync-github.md`
+- `.agents/workflows/google-drive-sync.md`
+- `.agents/workflows/direction-stabilization.md`（新增）
+- `.agents/workflows/mock-zhike-controller.md`
 
 ### 8.3 Skills
 - `.agents/skills/smartdash-overlay-dialog/SKILL.md`: 统一约束设置页「关于」、应用更新、自定义 dialog、overlay、详情弹层的容器几何、图标适配、模糊、预测返回和 dismiss 动线
-- `.agents/skills/ble-telemetry-estimation/SKILL.md`: 统一约束 `BLE` 遥测采样、累计能量、`SoC / range` 估算、`CSV` 导出与回放验证，强调“只由新鲜控制器样本驱动物理积分”
+- `.agents/skills/ble-telemetry-estimation/SKILL.md`: 统一约束 `BLE` 遥测采样、累计能量、`SoC / range` 估算、`CSV` 导出与回放验证，强调"只由新鲜控制器样本驱动物理积分"
+- `.agents/skills/direction-stabilization/SKILL.md`: 约束方向显示稳定化：速度分层冻结、GPS/传感器门控、死区、指数平滑、转向限速、文字滞回
+- `.agents/skills/material-design/SKILL.md`: Google Material Design 3 实战参考
+- `.agents/skills/code-simplifier/SKILL.md`: 代码简化与清晰度提升
+- `.agents/skills/wxapp-decompose/SKILL.md`: macOS 微信小程序包获取与反编译
 
 ## 9. 推荐日常流程
 
@@ -448,17 +532,17 @@ Release 签名约定：
 2. `devRelease` 继续使用 release 签名，可直接覆盖手机上的当前安装
 3. 首次构建或刚改过 `build.gradle.kts` / `gradle.properties` 时，首包会较慢；第二次开始会明显变快
 4. 只有在对外交付 APK、归档版本或最终验收时，再切回 `.agents/scripts/build-release.sh`
-5. 用户只要明确表达“装到手机上”，就把安装视为默认动作，不要再额外确认
+5. 用户只要明确表达"装到手机上"，就把安装视为默认动作，不要再额外确认
 6. 若只是先产出 `devRelease` 包，不急着安装，优先使用低干扰 shell 方式：
 
 ```bash
-cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vibe-Coding/habe_android" \
+cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vibe-Coding/SmartDash" \
   && export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
   && set -o pipefail \
   && .agents/scripts/build-dev-release.sh 2>&1 | tail -5
 ```
 
-7. 对 Codex / 桌面代理尤其推荐上面这种“尾部输出”模式，能明显减少终端刷屏导致的系统卡顿感
+7. 对 Codex / 桌面代理尤其推荐上面这种"尾部输出"模式，能明显减少终端刷屏导致的系统卡顿感
 
 ### 9.5 本地个人极速迭代
 1. 需要最快的真机覆盖安装时，优先跑 `.agents/scripts/install-fast-dev-release.sh`
@@ -469,7 +553,7 @@ cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vib
 ### 9.6 Google Drive 云同步
 1. 设置 → 数据迁移 → Google Drive 云同步
 2. 首次使用需登录 Google 账号并授权 `drive.appdata` 权限
-3. OAuth 客户端 ID 已内置：`8447150714-6g8ef28e8n2k7n01ek1816kqulpngu45.apps.googleusercontent.com`
+3. OAuth 客户端 ID（`com.shawnrain.sdash`）：`8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.googleusercontent.com`
 4. 点击"上传备份"上传当前设备数据到 Drive
 5. 另一台设备打开 app 时会自动检测更新（启动时一次），显示小圆点角标
 6. 点击角标提示或"合并最新备份"按钮即可静默合并
@@ -479,7 +563,7 @@ cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vib
 ### 9.7 智科专项排查
 1. app 设置页将日志级别切到 `VERBOSE`
 2. 跑 `.agents/scripts/logcat-habe.sh --clear`
-3. 复现“扫描 / 连接 / 调参 / 全 0”问题
+3. 复现"扫描 / 连接 / 调参 / 全 0"问题
 4. 从设置页分享日志，并结合 adb logcat 一起分析
 
 ### 9.8 同步 GitHub
@@ -491,6 +575,7 @@ cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vib
 2. 检查 Gradle Daemon 状态：`./gradlew --status`
 3. 查看构建耗时报告：`./gradlew :app:assembleDebug --profile`
 4. 清理 configuration cache：`rm -rf .gradle/configuration-cache/`
+5. 若 `devRelease` 构建报 configuration cache 序列化错误，加 `--no-configuration-cache` 重试
 
 ## 10. Git 与版本控制约束
 - 不要提交 `zhike_source/`、`habe_miniprogram/`、`tools/unveilr/`
@@ -513,9 +598,9 @@ cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vib
 - 后续若继续迁移智科调参项，优先扩展 `ZhikeSettings.rawWords` 的映射表，而不是新增零散硬编码
 - 若继续增强日志，应优先往 `AppLogger` 聚合，不要散落成不可导出的 `Log.d`
 - 若继续增强后台 `PiP` 仪表，保持只读与轻量，优先在 `MainActivity` 内复用现有遥测状态
-- 后续新增二级页面、自定义 Dialog、全屏 overlay、页面内自绘 sheet 时，默认必须适配 `PredictiveBackHandler`，优先复用 `app/src/main/java/com/shawnrain/habe/ui/navigation/PredictiveBackMotion.kt`
+- 后续新增二级页面、自定义 Dialog、全屏 overlay、页面内自绘 sheet 时，默认必须适配 `PredictiveBackHandler`，优先复用 `app/src/main/java/com/shawnrain/sdash/ui/navigation/PredictiveBackMotion.kt`
 - 若使用 `ModalBottomSheet` 等平台组件且系统默认预测性返回动画不足，应补充应用内跟手缩放 / 位移预览，而不是回退为无预测性返回
-- 后续新增任何弹窗、sheet、overlay 时，默认必须复用 `app/src/main/java/com/shawnrain/habe/ui/navigation/DialogWindowEffects.kt`，为窗口背后铺设模糊并保持透明系统栏
+- 后续新增任何弹窗、sheet、overlay 时，默认必须复用 `app/src/main/java/com/shawnrain/sdash/ui/navigation/DialogWindowEffects.kt`，为窗口背后铺设模糊并保持透明系统栏
 - 后续新增或改造 overlay / dialog / about / update 弹层时，默认先遵循 `.agents/skills/smartdash-overlay-dialog/SKILL.md` 与 `.agents/workflows/overlay-dialog.md`，禁止再临时发明一套新的几何、图标适配或 dismiss 动线
 - 设置页中的「关于」类入口默认放在设置列表最底部；品牌图标必须保持原始比例并做受控内边距适配，禁止粗暴塞进固定圆角框导致观感失衡
 - 行程详情页点击参数卡片进入横屏全屏图表时，必须提供非线性进入/退出动画（建议 `FastOutSlowIn` 进入 + `FastOutLinearIn` 退出），并保证所有关闭路径（返回手势/遮罩点击/按钮/下拉）走同一条"从哪来回哪去"的回收动画
@@ -523,4 +608,7 @@ cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vib
 - Google Drive 同步加密使用密码派生密钥（v2），禁止使用 Android KeyStore 设备绑定密钥（v1 已废弃），确保跨设备兼容
 - 云同步 UI 状态切换必须使用 `AnimatedContent`，禁止硬切；成功/失败提示使用 Material Icon（`Icons.Default.Check` / `Icons.Default.Error`），禁止使用 emoji
 - 速度过滤逻辑不得添加固定极速上限（`coerceIn(max)`），因项目支持多车型 profile；应使用变化率过滤（`speedDelta > maxAllowedDelta`）
+- 方向显示调参优先通过 `DirectionStabilizer` 参数调整，不要修改 `HeadingTracker` 传感器底层逻辑
 - `proguard-rules.pro` 更新后需验证 release 构建：跑 `.agents/scripts/build-release.sh` 并安装到真机测试
+- 所有涉及 `VehicleProfile` 浮点字段的读写，必须经过 `finiteOr()` 或 `isFinite()` 守卫，防止 NaN 再次写入 DataStore
+- `ProtocolParser._metrics` 保持 `SharedFlow`，不得改回 `StateFlow`，否则会导致里程/能耗再次为 0

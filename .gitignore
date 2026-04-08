@@ -19,6 +19,7 @@ local.properties
 # Mini-program source (Reverse Engineering)
 zhike_source/
 zhike_unpacked/
+GEKOO_source/
 habe_miniprogram/
 __APP__.wxapkg
 *.wxapkg

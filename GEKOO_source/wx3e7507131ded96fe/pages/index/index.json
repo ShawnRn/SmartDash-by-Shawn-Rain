@@ -1,7 +1,0 @@
-{
-  "navigationBarTitleText": "GEKOO",
-  "usingComponents": {
-    "custom-swiper": "/components/swiper_image/swiper_image",
-    "nine-grid": "/components/grid_table/grid_table"
-  }
-}

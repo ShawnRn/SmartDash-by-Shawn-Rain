@@ -27,6 +27,7 @@ import com.shawnrain.habe.ble.bms.BmsParser
 import com.shawnrain.habe.ble.bms.BmsMetrics
 import com.shawnrain.habe.data.gps.HeadingTracker
 import com.shawnrain.habe.data.gps.GpsTracker
+import com.shawnrain.habe.ble.protocols.WriteFailurePhase
 import com.shawnrain.habe.ble.protocols.ZhikeParameterCatalog
 import com.shawnrain.habe.ble.protocols.ZhikeProtocol
 import com.shawnrain.habe.ble.protocols.ZhikeSettings
@@ -34,6 +35,7 @@ import com.shawnrain.habe.ble.protocols.ZhikeSettingsValidator
 import com.shawnrain.habe.ble.protocols.ZhikePostWriteVerifier
 import com.shawnrain.habe.ble.protocols.ZhikeWriteState
 import com.shawnrain.habe.ble.protocols.ZhikeProtocolEvent
+import com.shawnrain.habe.ble.protocols.syncLegacyFieldsFromWords
 import com.shawnrain.habe.data.SpeedSource
 import com.shawnrain.habe.data.DataSource
 import com.shawnrain.habe.data.AutoCalibrator
@@ -3329,8 +3331,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * 执行完整的智科写入工作流
      * handshake → AA210001 → wait ready → write packets → wait ack → read back → verify
+     * 带写入节流：写入进行中时重复调用会被忽略
      */
+    private var _isWriteInProgress = false
+
     private suspend fun executeZhikeWriteWorkflow(settings: ZhikeSettings) {
+        // 写入节流：防止重复触发
+        if (_isWriteInProgress) {
+            AppLogger.w("ZhikeWrite", "写入已在进行中，忽略本次请求")
+            return
+        }
+        _isWriteInProgress = true
+
         try {
             // Phase 1: Handshake
             _zhikeWriteState.value = ZhikeWriteState.Handshaking
@@ -3381,6 +3393,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "phase_shift_angle", "sensor_type", "hall_sequence"
                     )
                 )
+                if (!verifyResult.success) {
+                    _zhikeWriteState.value = ZhikeWriteState.Failed(
+                        reason = verifyResult.message,
+                        phase = WriteFailurePhase.VERIFY_MISMATCH
+                    )
+                    delay(5000)
+                    _zhikeWriteState.value = ZhikeWriteState.Idle
+                    return
+                }
                 AppLogger.i("ZhikeWrite", "回读核对: ${verifyResult.message}")
             }
 
@@ -3388,11 +3409,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             delay(2000)
             _zhikeWriteState.value = ZhikeWriteState.Idle
         } catch (e: Exception) {
-            _zhikeWriteState.value = ZhikeWriteState.Failed(e.message ?: "未知错误", "workflow")
-            AppLogger.e("ZhikeWrite", "写入流程异常", e)
-            delay(3000)
+            val phase = when {
+                e.message?.contains("握手", ignoreCase = true) == true -> WriteFailurePhase.HANDSHAKE_FAILED
+                e.message?.contains("写入模式", ignoreCase = true) == true -> WriteFailurePhase.ENTER_WRITE_MODE_TIMEOUT
+                e.message?.contains("发送", ignoreCase = true) == true -> WriteFailurePhase.PACKET_SEND_FAILED
+                e.message?.contains("ACK", ignoreCase = true) == true -> WriteFailurePhase.ACK_TIMEOUT
+                e.message?.contains("拒绝", ignoreCase = true) == true -> WriteFailurePhase.CONTROLLER_REJECTED
+                else -> WriteFailurePhase.UNKNOWN_ERROR
+            }
+            _zhikeWriteState.value = ZhikeWriteState.Failed(e.message ?: "未知错误", phase)
+            AppLogger.e("ZhikeWrite", "写入流程异常: ${phase.label}", e)
+            delay(5000)
             _zhikeWriteState.value = ZhikeWriteState.Idle
+        } finally {
+            _isWriteInProgress = false
         }
+    }
+
+    /**
+     * 应用安全参数预设（保守默认值）
+     */
+    fun applySafeZhikePresets(): ZhikeSettings {
+        val current = _latestZhikeSettings.value ?: ZhikeSettings()
+        val safe = current.copy()
+
+        // 保守安全值
+        ZhikeParameterCatalog.findDefinition("bus_current")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(safe, def, 25.0).rawWords.copyInto(safe.rawWords)
+        }
+        ZhikeParameterCatalog.findDefinition("phase_current")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(safe, def, 80.0).rawWords.copyInto(safe.rawWords)
+        }
+        ZhikeParameterCatalog.findDefinition("weak_magnet_current")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(safe, def, 15.0).rawWords.copyInto(safe.rawWords)
+        }
+        ZhikeParameterCatalog.findDefinition("under_voltage")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(safe, def, 39.0).rawWords.copyInto(safe.rawWords)
+        }
+        ZhikeParameterCatalog.findDefinition("over_voltage")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(safe, def, 84.0).rawWords.copyInto(safe.rawWords)
+        }
+        ZhikeParameterCatalog.findDefinition("power_reduction_start_voltage")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(safe, def, 42.0).rawWords.copyInto(safe.rawWords)
+        }
+        ZhikeParameterCatalog.findDefinition("power_reduction_end_voltage")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(safe, def, 41.0).rawWords.copyInto(safe.rawWords)
+        }
+        ZhikeParameterCatalog.findDefinition("regenerative_voltage_limit")?.let { def ->
+            ZhikeParameterCatalog.updateNumeric(safe, def, 80.0).rawWords.copyInto(safe.rawWords)
+        }
+
+        safe.syncLegacyFieldsFromWords()
+        return safe
     }
 
     /**

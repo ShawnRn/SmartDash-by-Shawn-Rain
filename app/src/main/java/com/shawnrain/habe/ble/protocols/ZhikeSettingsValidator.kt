@@ -14,13 +14,31 @@ object ZhikeSettingsValidator {
         WARNING   // 风险提示，用户确认后可继续
     }
 
+    enum class IssueCategory(val label: String) {
+        THROTTLE("转把"),
+        VOLTAGE("电压保护"),
+        CURRENT("电流关系"),
+        PERFORMANCE("性能"),
+        TCS("牵引力控制"),
+        FIRMWARE("固件兼容")
+    }
+
     data class ValidationIssue(
         val code: String,
         val title: String,
         val message: String,
         val severity: Severity,
-        val relatedKeys: List<String>
-    )
+        val category: IssueCategory,
+        val relatedKeys: List<String>,
+        /** 自动修复建议（可选） */
+        val suggestion: String? = null
+    ) {
+        val displayText: String
+            get() = buildString {
+                append("• $title: $message")
+                suggestion?.let { append("\n  → $it") }
+            }
+    }
 
     data class ValidationResult(
         val errors: List<ValidationIssue>,
@@ -28,6 +46,11 @@ object ZhikeSettingsValidator {
     ) {
         val hasBlockingIssues: Boolean get() = errors.isNotEmpty()
         val hasWarnings: Boolean get() = warnings.isNotEmpty()
+        val allIssues: List<ValidationIssue> get() = errors + warnings
+
+        /** 按类别分组 */
+        val issuesByCategory: Map<IssueCategory, List<ValidationIssue>>
+            get() = allIssues.groupBy { it.category }
     }
 
     /**
@@ -73,7 +96,9 @@ object ZhikeSettingsValidator {
                     title = "转把电压异常",
                     message = "满把电压 (${formatV(fullThrottle)}) 必须大于空把电压 (${formatV(idleThrottle)})",
                     severity = Severity.ERROR,
-                    relatedKeys = listOf("full_throttle_voltage", "idle_throttle_voltage")
+                    category = IssueCategory.THROTTLE,
+                    relatedKeys = listOf("full_throttle_voltage", "idle_throttle_voltage"),
+                    suggestion = "修正为：满把电压 > 空把电压（典型值 4.2V > 0.8V）"
                 )
             )
         }
@@ -85,9 +110,11 @@ object ZhikeSettingsValidator {
                 ValidationIssue(
                     code = "THROTTLE_MARGIN_LOW",
                     title = "转把裕量不足",
-                    message = "满把与空把电压差仅 ${"%.2f".format(delta)}V，建议保留 ≥ 0.3V 裕量",
+                    message = "满把与空把电压差仅 ${"%.2f".format(delta)}V",
                     severity = Severity.WARNING,
-                    relatedKeys = listOf("full_throttle_voltage", "idle_throttle_voltage")
+                    category = IssueCategory.THROTTLE,
+                    relatedKeys = listOf("full_throttle_voltage", "idle_throttle_voltage"),
+                    suggestion = "建议保留 ≥ 0.3V 裕量，防止误触"
                 )
             )
         }
@@ -112,7 +139,9 @@ object ZhikeSettingsValidator {
                     title = "降载区间异常",
                     message = "降载起始电压 (${formatV(powerReductionStart)}) 必须 ≥ 降载截止电压 (${formatV(powerReductionEnd)})",
                     severity = Severity.ERROR,
-                    relatedKeys = listOf("power_reduction_start_voltage", "power_reduction_end_voltage")
+                    category = IssueCategory.VOLTAGE,
+                    relatedKeys = listOf("power_reduction_start_voltage", "power_reduction_end_voltage"),
+                    suggestion = "修正为：起始电压 ≥ 截止电压"
                 )
             )
         }
@@ -125,7 +154,9 @@ object ZhikeSettingsValidator {
                     title = "欠压点过高",
                     message = "欠压点 (${formatV(underVoltage)}) 不应高于降载截止电压 (${formatV(powerReductionEnd)})",
                     severity = Severity.ERROR,
-                    relatedKeys = listOf("under_voltage", "power_reduction_end_voltage")
+                    category = IssueCategory.VOLTAGE,
+                    relatedKeys = listOf("under_voltage", "power_reduction_end_voltage"),
+                    suggestion = "欠压点应低于降载截止电压"
                 )
             )
         }
@@ -138,7 +169,9 @@ object ZhikeSettingsValidator {
                     title = "过压点过低",
                     message = "过压点 (${formatV(overVoltage)}) 必须 ≥ 降载起始电压 (${formatV(powerReductionStart)})",
                     severity = Severity.ERROR,
-                    relatedKeys = listOf("over_voltage", "power_reduction_start_voltage")
+                    category = IssueCategory.VOLTAGE,
+                    relatedKeys = listOf("over_voltage", "power_reduction_start_voltage"),
+                    suggestion = "过压点应高于或等于降载起始电压"
                 )
             )
         }
@@ -151,7 +184,9 @@ object ZhikeSettingsValidator {
                     title = "回充电压异常",
                     message = "回充电压上限 (${formatV(regenVoltageLimit)}) 不得高于过压点 (${formatV(overVoltage)})",
                     severity = Severity.ERROR,
-                    relatedKeys = listOf("regenerative_voltage_limit", "over_voltage")
+                    category = IssueCategory.VOLTAGE,
+                    relatedKeys = listOf("regenerative_voltage_limit", "over_voltage"),
+                    suggestion = "回充电压上限 ≤ 过压点"
                 )
             )
         }
@@ -162,9 +197,11 @@ object ZhikeSettingsValidator {
                 ValidationIssue(
                     code = "UNDER_VOLTAGE_CLOSE_TO_CUTOFF",
                     title = "欠压接近降载截止",
-                    message = "欠压点与降载截止电压差距过小，掉入欠压前可能没有正常降载区",
+                    message = "欠压点与降载截止电压差距过小",
                     severity = Severity.WARNING,
-                    relatedKeys = listOf("under_voltage", "power_reduction_end_voltage")
+                    category = IssueCategory.VOLTAGE,
+                    relatedKeys = listOf("under_voltage", "power_reduction_end_voltage"),
+                    suggestion = "建议保留 ≥ 2V 差值，防止掉入欠压前没有正常降载区"
                 )
             )
         }
@@ -187,7 +224,9 @@ object ZhikeSettingsValidator {
                     title = "母线电流无效",
                     message = "母线电流必须大于 0（当前: ${"%.0f".format(busCurrent)}A）",
                     severity = Severity.ERROR,
-                    relatedKeys = listOf("bus_current")
+                    category = IssueCategory.CURRENT,
+                    relatedKeys = listOf("bus_current"),
+                    suggestion = "典型值：25~45A"
                 )
             )
         }
@@ -200,7 +239,9 @@ object ZhikeSettingsValidator {
                     title = "相线电流无效",
                     message = "相线电流必须大于 0（当前: ${"%.0f".format(phaseCurrent)}A）",
                     severity = Severity.ERROR,
-                    relatedKeys = listOf("phase_current")
+                    category = IssueCategory.CURRENT,
+                    relatedKeys = listOf("phase_current"),
+                    suggestion = "典型值：80~200A"
                 )
             )
         }
@@ -213,7 +254,9 @@ object ZhikeSettingsValidator {
                     title = "相线电流低于母线电流",
                     message = "相线电流 (${phaseCurrent.toInt()}A) 通常应 ≥ 母线电流 (${busCurrent.toInt()}A)",
                     severity = Severity.WARNING,
-                    relatedKeys = listOf("phase_current", "bus_current")
+                    category = IssueCategory.CURRENT,
+                    relatedKeys = listOf("phase_current", "bus_current"),
+                    suggestion = "相线电流一般 ≥ 母线电流 × 1.5"
                 )
             )
         }
@@ -224,9 +267,11 @@ object ZhikeSettingsValidator {
                 ValidationIssue(
                     code = "PHASE_EXCESSIVELY_HIGH",
                     title = "相线电流异常高",
-                    message = "相线电流 (${phaseCurrent.toInt()}A) 是母线电流 (${busCurrent.toInt()}A) 的 ${"%.1f".format(phaseCurrent / busCurrent)} 倍，显著高于常见经验区间（≤ 4 倍）",
+                    message = "相线电流是母线电流的 ${"%.1f".format(phaseCurrent / busCurrent)} 倍（通常 ≤ 4 倍）",
                     severity = Severity.WARNING,
-                    relatedKeys = listOf("phase_current", "bus_current")
+                    category = IssueCategory.CURRENT,
+                    relatedKeys = listOf("phase_current", "bus_current"),
+                    suggestion = "建议降低相线电流至母线电流的 2~3.5 倍"
                 )
             )
         }
@@ -237,9 +282,11 @@ object ZhikeSettingsValidator {
                 ValidationIssue(
                     code = "WEAK_MAGNET_HIGH",
                     title = "弱磁电流偏高",
-                    message = "弱磁电流 (${weakMagCurrent.toInt()}A) 超过相线电流的 1/3 (${phaseCurrent.toInt()}A)，可能导致高速异响、发热或不稳",
+                    message = "弱磁电流超过相线电流的 1/3",
                     severity = Severity.WARNING,
-                    relatedKeys = listOf("weak_magnet_current", "phase_current")
+                    category = IssueCategory.PERFORMANCE,
+                    relatedKeys = listOf("weak_magnet_current", "phase_current"),
+                    suggestion = "建议降低至相线电流的 20~30%，否则可能导致高速异响、发热或不稳"
                 )
             )
         }
@@ -259,9 +306,11 @@ object ZhikeSettingsValidator {
                     ValidationIssue(
                         code = "TCS_SENSITIVITY_HIGH",
                         title = "TCS 灵敏度过高",
-                        message = "TCS 灵敏度设为 $tcsSensitivity，坑洼路面、翘头或轻微打滑时可能误触发",
+                        message = "TCS 灵敏度设为 $tcsSensitivity",
                         severity = Severity.WARNING,
-                        relatedKeys = listOf("tcs_sensitivity")
+                        category = IssueCategory.TCS,
+                        relatedKeys = listOf("tcs_sensitivity"),
+                        suggestion = "坑洼路面、翘头或轻微打滑时可能误触发，建议 ≥ 10"
                     )
                 )
             }
@@ -276,10 +325,8 @@ object ZhikeSettingsValidator {
         for (paramDef in ZhikeParameterCatalog.groups.flatMap { it.parameters }) {
             val minVersion = paramDef.minFirmwareVersion ?: continue
             if (firmwareVersion < minVersion) {
-                // Parameter requires higher firmware - we don't block write but log it
-                // Actual blocking is done at UI level by disabling the parameter
                 AppLogger.w(
-                    ZhikeSettingsValidator.TAG,
+                    TAG,
                     "参数 ${paramDef.key} 需要固件版本 ≥ $minVersion，当前版本 $firmwareVersion"
                 )
             }

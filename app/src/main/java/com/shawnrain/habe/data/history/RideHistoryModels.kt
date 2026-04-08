@@ -1,5 +1,7 @@
 package com.shawnrain.habe.data.history
 
+import com.shawnrain.habe.data.telemetry.EnergyWh
+import com.shawnrain.habe.data.telemetry.EfficiencyWhKm
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -32,18 +34,18 @@ data class RideMetricSample(
     val phaseCurrent: Float,
     val controllerTemp: Float,
     val soc: Float,
-    val estimatedRangeKm: Float = 0f,
+    val estimatedRangeKm: Float = 0.0f,
     val rpm: Float,
-    val efficiencyWhKm: Float,
-    val avgEfficiencyWhKm: Float = 0f,
-    val avgNetEfficiencyWhKm: Float = 0f,
-    val avgTractionEfficiencyWhKm: Float = 0f,
+    val efficiencyWhKm: EfficiencyWhKm,
+    val avgEfficiencyWhKm: EfficiencyWhKm = 0.0f,
+    val avgNetEfficiencyWhKm: EfficiencyWhKm = 0.0f,
+    val avgTractionEfficiencyWhKm: EfficiencyWhKm = 0.0f,
     val distanceMeters: Float,
-    val totalEnergyWh: Float = 0f,
-    val tractionEnergyWh: Float = 0f,
-    val regenEnergyWh: Float = 0f,
-    val recoveredEnergyWh: Float = 0f,
-    val maxControllerTemp: Float = 0f,
+    val totalEnergyWh: EnergyWh = 0.0f,
+    val tractionEnergyWh: EnergyWh = 0.0f,
+    val regenEnergyWh: EnergyWh = 0.0f,
+    val recoveredEnergyWh: EnergyWh = 0.0f,
+    val maxControllerTemp: Float = 0.0f,
     val latitude: Double? = null,
     val longitude: Double? = null
 ) {
@@ -115,12 +117,12 @@ data class RideHistoryRecord(
     val maxSpeedKmh: Float,
     val avgSpeedKmh: Float,
     val peakPowerKw: Float,
-    val totalEnergyWh: Float,
-    val tractionEnergyWh: Float = 0f,
-    val regenEnergyWh: Float = 0f,
-    val avgEfficiencyWhKm: Float,
-    val avgNetEfficiencyWhKm: Float = 0f,
-    val avgTractionEfficiencyWhKm: Float = 0f,
+    val totalEnergyWh: EnergyWh,
+    val tractionEnergyWh: EnergyWh = 0.0f,
+    val regenEnergyWh: EnergyWh = 0.0f,
+    val avgEfficiencyWhKm: EfficiencyWhKm,
+    val avgNetEfficiencyWhKm: EfficiencyWhKm = 0.0f,
+    val avgTractionEfficiencyWhKm: EfficiencyWhKm = 0.0f,
     val trackPoints: List<RideTrackPoint>,
     val samples: List<RideMetricSample>
 ) {

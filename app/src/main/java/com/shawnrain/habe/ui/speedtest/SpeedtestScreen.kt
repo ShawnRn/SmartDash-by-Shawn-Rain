@@ -17,11 +17,13 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -117,6 +119,8 @@ import com.shawnrain.habe.data.history.RideMetricSample
 import com.shawnrain.habe.data.history.RideTrackPoint
 import com.shawnrain.habe.data.speedtest.SpeedTestRecord
 import com.shawnrain.habe.data.sync.SyncState
+import com.shawnrain.habe.data.telemetry.EnergyWh
+import com.shawnrain.habe.data.telemetry.EfficiencyWhKm
 import com.shawnrain.habe.ui.dashboard.BaselineMetricValue
 import com.shawnrain.habe.ui.navigation.ApplyDialogWindowBlurEffect
 import com.shawnrain.habe.ui.navigation.BlurredAlertDialog
@@ -240,7 +244,7 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             )
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Header(metrics.speedKmH)
+            Header(metrics.speedKmH.toFloat())
             TabRow(
                 selectedTabIndex = pagerState.currentPage,
                 containerColor = Color.Transparent,
@@ -576,7 +580,7 @@ private fun SpeedTestHero(
                     Row(modifier = Modifier.fillMaxWidth()) {
                         StatChip(
                             label = "最佳成绩",
-                            metric = metricOf(formatSeconds(record.timeMs)),
+                            metric = metricOfLabel(formatSeconds(record.timeMs)),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -657,12 +661,12 @@ private fun SpeedTestHistoryCard(
                 }
                 StatMetricGrid(
                     metrics = listOf(
-                        "目标" to metricOf(record.targetSpeedKmh.toInt().toString(), "km/h"),
+                        "目标" to metricOfLabel(record.targetSpeedKmh.toInt().toString(), "km/h"),
                         "最高速度" to metricOf(record.maxSpeedKmh, "km/h"),
                         "峰值功率" to metricOf(record.peakPowerKw, "kW"),
                         "峰值母线电流" to metricOf(record.peakBusCurrentA, "A"),
                         "最低电压" to metricOf(record.minVoltage, "V"),
-                        "轨迹点" to metricOf(record.trackPoints.size.toString())
+                        "轨迹点" to metricOfLabel(record.trackPoints.size.toString())
                     ),
                     columns = 3
                 )
@@ -730,14 +734,14 @@ private fun RideHistoryCard(
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val displayDistanceMeters = remember(record.distanceMeters, record.samples) {
-        max(
+        maxOf(
             record.distanceMeters,
-            record.samples.maxOfOrNull { it.distanceMeters } ?: 0f
+            record.samples.maxOfOrNull { it.distanceMeters } ?: 0.0f
         )
     }
     val displayAvgSpeedKmh = remember(record.avgSpeedKmh, displayDistanceMeters, record.durationMs) {
-        if (record.durationMs > 0L && displayDistanceMeters > 1f) {
-            ((displayDistanceMeters / 1000f) / (record.durationMs / 3_600_000f)).coerceAtLeast(0f)
+        if (record.durationMs > 0L && displayDistanceMeters > 1.0f) {
+            ((displayDistanceMeters / 1000.0f) / (record.durationMs.toFloat() / 3_600_000.0f)).coerceAtLeast(0.0f)
         } else {
             record.avgSpeedKmh
         }
@@ -748,7 +752,7 @@ private fun RideHistoryCard(
         "平均速度" to metricOf(displayAvgSpeedKmh, "km/h"),
         "峰值功率" to metricOf(record.peakPowerKw, "kW"),
         "能耗" to metricOf(record.avgNetEfficiencyWhKm, "Wh/km"),
-        "采样点" to metricOf(record.samples.size.toString())
+        "采样点" to metricOfLabel(record.samples.size.toString())
     )
 
     AnimatedVisibility(
@@ -805,11 +809,13 @@ private fun RideHistoryCard(
                 )
                 AnimatedVisibility(
                     visible = !selectionMode,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
+                    enter = fadeIn() + expandVertically(expandFrom = Alignment.Top, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)),
+                    exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top, animationSpec = spring(stiffness = Spring.StiffnessMedium))
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         HistoryActionChip(
@@ -1812,9 +1818,9 @@ private fun RideMetricPlot(
             val paddingBottom = if (landscapeMode) 30.dp.toPx() else 34.dp.toPx()
             val chartWidth = size.width - paddingLeft - paddingRight
             val chartHeight = size.height - paddingTop - paddingBottom
-            val maxValue = values.maxOrNull() ?: 1f
-            val minValue = values.minOrNull() ?: 0f
-            val span = (maxValue - minValue).takeIf { it > 0.001f } ?: 1f
+            val maxValue = values.maxOfOrNull { it } ?: 1.0f
+            val minValue = values.minOfOrNull { it } ?: 0.0f
+            val span = (maxValue - minValue).takeIf { it > 0.001f } ?: 1.0f
             val tickValues = listOf(maxValue, maxValue - span / 2f, minValue)
             val averageLabel = referenceLine.label
             val averageLabelWidth = averagePaint.measureText(averageLabel) + 18.dp.toPx()
@@ -1853,10 +1859,10 @@ private fun RideMetricPlot(
             values.forEachIndexed { index, value ->
                 val x = paddingLeft + chartWidth * index / (values.lastIndex.coerceAtLeast(1))
                 val y = paddingTop + chartHeight - ((value - minValue) / span) * chartHeight
-                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                if (index == 0) path.moveTo(x.toFloat(), y.toFloat()) else path.lineTo(x.toFloat(), y.toFloat())
             }
-            val referenceStartY = paddingTop + chartHeight - ((referenceLine.startValue - minValue) / span) * chartHeight
-            val referenceEndY = paddingTop + chartHeight - ((referenceLine.endValue - minValue) / span) * chartHeight
+            val referenceStartY = (paddingTop + chartHeight - ((referenceLine.startValue - minValue) / span) * chartHeight).toFloat()
+            val referenceEndY = (paddingTop + chartHeight - ((referenceLine.endValue - minValue) / span) * chartHeight).toFloat()
             val averageLabelTop = 6.dp.toPx()
             val averageLabelLeft = (size.width - paddingRight - averageLabelWidth).coerceAtLeast(paddingLeft + 12.dp.toPx())
             drawLine(
@@ -1891,14 +1897,14 @@ private fun RideMetricPlot(
             val peakY = paddingTop + chartHeight - ((values[peakIndex] - minValue) / span) * chartHeight
             drawLine(
                 color = Color.White.copy(alpha = 0.55f),
-                start = Offset(selectedX, paddingTop),
-                end = Offset(selectedX, size.height - paddingBottom),
+                start = Offset(selectedX.toFloat(), paddingTop),
+                end = Offset(selectedX.toFloat(), size.height - paddingBottom),
                 strokeWidth = 3f
             )
-            drawCircle(color = metric.color.copy(alpha = 0.32f), radius = 16f, center = Offset(peakX, peakY))
-            drawCircle(color = metric.color, radius = 10f, center = Offset(peakX, peakY))
-            drawCircle(color = metric.color, radius = 12f, center = Offset(selectedX, selectedY))
-            drawCircle(color = Color.White, radius = 5f, center = Offset(selectedX, selectedY))
+            drawCircle(color = metric.color.copy(alpha = 0.32f), radius = 16f, center = Offset(peakX.toFloat(), peakY.toFloat()))
+            drawCircle(color = metric.color, radius = 10f, center = Offset(peakX.toFloat(), peakY.toFloat()))
+            drawCircle(color = metric.color, radius = 12f, center = Offset(selectedX.toFloat(), selectedY.toFloat()))
+            drawCircle(color = Color.White, radius = 5f, center = Offset(selectedX.toFloat(), selectedY.toFloat()))
 
             val midIndex = values.lastIndex / 2
             val xAxisLabels = listOf(
@@ -2177,9 +2183,9 @@ private fun buildOverlayMetricSeries(
     if (samples.isEmpty() || metrics.isEmpty()) return emptyList()
     return metrics.distinct().map { metric ->
         val raw = samples.map { sample -> sample.metricValue(metric) }
-        val minValue = raw.minOrNull() ?: 0f
-        val maxValue = raw.maxOrNull() ?: minValue
-        val span = (maxValue - minValue).takeIf { it > 0.001f } ?: 1f
+        val minValue = raw.minOfOrNull { it } ?: 0.0f
+        val maxValue = raw.maxOfOrNull { it } ?: minValue
+        val span = (maxValue - minValue).takeIf { it > 0.001f } ?: 1.0f
         val normalized = raw.map { value ->
             ((value - minValue) / span).coerceIn(0f, 1f)
         }
@@ -2354,7 +2360,7 @@ private fun RideMetricFullscreenDialog(
     }
     val summaryValue = remember(samples, metric, values) { rideMetricSummaryValue(samples, metric, values) }
     val summaryLabel = remember(metric) { rideMetricSummaryLabel(metric) }
-    val peakValue = remember(values) { values.maxOrNull() ?: 0f }
+    val peakValue = remember(values) { values.maxOfOrNull { it } ?: 0.0f }
     val selectedValue = values.getOrNull(selectedIndex) ?: 0f
     val selectedSample = samples.getOrNull(selectedIndex)
     val entryProgress by animateFloatAsState(
@@ -2688,7 +2694,7 @@ private fun RouteFullscreenDialog(
                             for (index in 0 until projection.points.lastIndex) {
                                 val start = projection.points[index]
                                 val end = projection.points[index + 1]
-                                val segmentSpeed = ((start.speedKmh + end.speedKmh) * 0.5f).coerceAtLeast(0f)
+                                val segmentSpeed: Float = ((start.speedKmh + end.speedKmh) * 0.5f).coerceAtLeast(0.0f)
                                 drawLine(
                                     color = routeSpeedColor(
                                         speedKmh = segmentSpeed,
@@ -2746,7 +2752,7 @@ private fun RouteFullscreenDialog(
                                 Box(
                                     modifier = Modifier
                                         .size(14.dp)
-                                        .background(routeSpeedColor(0f, 0f, 60f), CircleShape)
+                                        .background(routeSpeedColor(0.0f, 0.0f, 60.0f), CircleShape)
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text("低速", style = MaterialTheme.typography.labelMedium)
@@ -2755,7 +2761,7 @@ private fun RouteFullscreenDialog(
                                 Box(
                                     modifier = Modifier
                                         .size(14.dp)
-                                        .background(routeSpeedColor(60f, 0f, 60f), CircleShape)
+                                        .background(routeSpeedColor(60.0f, 0.0f, 60.0f), CircleShape)
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text("高速", style = MaterialTheme.typography.labelMedium)
@@ -2826,15 +2832,15 @@ private fun buildSingleMetricMermaid(
     if (sampled.isEmpty()) return ""
     val xValues = sampled.indices.map { it.toFloat() }
     val yValues = smoothSeries(sampled.map { it.metricValue(metric) })
-    val minValue = yValues.minOrNull() ?: 0f
-    val maxValue = yValues.maxOrNull() ?: minValue
+    val minValue = yValues.minOfOrNull { it } ?: 0.0f
+    val maxValue = yValues.maxOfOrNull { it } ?: minValue
     val span = (maxValue - minValue).coerceAtLeast(0.001f)
-    val padding = (span * 0.14f).coerceAtLeast(1f)
+    val padding = (span * 0.14f).coerceAtLeast(1.0f)
     val yMin = minValue - padding
     val yMax = maxValue + padding
-    val xPadding = 2f
+    val xPadding = 2.0f
     val xMin = -xPadding
-    val xMax = (xValues.lastOrNull() ?: 0f) + xPadding
+    val xMax = (xValues.lastOrNull() ?: 0.0f) + xPadding
     val metricLabel = "${metric.title} (${metric.unit})"
     return buildString {
         appendLine("%%{init: {'theme': 'dark'}}%%")
@@ -2857,10 +2863,10 @@ private fun buildMultiMetricMermaid(
     val sampled = downsampleForMermaid(samples)
     val distinctMetrics = metrics.distinct().take(6)
     if (sampled.isEmpty() || distinctMetrics.isEmpty()) return ""
-    val xValues = sampled.indices.map { it.toFloat() }
-    val xPadding = 2f
+    val xValues = sampled.indices.map { it.toDouble() }
+    val xPadding = 2.0
     val xMin = -xPadding
-    val xMax = (xValues.lastOrNull() ?: 0f) + xPadding
+    val xMax = (xValues.lastOrNull() ?: 0.0) + xPadding
     return buildString {
         appendLine("%%{init: {'theme': 'dark'}}%%")
         appendLine("%% 导入 draw.io 时请直接粘贴本段纯 Mermaid 文本")
@@ -2875,11 +2881,11 @@ private fun buildMultiMetricMermaid(
             val rawValues = sampled.map { it.metricValue(metric) }
             val lowerBound = percentile(rawValues, 0.05f)
             val upperBound = percentile(rawValues, 0.95f)
-            val minValue = rawValues.minOrNull() ?: 0f
-            val maxValue = rawValues.maxOrNull() ?: minValue
+            val minValue = rawValues.minOfOrNull { it } ?: 0.0f
+            val maxValue = rawValues.maxOfOrNull { it } ?: minValue
             val span = (upperBound - lowerBound).coerceAtLeast(0.001f)
             val normalized = if (rawValues.size < 2) {
-                List(rawValues.size) { 50f }
+                List(rawValues.size) { 50.0f }
             } else {
                 smoothSeries(
                     rawValues.map { ((it - lowerBound) / span * 100f).coerceIn(2f, 98f) }
@@ -2908,18 +2914,18 @@ private fun downsampleForMermaid(
 private fun escapeMermaidText(text: String): String =
     text.replace('"', '\'')
 
-private fun formatMermaidAxisNumber(value: Float): String =
-    String.format(Locale.US, "%.0f", value)
+private fun formatMermaidAxisNumber(value: Number): String =
+    String.format(Locale.US, "%.0f", value.toDouble())
 
-private fun formatMermaidValueNumber(value: Float): String =
-    String.format(Locale.US, "%.1f", value)
+private fun formatMermaidValueNumber(value: Number): String =
+    String.format(Locale.US, "%.1f", value.toDouble())
 
 private fun smoothSeries(values: List<Float>, radius: Int = 1): List<Float> {
     if (values.size <= 2 || radius <= 0) return values
     return values.indices.map { index ->
         val start = (index - radius).coerceAtLeast(0)
         val end = (index + radius).coerceAtMost(values.lastIndex)
-        var sum = 0f
+        var sum = 0.0f
         var count = 0
         for (i in start..end) {
             sum += values[i]
@@ -2930,14 +2936,14 @@ private fun smoothSeries(values: List<Float>, radius: Int = 1): List<Float> {
 }
 
 private fun percentile(values: List<Float>, p: Float): Float {
-    if (values.isEmpty()) return 0f
+    if (values.isEmpty()) return 0.0f
     val sorted = values.sorted()
-    val clamped = p.coerceIn(0f, 1f)
-    val position = clamped * (sorted.lastIndex)
+    val clamped = p.coerceIn(0.0f, 1.0f)
+    val position = clamped * (sorted.lastIndex.toFloat())
     val lowerIndex = position.toInt().coerceIn(0, sorted.lastIndex)
     val upperIndex = (lowerIndex + 1).coerceAtMost(sorted.lastIndex)
-    val fraction = position - lowerIndex
-    return sorted[lowerIndex] * (1f - fraction) + sorted[upperIndex] * fraction
+    val fraction = position - lowerIndex.toFloat()
+    return sorted[lowerIndex] * (1.0f - fraction) + sorted[upperIndex] * fraction
 }
 
 private fun rideMetricSummaryLabel(metric: RideChartMetric): String {
@@ -2955,54 +2961,54 @@ private fun rideMetricSummaryValue(
     metric: RideChartMetric,
     values: List<Float>
 ): Float {
-    if (samples.isEmpty()) return 0f
+    if (samples.isEmpty()) return 0.0f
     val fallbackAverage = robustRideMetricAverage(samples, metric, values)
     val last = samples.last()
     return when (metric) {
         RideChartMetric.AVG_EFFICIENCY -> when {
             last.avgNetEfficiencyWhKm > 0.01f -> last.avgNetEfficiencyWhKm
-            last.distanceMeters > 10f && last.totalEnergyWh > 0.01f ->
-                last.totalEnergyWh / (last.distanceMeters / 1000f)
+            last.distanceMeters > 10.0f && last.totalEnergyWh > 0.01f ->
+                last.totalEnergyWh / (last.distanceMeters / 1000.0f)
             else -> fallbackAverage
         }
-        RideChartMetric.SOC -> last.soc.takeIf { it in 1f..100f } ?: fallbackAverage
+        RideChartMetric.SOC -> last.soc.takeIf { it in 1.0f..100.0f } ?: fallbackAverage
         RideChartMetric.RANGE -> last.estimatedRangeKm.takeIf { it > 0.01f } ?: fallbackAverage
-        RideChartMetric.DISTANCE -> (last.distanceMeters / 1000f).coerceAtLeast(0f)
-        RideChartMetric.TOTAL_ENERGY -> last.totalEnergyWh.coerceAtLeast(0f)
-        RideChartMetric.RECOVERED_ENERGY -> last.recoveredEnergyWh.coerceAtLeast(0f)
+        RideChartMetric.DISTANCE -> (last.distanceMeters / 1000.0f).coerceAtLeast(0.0f)
+        RideChartMetric.TOTAL_ENERGY -> last.totalEnergyWh.coerceAtLeast(0.0f)
+        RideChartMetric.RECOVERED_ENERGY -> last.recoveredEnergyWh.coerceAtLeast(0.0f)
         RideChartMetric.MAX_CONTROLLER_TEMP -> maxOf(last.maxControllerTemp, last.controllerTemp)
         else -> fallbackAverage
     }
 }
 
 private fun isMeaningfulAverageSample(sample: RideMetricSample): Boolean {
-    return sample.speedKmH >= 2.5f ||
-        abs(sample.busCurrent) >= 2f ||
-        abs(sample.phaseCurrent) >= 4f ||
-        abs(sample.powerKw) >= 0.12f ||
-        sample.rpm >= 120f
+    return sample.speedKmH >= 2.5 ||
+        kotlin.math.abs(sample.busCurrent) >= 2.0 ||
+        kotlin.math.abs(sample.phaseCurrent) >= 4.0 ||
+        kotlin.math.abs(sample.powerKw) >= 0.12 ||
+        sample.rpm >= 120.0
 }
 
 private fun rideAverageSamples(samples: List<RideMetricSample>): List<RideMetricSample> {
     val active = samples.filter(::isMeaningfulAverageSample)
     if (active.isNotEmpty()) return active
     val moving = samples.filter {
-        it.speedKmH >= 0.8f ||
-            abs(it.busCurrent) >= 0.8f ||
-            abs(it.powerKw) >= 0.04f ||
-            it.rpm >= 30f
+        it.speedKmH >= 0.8 ||
+            kotlin.math.abs(it.busCurrent) >= 0.8 ||
+            kotlin.math.abs(it.powerKw) >= 0.04 ||
+            it.rpm >= 30.0
     }
     return moving.ifEmpty { samples }
 }
 
 private fun robustAverage(values: List<Float>, trimFraction: Float = 0.08f): Float {
     val clean = values.filter { it.isFinite() }
-    if (clean.isEmpty()) return 0f
-    if (clean.size < 5) return clean.average().toFloat()
+    if (clean.isEmpty()) return 0.0f
+    if (clean.size < 5) return clean.sum() / clean.size.toFloat()
     val sorted = clean.sorted()
-    val trimCount = (sorted.size * trimFraction).toInt().coerceAtMost((sorted.size - 1) / 2)
+    val trimCount = (sorted.size.toFloat() * trimFraction).toInt().coerceAtMost((sorted.size - 1) / 2)
     val trimmed = sorted.subList(trimCount, sorted.size - trimCount)
-    return trimmed.average().toFloat()
+    return if (trimmed.isEmpty()) 0.0f else trimmed.sum() / trimmed.size.toFloat()
 }
 
 private fun reliableEfficiencyValues(samples: List<RideMetricSample>): List<Float> {
@@ -3012,7 +3018,7 @@ private fun reliableEfficiencyValues(samples: List<RideMetricSample>): List<Floa
             sample.avgEfficiencyWhKm > 0.01f -> sample.avgEfficiencyWhKm
             else -> sample.efficiencyWhKm
         }
-        value.takeIf { it.isFinite() && it in 4f..140f }
+        value.takeIf { it.isFinite() && it in 4.0f..140.0f }
     }
     if (primary.isNotEmpty()) return primary
     return samples.mapNotNull { sample ->
@@ -3021,7 +3027,7 @@ private fun reliableEfficiencyValues(samples: List<RideMetricSample>): List<Floa
             sample.avgEfficiencyWhKm > 0.01f -> sample.avgEfficiencyWhKm
             else -> sample.efficiencyWhKm
         }
-        value.takeIf { it.isFinite() && it in 4f..140f }
+        value.takeIf { it.isFinite() && it in 4.0f..140.0f }
     }
 }
 
@@ -3030,13 +3036,13 @@ private fun robustRideMetricAverage(
     metric: RideChartMetric,
     values: List<Float>
 ): Float {
-    if (values.isEmpty()) return 0f
+    if (values.isEmpty()) return 0.0f
     val activePairs = samples.zip(values).filter { (sample, _) -> isMeaningfulAverageSample(sample) }
     val candidateValues = when (metric) {
         RideChartMetric.EFFICIENCY -> reliableEfficiencyValues(samples)
         RideChartMetric.REGEN_POWER -> {
-            val filtered = activePairs.map { it.second }.filter { it.isFinite() && it >= 5f }
-            filtered.ifEmpty { values.filter { it.isFinite() && it >= 0f } }
+            val filtered = activePairs.map { it.second }.filter { it.isFinite() && it >= 5.0f }
+            filtered.ifEmpty { values.filter { it.isFinite() && it >= 0.0f } }
         }
         else -> {
             val filtered = activePairs.map { it.second }
@@ -3062,7 +3068,7 @@ private fun rideMetricReferenceLine(
         val (startValue, endValue) = linearTrendEndpoints(values)
         val deltaValue = endValue - startValue
         return RideMetricReferenceLine(
-            label = "趋势 ${formatSignedFloat(deltaValue)} ${metric.unit}",
+            label = "趋势 ${formatSignedFloat(deltaValue.toFloat())} ${metric.unit}",
             startValue = startValue,
             endValue = endValue
         )
@@ -3076,23 +3082,22 @@ private fun rideMetricReferenceLine(
 
 private fun linearTrendEndpoints(values: List<Float>): Pair<Float, Float> {
     if (values.size < 2) {
-        val fallback = values.firstOrNull() ?: 0f
+        val fallback = values.firstOrNull() ?: 0.0f
         return fallback to fallback
     }
-    val n = values.size.toFloat()
-    val meanX = (values.lastIndex.toFloat()) / 2f
-    val meanY = values.average().toFloat()
-    var numerator = 0f
-    var denominator = 0f
+    val meanX = (values.lastIndex.toFloat()) / 2.0f
+    val meanY = if (values.isEmpty()) 0.0f else values.sum() / values.size
+    var numerator = 0.0f
+    var denominator = 0.0f
     values.forEachIndexed { index, value ->
-        val dx = index - meanX
+        val dx = index.toFloat() - meanX
         numerator += dx * (value - meanY)
         denominator += dx * dx
     }
-    val slope = if (denominator > 0.0001f) numerator / denominator else 0f
+    val slope = if (denominator > 0.0001f) numerator / denominator else 0.0f
     val intercept = meanY - (slope * meanX)
     val startValue = intercept
-    val endValue = intercept + (slope * values.lastIndex)
+    val endValue = intercept + (slope * values.lastIndex.toFloat())
     return startValue to endValue
 }
 
@@ -3107,11 +3112,11 @@ private fun normalizeRideDetailSamples(record: RideHistoryRecord): List<RideMetr
     val hasAverageEfficiency = rawSamples.any { it.avgEfficiencyWhKm > 0.01f }
     val hasRecoveredEnergy = rawSamples.any { it.recoveredEnergyWh > 0.01f }
     val hasMaxControllerTemp = rawSamples.any { it.maxControllerTemp > 0.01f }
-    val finalDistanceMeters = rawSamples.lastOrNull()?.distanceMeters?.takeIf { it > 1f }
-        ?: record.distanceMeters.takeIf { it > 1f }
-        ?: 0f
+    val finalDistanceMeters = rawSamples.lastOrNull()?.distanceMeters?.takeIf { it > 1.0f }
+        ?: record.distanceMeters.takeIf { it > 1.0f }
+        ?: 0.0f
     val finalElapsedMs = rawSamples.lastOrNull()?.elapsedMs?.takeIf { it > 0L } ?: 0L
-    var runningMaxControllerTemp = 0f
+    var runningMaxControllerTemp = 0.0f
     var energyOffsetWh = 0f
     var recoveredOffsetWh = 0f
     var previousRawEnergyWh = 0f
@@ -3120,14 +3125,14 @@ private fun normalizeRideDetailSamples(record: RideHistoryRecord): List<RideMetr
     var runningTotalRecoveredWh = 0f
 
     return rawSamples.map { sample ->
-        val progress = when {
-            finalDistanceMeters > 1f && sample.distanceMeters > 0f ->
-                (sample.distanceMeters / finalDistanceMeters).coerceIn(0f, 1f)
+        val progress: Float = when {
+            finalDistanceMeters > 1.0f && sample.distanceMeters > 0.0f ->
+                (sample.distanceMeters / finalDistanceMeters).coerceIn(0.0f, 1.0f)
             finalElapsedMs > 0L ->
                 (sample.elapsedMs.toFloat() / finalElapsedMs.toFloat()).coerceIn(0f, 1f)
             else -> 0f
         }
-        val totalEnergyWh = when {
+        val totalEnergyWh: Float = when {
             hasCumulativeEnergy -> sample.totalEnergyWh
             record.totalEnergyWh > 0.01f -> record.totalEnergyWh * progress
             else -> sample.totalEnergyWh
@@ -3136,22 +3141,19 @@ private fun normalizeRideDetailSamples(record: RideHistoryRecord): List<RideMetr
             energyOffsetWh += previousRawEnergyWh
         }
         previousRawEnergyWh = totalEnergyWh
-        val mergedTotalEnergyWh = max(
+        val mergedTotalEnergyWh = maxOf(
             runningTotalEnergyWh,
             (energyOffsetWh + totalEnergyWh).coerceAtLeast(0f)
         )
         runningTotalEnergyWh = mergedTotalEnergyWh
-        // avgEfficiencyWhKm must stay consistent with normalized energy/distance.
-        // A ride is a whole data entity — per-sample avg_eff should always equal
-        // cumulative_energy / cumulative_distance to avoid mismatches in CSV export.
-        val avgEfficiencyWhKm = when {
-            sample.distanceMeters > 10f && mergedTotalEnergyWh > 0.01f ->
-                mergedTotalEnergyWh / (sample.distanceMeters / 1000f)
+        val avgEfficiencyWhKm: Float = when {
+            sample.distanceMeters > 10.0f && mergedTotalEnergyWh > 0.01f ->
+                mergedTotalEnergyWh / (sample.distanceMeters / 1000.0f)
             record.avgNetEfficiencyWhKm > 0.1f -> record.avgNetEfficiencyWhKm
             record.avgEfficiencyWhKm > 0.1f -> record.avgEfficiencyWhKm
             else -> sample.avgNetEfficiencyWhKm.takeIf { it > 0.01f } ?: sample.avgEfficiencyWhKm
         }
-        val recoveredEnergyWh = when {
+        val recoveredEnergyWh: Float = when {
             hasRecoveredEnergy -> sample.recoveredEnergyWh
             else -> 0f
         }
@@ -3159,16 +3161,16 @@ private fun normalizeRideDetailSamples(record: RideHistoryRecord): List<RideMetr
             recoveredOffsetWh += previousRawRecoveredWh
         }
         previousRawRecoveredWh = recoveredEnergyWh
-        val mergedRecoveredEnergyWh = max(
+        val mergedRecoveredEnergyWh = maxOf(
             runningTotalRecoveredWh,
             (recoveredOffsetWh + recoveredEnergyWh).coerceAtLeast(0f)
         )
         runningTotalRecoveredWh = mergedRecoveredEnergyWh
-        runningMaxControllerTemp = max(
+        runningMaxControllerTemp = maxOf(
             runningMaxControllerTemp,
-            max(sample.controllerTemp, sample.maxControllerTemp)
+            maxOf(sample.controllerTemp, sample.maxControllerTemp)
         )
-        val maxControllerTemp = when {
+        val maxControllerTemp: Float = when {
             hasMaxControllerTemp && sample.maxControllerTemp > 0.01f -> sample.maxControllerTemp
             else -> runningMaxControllerTemp
         }
@@ -3278,18 +3280,18 @@ private fun buildRideOverviewCards(
     val first = samples.first()
     val last = samples.last()
     val averageSamples = rideAverageSamples(samples)
-    val startSoc = samples.firstOrNull { it.soc > 1f }?.soc ?: first.soc.takeIf { it > 0.01f } ?: last.soc
-    val startRangeKm = samples.firstOrNull { it.estimatedRangeKm > 0.1f }?.estimatedRangeKm
-        ?: first.estimatedRangeKm.takeIf { it > 0.01f }
+    val startSoc = samples.firstOrNull { it.soc > 1.0 }?.soc ?: first.soc.takeIf { it > 0.01 } ?: last.soc
+    val startRangeKm = samples.firstOrNull { it.estimatedRangeKm > 0.1 }?.estimatedRangeKm
+        ?: first.estimatedRangeKm.takeIf { it > 0.01 }
         ?: last.estimatedRangeKm
-    val finalDistanceKm = ((last.distanceMeters.takeIf { it > 1f } ?: record.distanceMeters) / 1000f).coerceAtLeast(0f)
+    val finalDistanceKm = ((last.distanceMeters.takeIf { it > 1.0f } ?: record.distanceMeters) / 1000.0f).coerceAtLeast(0.0f)
     val avgPowerKw = robustAverage(averageSamples.map { it.powerKw })
     val peakPowerKw = samples.maxOf { it.powerKw }
-    val peakRegenPowerKw = samples.maxOf { (-it.powerKw).coerceAtLeast(0f) }
+    val peakRegenPowerKw = samples.maxOf { (-it.powerKw).coerceAtLeast(0.0f) }
     val avgVoltage = robustAverage(averageSamples.map { it.voltage })
     val minVoltage = samples.minOf { it.voltage }
-    val avgVoltageSag = robustAverage(averageSamples.map { it.voltageSag.coerceAtLeast(0f) })
-    val peakVoltageSag = samples.maxOf { it.voltageSag.coerceAtLeast(0f) }
+    val avgVoltageSag = robustAverage(averageSamples.map { it.voltageSag.coerceAtLeast(0.0f) })
+    val peakVoltageSag = samples.maxOf { it.voltageSag.coerceAtLeast(0.0f) }
     val avgBusCurrent = robustAverage(averageSamples.map { kotlin.math.abs(it.busCurrent) })
     val peakBusCurrent = samples.maxOf { kotlin.math.abs(it.busCurrent) }
     val avgPhaseCurrent = robustAverage(averageSamples.map { kotlin.math.abs(it.phaseCurrent) })
@@ -3298,11 +3300,11 @@ private fun buildRideOverviewCards(
     val peakControllerTemp = samples.maxOf { it.controllerTemp }
     val avgSpeedKmh = record.avgSpeedKmh.takeIf { it > 0.01f }
         ?: robustAverage(averageSamples.map { it.speedKmH })
-    val peakSpeedKmh = max(record.maxSpeedKmh, samples.maxOf { it.speedKmH })
+    val peakSpeedKmh = maxOf(record.maxSpeedKmh, samples.maxOf { it.speedKmH })
     val avgRpm = robustAverage(averageSamples.map { it.rpm })
     val peakRpm = samples.maxOf { it.rpm }
     val avgInstantEfficiency = robustAverage(reliableEfficiencyValues(samples))
-    val peakAverageEfficiency = reliableEfficiencyValues(samples).maxOrNull()
+    val peakAverageEfficiency = reliableEfficiencyValues(samples).maxOfOrNull { it }
         ?: record.avgNetEfficiencyWhKm.takeIf { it > 0.01f }
         ?: record.avgEfficiencyWhKm
     val recoveredEnergyWh = samples.maxOf { it.recoveredEnergyWh }.coerceAtLeast(last.recoveredEnergyWh)
@@ -3463,7 +3465,7 @@ private fun RoutePreview(
                     val start = projection.points[index]
                     val end = projection.points[index + 1]
                     val segmentSpeed = ((start.speedKmh + end.speedKmh) * 0.5f)
-                        .coerceAtLeast(0f)
+                        .coerceAtLeast(0.0f)
                     drawLine(
                         color = routeSpeedColor(
                             speedKmh = segmentSpeed,
@@ -3657,7 +3659,7 @@ private fun projectRoute(
     width: Float,
     height: Float
 ): RouteProjection? {
-    if (points.size < 2 || width <= 0f || height <= 0f) return null
+    if (points.size < 2 || width <= 0.0f || height <= 0.0f) return null
     val minLat = points.minOf { it.latitude }
     val maxLat = points.maxOf { it.latitude }
     val minLon = points.minOf { it.longitude }
@@ -3705,7 +3707,7 @@ private fun buildRoutePreviewPoints(record: RideHistoryRecord): List<RoutePrevie
         RoutePreviewPoint(
             latitude = point.latitude,
             longitude = point.longitude,
-            speedKmh = 0f
+            speedKmh = 0.0f
         )
     }
 }
@@ -3724,7 +3726,7 @@ private fun buildRoutePreviewPointsFromSamples(samples: List<RideMetricSample>):
         if (previousValid == null) {
             appendRoutePreviewPoint(
                 points,
-                RoutePreviewPoint(latitude, longitude, sample.speedKmH.coerceAtLeast(0f))
+                RoutePreviewPoint(latitude, longitude, sample.speedKmH.coerceAtLeast(0.0f))
             )
             previousValid = sample
             missingBetween = 0
@@ -3753,7 +3755,7 @@ private fun appendInterpolatedRouteSegment(
     val nextLat = next.latitude ?: return
     val nextLon = next.longitude ?: return
     val directDistanceMeters = haversineMeters(previousLat, previousLon, nextLat, nextLon)
-    val sampledDistanceMeters = (next.distanceMeters - previous.distanceMeters).coerceAtLeast(0f)
+    val sampledDistanceMeters = (next.distanceMeters - previous.distanceMeters).coerceAtLeast(0.0f)
     val insertedPointCount = when {
         missingBetween > 0 -> maxOf(
             missingBetween,
@@ -3763,13 +3765,13 @@ private fun appendInterpolatedRouteSegment(
         else -> 0
     }.coerceIn(0, 24)
     repeat(insertedPointCount) { index ->
-        val fraction = (index + 1f) / (insertedPointCount + 1f)
+        val fraction = (index + 1.0) / (insertedPointCount + 1.0)
         appendRoutePreviewPoint(
             target,
             RoutePreviewPoint(
                 latitude = lerpDouble(previousLat, nextLat, fraction),
                 longitude = lerpDouble(previousLon, nextLon, fraction),
-                speedKmh = lerpFloat(previous.speedKmH, next.speedKmH, fraction).coerceAtLeast(0f)
+                speedKmh = (previous.speedKmH + (next.speedKmH - previous.speedKmH) * fraction.toFloat()).coerceAtLeast(0.0f)
             )
         )
     }
@@ -3778,7 +3780,7 @@ private fun appendInterpolatedRouteSegment(
         RoutePreviewPoint(
             latitude = nextLat,
             longitude = nextLon,
-            speedKmh = next.speedKmH.coerceAtLeast(0f)
+            speedKmh = next.speedKmH.coerceAtLeast(0.0f)
         )
     )
 }
@@ -3800,7 +3802,7 @@ private fun routeSpeedColor(
     minSpeedKmh: Float,
     maxSpeedKmh: Float
 ): Color {
-    val normalized = if (maxSpeedKmh - minSpeedKmh < 1f) {
+    val normalized = if (maxSpeedKmh - minSpeedKmh < 1.0f) {
         0.5f
     } else {
         ((speedKmh - minSpeedKmh) / (maxSpeedKmh - minSpeedKmh)).coerceIn(0f, 1f)
@@ -3827,12 +3829,12 @@ private fun haversineMeters(
     return earthRadiusMeters * c
 }
 
-private fun lerpDouble(start: Double, end: Double, fraction: Float): Double {
-    return start + ((end - start) * fraction.toDouble())
+private fun lerpDouble(start: Double, end: Double, fraction: Double): Double {
+    return start + (end - start) * fraction
 }
 
 private fun lerpFloat(start: Float, end: Float, fraction: Float): Float {
-    return start + ((end - start) * fraction)
+    return start + (end - start) * fraction
 }
 
 @Composable
@@ -3876,15 +3878,15 @@ private fun RideMetricSample.metricValue(metric: RideChartMetric): Float {
         RideChartMetric.MAX_CONTROLLER_TEMP -> maxControllerTemp
         RideChartMetric.SOC -> soc
         RideChartMetric.RPM -> rpm
-        RideChartMetric.DISTANCE -> distanceMeters / 1000f
-        RideChartMetric.REGEN_POWER -> (-powerKw).coerceAtLeast(0f) * 1000f
+        RideChartMetric.DISTANCE -> distanceMeters / 1000.0f
+        else -> 0.0f
     }
 }
 
-private fun metricOf(value: Float, unit: String): DisplayMetric =
+private fun metricOf(value: Number, unit: String): DisplayMetric =
     DisplayMetric(value = formatFloat(value), unit = unit)
 
-private fun metricOf(value: String, unit: String = ""): DisplayMetric =
+private fun metricOfLabel(value: String, unit: String = ""): DisplayMetric =
     DisplayMetric(value = value.trim(), unit = unit.trim())
 
 private fun formatDate(timestampMs: Long): String =
@@ -3901,11 +3903,11 @@ private fun formatDuration(durationMs: Long): String {
 private fun formatSeconds(durationMs: Long): String =
     String.format(Locale.getDefault(), "%.2f s", durationMs / 1000f)
 
-private fun formatFloat(value: Float): String =
-    String.format(Locale.getDefault(), "%.1f", value)
+private fun formatFloat(value: Number): String =
+    String.format(Locale.getDefault(), "%.1f", value.toDouble())
 
-private fun formatSignedFloat(value: Float): String =
-    String.format(Locale.getDefault(), "%+.1f", value)
+private fun formatSignedFloat(value: Number): String =
+    String.format(Locale.getDefault(), "%+.1f", value.toDouble())
 
 private data class VoltageSagSummary(
     val average: Float,
@@ -3913,17 +3915,17 @@ private data class VoltageSagSummary(
 )
 
 private fun summarizeVoltageSag(samples: List<RideMetricSample>): VoltageSagSummary {
-    if (samples.isEmpty()) return VoltageSagSummary(0f, 0f)
+    if (samples.isEmpty()) return VoltageSagSummary(0.0f, 0.0f)
     val hasRecordedSag = samples.any { it.voltageSag > 0.01f }
-    val referenceVoltage = samples.maxOfOrNull { it.voltage } ?: 0f
+    val referenceVoltage = samples.maxOfOrNull { it.voltage } ?: 0.0f
     val sagValues = samples.map { sample ->
         if (hasRecordedSag) {
-            sample.voltageSag.coerceAtLeast(0f)
+            sample.voltageSag.coerceAtLeast(0.0f)
         } else {
-            (referenceVoltage - sample.voltage).coerceAtLeast(0f)
+            (referenceVoltage - sample.voltage).coerceAtLeast(0.0f)
         }
     }
-    val average = sagValues.average().toFloat()
-    val maximum = sagValues.maxOrNull() ?: 0f
+    val average = if (sagValues.isEmpty()) 0.0f else sagValues.sum() / sagValues.size
+    val maximum = sagValues.maxOfOrNull { it } ?: 0.0f
     return VoltageSagSummary(average = average, maximum = maximum)
 }

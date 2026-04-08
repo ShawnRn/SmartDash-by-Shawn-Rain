@@ -19,14 +19,14 @@ class PerformanceTracker {
 
     private var isTesting = false
     private var startTime = 0L
-    private var targetSpeed = 100f
-    private var startSpeed = 0f
+    private var targetSpeed = 100.0f
+    private var startSpeed = 0.0f
 
     fun onSpeedUpdate(speed: Float) {
         if (!isTesting) {
             // Auto start if speed increases from 0 to > 2km/h
-            if (speed > 2f && speed < 5f) {
-                startTest(100f)
+            if (speed > 2.0f && speed < 5.0f) {
+                startTest(100.0f)
             }
             return
         }

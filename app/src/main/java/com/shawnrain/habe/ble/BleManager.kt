@@ -415,6 +415,14 @@ class BleManager(private val context: Context) {
         sendZhikeMainCommand("AA16004C58B3A7")
     }
 
+    /**
+     * Requests ZhiKe controller to enter write mode (AA210001).
+     * This must be done before sending parameter write packets (AA12...).
+     */
+    fun requestZhikeWriteMode() {
+        sendZhikeAuxCommand("AA210001")
+    }
+
     private fun hexToBytes(hex: String): ByteArray {
         val s = hex.replace(" ", "")
         val len = s.length

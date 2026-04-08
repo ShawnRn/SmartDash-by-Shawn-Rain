@@ -43,7 +43,7 @@ class PosterRenderer(private val context: Context) {
             startedAtMs = 0L,
             endedAtMs = 0L,
             durationMs = session.durationMin * 60_000L,
-            distanceMeters = (session.distanceKm * 1000.0).toFloat(),
+            distanceMeters = session.distanceKm * 1000f,
             maxSpeedKmh = session.maxSpeed,
             avgSpeedKmh = session.avgSpeed,
             peakPowerKw = 0f,
@@ -392,8 +392,8 @@ class PosterRenderer(private val context: Context) {
         return String.format(Locale.getDefault(), "%.1f", durationMs / 60000f)
     }
 
-    private fun formatFloat(value: Float): String {
-        return String.format(Locale.getDefault(), "%.1f", value)
+    private fun formatFloat(value: Number): String {
+        return "%.1f".format(Locale.getDefault(), value.toDouble())
     }
 
     private fun formatTime(timestampMs: Long): String {

@@ -313,9 +313,13 @@ Release 签名约定：
 - [ ] 更完整的测速 / 制动 / 海报能力迁移
 - [ ] 本地单元测试覆盖
 
-## 5.1 遥测估算重构约束（新增）
+## 5.1 遥测估算重构约束 (United Energy Standard)
 - SmartDash 的控制器数据来自 `BLE`，到包时间不均匀，不能把 UI 聚合流当成物理采样时钟
 - **`Wh / Ah / peak / distance` 等累计量必须只由“新鲜控制器样本”驱动**，不能由 `GPS / BMS / 设置项 / UI` 刷新重复触发
+- **统一能量标准 (United Energy Standard)**：
+    - **Display (UI)**: 所有面向用户的能耗 (Efficiency) 显示，**默认必须强制采用 `Net Wh` (Traction - Regen) 口径**。
+    - **Estimation (Range)**: 续航预测模型必须基于 `Net Wh` 能效基准。
+    - **Analysis**: 仅在后台分析或特定详情页允许区分毛能耗 (Traction) 与回收贡献 (Regen)。
 - 推荐后续重构链路：`BLE frame -> TelemetryStreamProcessor -> TelemetrySample -> RideAccumulator -> BatteryStateEstimator -> RangeEstimator -> DashboardProjector`
 - `SoC`、`remainingEnergyWh`、`estimatedRangeKm` 必须统一口径；不要把带强先验的车辆档案百分比再反推成“独立容量证据”
 - `voltageSag` 需要区分展示值与分析值，避免在短时低流瞬间频繁重写静置基线

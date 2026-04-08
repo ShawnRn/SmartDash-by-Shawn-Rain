@@ -1,0 +1,567 @@
+Reusing configuration cache.
+> Task :app:preBuild UP-TO-DATE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:processDebugResources UP-TO-DATE
+
+> Task :app:compileDebugKotlin
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:126:27 Unresolved reference 'Location'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:230:36 Unresolved reference 'Location'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:239:41 Unresolved reference 'Location'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:473:56 Argument type mismatch: actual type is 'kotlin.Float', but 'CapturedType(*)' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:473:85 None of the following candidates is applicable:
+@InlineOnly() fun BigDecimal.div(other: BigDecimal): BigDecimal
+@InlineOnly() fun BigInteger.div(other: BigInteger): BigInteger
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:477:60 Argument type mismatch: actual type is 'kotlin.Float', but 'CapturedType(*)' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:477:93 None of the following candidates is applicable:
+@InlineOnly() fun BigDecimal.div(other: BigDecimal): BigDecimal
+@InlineOnly() fun BigInteger.div(other: BigInteger): BigInteger
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:491:33 Argument type mismatch: actual type is 'com.shawnrain.habe.data.telemetry.EnergyWh', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:506:30 Argument type mismatch: actual type is 'kotlin.Float', but 'com.shawnrain.habe.data.telemetry.EfficiencyWhKm' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:510:33 Argument type mismatch: actual type is 'it(kotlin.Number & kotlin.Comparable<CapturedType(*)>)', but 'com.shawnrain.habe.data.telemetry.EfficiencyWhKm' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:511:29 Argument type mismatch: actual type is 'it(kotlin.Number & kotlin.Comparable<CapturedType(*)>)', but 'com.shawnrain.habe.data.telemetry.EnergyWh' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:512:33 Argument type mismatch: actual type is 'it(kotlin.Number & kotlin.Comparable<CapturedType(*)>)', but 'com.shawnrain.habe.data.telemetry.EnergyWh' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1224:51 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1230:45 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1484:48 Unresolved reference 'Location'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1487:49 Unresolved reference 'latitude'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1487:68 Unresolved reference 'longitude'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1496:42 Overload resolution ambiguity between candidates:
+@IntrinsicConstEvaluation() fun plus(other: Byte): Float
+@IntrinsicConstEvaluation() fun plus(other: Double): Double
+@IntrinsicConstEvaluation() fun plus(other: Float): Float
+@IntrinsicConstEvaluation() fun plus(other: Int): Float
+@IntrinsicConstEvaluation() fun plus(other: Long): Float
+@IntrinsicConstEvaluation() fun plus(other: Short): Float
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1496:67 Unresolved reference 'distanceTo'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1499:54 Unresolved reference 'latitude'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1499:73 Unresolved reference 'longitude'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1586:28 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1588:27 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1589:30 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1590:30 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1591:32 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1592:34 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1593:23 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1594:36 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1595:23 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1611:37 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1612:47 Unresolved reference 'latitude'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1613:48 Unresolved reference 'longitude'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1824:23 Argument type mismatch: actual type is 'com.shawnrain.habe.data.telemetry.EnergyWh', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1833:30 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1834:27 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1835:27 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1836:27 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1840:33 Argument type mismatch: actual type is 'kotlin.Float', but 'com.shawnrain.habe.data.telemetry.EfficiencyWhKm' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1841:36 Argument type mismatch: actual type is 'kotlin.Float', but 'com.shawnrain.habe.data.telemetry.EfficiencyWhKm' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1842:41 Argument type mismatch: actual type is 'kotlin.Float', but 'com.shawnrain.habe.data.telemetry.EfficiencyWhKm' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1851:70 Argument type mismatch: actual type is 'com.shawnrain.habe.data.telemetry.EnergyWh', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1928:29 None of the following candidates is applicable:
+@SinceKotlin(...) fun <T : Comparable<T>> maxOf(a: T, b: T): T
+@SinceKotlin(...) fun <T : Comparable<T>> maxOf(a: T, vararg other: T): T
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Byte, b: Byte): Byte
+@SinceKotlin(...) fun maxOf(a: Byte, vararg other: Byte): Byte
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Double, b: Double): Double
+@SinceKotlin(...) fun maxOf(a: Double, vararg other: Double): Double
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Float, b: Float): Float
+@SinceKotlin(...) fun maxOf(a: Float, vararg other: Float): Float
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Int, b: Int): Int
+@SinceKotlin(...) fun maxOf(a: Int, vararg other: Int): Int
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Long, b: Long): Long
+@SinceKotlin(...) fun maxOf(a: Long, vararg other: Long): Long
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Short, b: Short): Short
+@SinceKotlin(...) fun maxOf(a: Short, vararg other: Short): Short
+@SinceKotlin(...) @WasExperimental(...) fun maxOf(a: UByte, b: UByte): UByte
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: UByte, vararg other: UByte): UByte
+@SinceKotlin(...) @WasExperimental(...) fun maxOf(a: UInt, b: UInt): UInt
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: UInt, vararg other: UInt): UInt
+@SinceKotlin(...) @WasExperimental(...) fun maxOf(a: ULong, b: ULong): ULong
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: ULong, vararg other: ULong): ULong
+@SinceKotlin(...) @WasExperimental(...) fun maxOf(a: UShort, b: UShort): UShort
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: UShort, vararg other: UShort): UShort
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1929:60 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1932:80 'operator' modifier is required on 'FirNamedFunctionSymbol kotlin/compareTo' in 'compareTo'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1933:27 None of the following candidates is applicable:
+@InlineOnly() fun BigDecimal.div(other: BigDecimal): BigDecimal
+@InlineOnly() fun BigInteger.div(other: BigInteger): BigInteger
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1938:106 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:1983:55 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2001:47 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2009:83 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2014:95 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2036:16 Return type mismatch: expected 'kotlin.Float', actual 'it(kotlin.Number & kotlin.Comparable<*>)'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2037:58 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2051:35 Argument type mismatch: actual type is 'com.shawnrain.habe.data.telemetry.EnergyWh', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2074:23 Argument type mismatch: actual type is 'it(kotlin.Number & kotlin.Comparable<CapturedType(*)>)', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2075:33 Argument type mismatch: actual type is 'kotlin.Float', but 'com.shawnrain.habe.data.telemetry.EnergyWh' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2076:37 Argument type mismatch: actual type is 'kotlin.Float', but 'com.shawnrain.habe.data.telemetry.EnergyWh' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2111:39 Argument type mismatch: actual type is 'kotlin.Float', but 'CapturedType(*)' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2112:44 None of the following candidates is applicable:
+@IntrinsicConstEvaluation() fun div(other: Byte): Double
+@IntrinsicConstEvaluation() fun div(other: Double): Double
+@IntrinsicConstEvaluation() fun div(other: Float): Double
+@IntrinsicConstEvaluation() fun div(other: Int): Double
+@IntrinsicConstEvaluation() fun div(other: Long): Double
+@IntrinsicConstEvaluation() fun div(other: Short): Double
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2119:75 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2123:57 None of the following candidates is applicable:
+@InlineOnly() fun BigDecimal.plus(other: BigDecimal): BigDecimal
+@InlineOnly() fun BigInteger.plus(other: BigInteger): BigInteger
+fun String?.plus(other: Any?): String
+fun <T> Array<T>.plus(element: T): Array<T>
+fun <T> Array<T>.plus(elements: Array<out T>): Array<T>
+fun <T> Array<T>.plus(elements: Collection<T>): Array<T>
+fun BooleanArray.plus(element: Boolean): BooleanArray
+fun BooleanArray.plus(elements: BooleanArray): BooleanArray
+fun BooleanArray.plus(elements: Collection<Boolean>): BooleanArray
+fun ByteArray.plus(element: Byte): ByteArray
+fun ByteArray.plus(elements: ByteArray): ByteArray
+fun ByteArray.plus(elements: Collection<Byte>): ByteArray
+fun CharArray.plus(element: Char): CharArray
+fun CharArray.plus(elements: CharArray): CharArray
+fun CharArray.plus(elements: Collection<Char>): CharArray
+fun DoubleArray.plus(element: Double): DoubleArray
+fun DoubleArray.plus(elements: DoubleArray): DoubleArray
+fun DoubleArray.plus(elements: Collection<Double>): DoubleArray
+fun FloatArray.plus(element: Float): FloatArray
+fun FloatArray.plus(elements: FloatArray): FloatArray
+fun FloatArray.plus(elements: Collection<Float>): FloatArray
+fun IntArray.plus(element: Int): IntArray
+fun IntArray.plus(elements: IntArray): IntArray
+fun IntArray.plus(elements: Collection<Int>): IntArray
+fun LongArray.plus(element: Long): LongArray
+fun LongArray.plus(elements: LongArray): LongArray
+fun LongArray.plus(elements: Collection<Long>): LongArray
+fun ShortArray.plus(element: Short): ShortArray
+fun ShortArray.plus(elements: ShortArray): ShortArray
+fun ShortArray.plus(elements: Collection<Short>): ShortArray
+fun <T> Collection<T>.plus(element: T): List<T>
+fun <T> Collection<T>.plus(elements: Array<out T>): List<T>
+fun <T> Collection<T>.plus(elements: Iterable<T>): List<T>
+fun <T> Collection<T>.plus(elements: Sequence<T>): List<T>
+fun <T> Iterable<T>.plus(element: T): List<T>
+fun <T> Iterable<T>.plus(elements: Array<out T>): List<T>
+fun <T> Iterable<T>.plus(elements: Iterable<T>): List<T>
+fun <T> Iterable<T>.plus(elements: Sequence<T>): List<T>
+fun <K, V> Map<out K, V>.plus(pairs: Array<out Pair<K, V>>): Map<K, V>
+fun <K, V> Map<out K, V>.plus(pair: Pair<K, V>): Map<K, V>
+fun <K, V> Map<out K, V>.plus(pairs: Iterable<Pair<K, V>>): Map<K, V>
+fun <K, V> Map<out K, V>.plus(map: Map<out K, V>): Map<K, V>
+fun <K, V> Map<out K, V>.plus(pairs: Sequence<Pair<K, V>>): Map<K, V>
+fun <T> Set<T>.plus(element: T): Set<T>
+fun <T> Set<T>.plus(elements: Array<out T>): Set<T>
+fun <T> Set<T>.plus(elements: Iterable<T>): Set<T>
+fun <T> Set<T>.plus(elements: Sequence<T>): Set<T>
+@SinceKotlin(...) @ExperimentalUnsignedTypes() @InlineOnly() fun UByteArray.plus(element: UByte): UByteArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() @InlineOnly() fun UByteArray.plus(elements: UByteArray): UByteArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun UByteArray.plus(elements: Collection<UByte>): UByteArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() @InlineOnly() fun UIntArray.plus(element: UInt): UIntArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() @InlineOnly() fun UIntArray.plus(elements: UIntArray): UIntArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun UIntArray.plus(elements: Collection<UInt>): UIntArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() @InlineOnly() fun ULongArray.plus(element: ULong): ULongArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() @InlineOnly() fun ULongArray.plus(elements: ULongArray): ULongArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun ULongArray.plus(elements: Collection<ULong>): ULongArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() @InlineOnly() fun UShortArray.plus(element: UShort): UShortArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() @InlineOnly() fun UShortArray.plus(elements: UShortArray): UShortArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun UShortArray.plus(elements: Collection<UShort>): UShortArray
+fun <T> Sequence<T>.plus(element: T): Sequence<T>
+fun <T> Sequence<T>.plus(elements: Array<out T>): Sequence<T>
+fun <T> Sequence<T>.plus(elements: Iterable<T>): Sequence<T>
+fun <T> Sequence<T>.plus(elements: Sequence<T>): Sequence<T>
+@InlineOnly() fun Char.plus(other: String): String
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2123:65 'operator' modifier is required on 'FirNamedFunctionSymbol kotlin/compareTo' in 'compareTo'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2126:35 Assignment type mismatch: actual type is 'it(kotlin.Number & kotlin.Comparable<*>)', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2130:37 None of the following candidates is applicable:
+@IntrinsicConstEvaluation() fun plus(other: Byte): Float
+@IntrinsicConstEvaluation() fun plus(other: Double): Double
+@IntrinsicConstEvaluation() fun plus(other: Float): Float
+@IntrinsicConstEvaluation() fun plus(other: Int): Float
+@IntrinsicConstEvaluation() fun plus(other: Long): Float
+@IntrinsicConstEvaluation() fun plus(other: Short): Float
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2136:79 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2140:38 Assignment type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2144:17 None of the following candidates is applicable:
+@SinceKotlin(...) fun <T : Comparable<T>> maxOf(a: T, b: T): T
+@SinceKotlin(...) fun <T : Comparable<T>> maxOf(a: T, vararg other: T): T
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Byte, b: Byte): Byte
+@SinceKotlin(...) fun maxOf(a: Byte, vararg other: Byte): Byte
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Double, b: Double): Double
+@SinceKotlin(...) fun maxOf(a: Double, vararg other: Double): Double
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Float, b: Float): Float
+@SinceKotlin(...) fun maxOf(a: Float, vararg other: Float): Float
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Int, b: Int): Int
+@SinceKotlin(...) fun maxOf(a: Int, vararg other: Int): Int
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Long, b: Long): Long
+@SinceKotlin(...) fun maxOf(a: Long, vararg other: Long): Long
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Short, b: Short): Short
+@SinceKotlin(...) fun maxOf(a: Short, vararg other: Short): Short
+@SinceKotlin(...) @WasExperimental(...) fun maxOf(a: UByte, b: UByte): UByte
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: UByte, vararg other: UByte): UByte
+@SinceKotlin(...) @WasExperimental(...) fun maxOf(a: UInt, b: UInt): UInt
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: UInt, vararg other: UInt): UInt
+@SinceKotlin(...) @WasExperimental(...) fun maxOf(a: ULong, b: ULong): ULong
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: ULong, vararg other: ULong): ULong
+@SinceKotlin(...) @WasExperimental(...) fun maxOf(a: UShort, b: UShort): UShort
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: UShort, vararg other: UShort): UShort
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2146:78 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2187:16 Return type mismatch: expected 'kotlin.Float', actual 'kotlin.Double'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2205:20 Return type mismatch: expected 'kotlin.Float', actual 'kotlin.Double'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2205:53 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2205:62 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2209:85 Argument type mismatch: actual type is 'kotlin.Float', but 'CapturedType(*)' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2210:40 None of the following candidates is applicable:
+@IntrinsicConstEvaluation() fun div(other: Byte): Double
+@IntrinsicConstEvaluation() fun div(other: Double): Double
+@IntrinsicConstEvaluation() fun div(other: Float): Double
+@IntrinsicConstEvaluation() fun div(other: Int): Double
+@IntrinsicConstEvaluation() fun div(other: Long): Double
+@IntrinsicConstEvaluation() fun div(other: Short): Double
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2215:29 Argument type mismatch: actual type is 'kotlin.Float', but 'CapturedType(*)' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2216:31 Overload resolution ambiguity between candidates:
+@SinceKotlin(...) @InlineOnly() fun abs(x: Double): Double
+@SinceKotlin(...) @InlineOnly() fun abs(x: Float): Float
+@SinceKotlin(...) @InlineOnly() fun abs(n: Int): Int
+@SinceKotlin(...) @InlineOnly() fun abs(n: Long): Long
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2216:49 None of the following candidates is applicable:
+@InlineOnly() fun BigDecimal.times(other: BigDecimal): BigDecimal
+@InlineOnly() fun BigInteger.times(other: BigInteger): BigInteger
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2216:64 Overload resolution ambiguity between candidates:
+fun <T> Iterable<T>.minus(element: T): List<T>
+@SinceKotlin(...) fun <K, V> Map<out K, V>.minus(key: K): Map<K, V>
+fun <T> Set<T>.minus(element: T): Set<T>
+fun <T> Sequence<T>.minus(element: T): Sequence<T>
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2217:29 Overload resolution ambiguity between candidates:
+@SinceKotlin(...) @InlineOnly() fun abs(x: Double): Double
+@SinceKotlin(...) @InlineOnly() fun abs(x: Float): Float
+@SinceKotlin(...) @InlineOnly() fun abs(n: Int): Int
+@SinceKotlin(...) @InlineOnly() fun abs(n: Long): Long
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2217:47 None of the following candidates is applicable:
+@InlineOnly() fun BigDecimal.times(other: BigDecimal): BigDecimal
+@InlineOnly() fun BigInteger.times(other: BigInteger): BigInteger
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2217:68 Overload resolution ambiguity between candidates:
+fun <T> Iterable<T>.minus(element: T): List<T>
+@SinceKotlin(...) fun <K, V> Map<out K, V>.minus(key: K): Map<K, V>
+fun <T> Set<T>.minus(element: T): Set<T>
+fun <T> Sequence<T>.minus(element: T): Sequence<T>
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2218:36 'operator' modifier is required on 'FirNamedFunctionSymbol kotlin/text/compareTo' in 'compareTo'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2249:36 Argument type mismatch: actual type is 'com.shawnrain.habe.data.telemetry.EnergyWh', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2602:21 Assignment type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2603:21 Assignment type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2603:79 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2610:37 None of the following candidates is applicable:
+@SinceKotlin(...) fun <T : Comparable<T>> maxOf(a: T, b: T): T
+@SinceKotlin(...) fun <T : Comparable<T>> maxOf(a: T, vararg other: T): T
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Byte, b: Byte): Byte
+@SinceKotlin(...) fun maxOf(a: Byte, vararg other: Byte): Byte
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Double, b: Double): Double
+@SinceKotlin(...) fun maxOf(a: Double, vararg other: Double): Double
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Float, b: Float): Float
+@SinceKotlin(...) fun maxOf(a: Float, vararg other: Float): Float
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Int, b: Int): Int
+@SinceKotlin(...) fun maxOf(a: Int, vararg other: Int): Int
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Long, b: Long): Long
+@SinceKotlin(...) fun maxOf(a: Long, vararg other: Long): Long
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Short, b: Short): Short
+@SinceKotlin(...) fun maxOf(a: Short, vararg other: Short): Short
+@SinceKotlin(...) @WasExperimental(...) fun maxOf(a: UByte, b: UByte): UByte
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: UByte, vararg other: UByte): UByte
+@SinceKotlin(...) @WasExperimental(...) fun maxOf(a: UInt, b: UInt): UInt
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: UInt, vararg other: UInt): UInt
+@SinceKotlin(...) @WasExperimental(...) fun maxOf(a: ULong, b: ULong): ULong
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: ULong, vararg other: ULong): ULong
+@SinceKotlin(...) @WasExperimental(...) fun maxOf(a: UShort, b: UShort): UShort
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: UShort, vararg other: UShort): UShort
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2610:93 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2611:40 None of the following candidates is applicable:
+@SinceKotlin(...) fun <T : Comparable<T>> maxOf(a: T, b: T): T
+@SinceKotlin(...) fun <T : Comparable<T>> maxOf(a: T, vararg other: T): T
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Byte, b: Byte): Byte
+@SinceKotlin(...) fun maxOf(a: Byte, vararg other: Byte): Byte
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Double, b: Double): Double
+@SinceKotlin(...) fun maxOf(a: Double, vararg other: Double): Double
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Float, b: Float): Float
+@SinceKotlin(...) fun maxOf(a: Float, vararg other: Float): Float
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Int, b: Int): Int
+@SinceKotlin(...) fun maxOf(a: Int, vararg other: Int): Int
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Long, b: Long): Long
+@SinceKotlin(...) fun maxOf(a: Long, vararg other: Long): Long
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Short, b: Short): Short
+@SinceKotlin(...) fun maxOf(a: Short, vararg other: Short): Short
+@SinceKotlin(...) @WasExperimental(...) fun maxOf(a: UByte, b: UByte): UByte
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: UByte, vararg other: UByte): UByte
+@SinceKotlin(...) @WasExperimental(...) fun maxOf(a: UInt, b: UInt): UInt
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: UInt, vararg other: UInt): UInt
+@SinceKotlin(...) @WasExperimental(...) fun maxOf(a: ULong, b: ULong): ULong
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: ULong, vararg other: ULong): ULong
+@SinceKotlin(...) @WasExperimental(...) fun maxOf(a: UShort, b: UShort): UShort
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: UShort, vararg other: UShort): UShort
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2611:103 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2615:48 None of the following candidates is applicable:
+@SinceKotlin(...) fun <T : Comparable<T>> maxOf(a: T, b: T, c: T): T
+@SinceKotlin(...) fun <T : Comparable<T>> maxOf(a: T, vararg other: T): T
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Byte, b: Byte, c: Byte): Byte
+@SinceKotlin(...) fun maxOf(a: Byte, vararg other: Byte): Byte
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Double, b: Double, c: Double): Double
+@SinceKotlin(...) fun maxOf(a: Double, vararg other: Double): Double
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Float, b: Float, c: Float): Float
+@SinceKotlin(...) fun maxOf(a: Float, vararg other: Float): Float
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Int, b: Int, c: Int): Int
+@SinceKotlin(...) fun maxOf(a: Int, vararg other: Int): Int
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Long, b: Long, c: Long): Long
+@SinceKotlin(...) fun maxOf(a: Long, vararg other: Long): Long
+@SinceKotlin(...) @InlineOnly() fun maxOf(a: Short, b: Short, c: Short): Short
+@SinceKotlin(...) fun maxOf(a: Short, vararg other: Short): Short
+@SinceKotlin(...) fun <T> maxOf(a: T, b: T, comparator: Comparator<in T>): T
+@SinceKotlin(...) @WasExperimental(...) @InlineOnly() fun maxOf(a: UByte, b: UByte, c: UByte): UByte
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: UByte, vararg other: UByte): UByte
+@SinceKotlin(...) @WasExperimental(...) @InlineOnly() fun maxOf(a: UInt, b: UInt, c: UInt): UInt
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: UInt, vararg other: UInt): UInt
+@SinceKotlin(...) @WasExperimental(...) @InlineOnly() fun maxOf(a: ULong, b: ULong, c: ULong): ULong
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: ULong, vararg other: ULong): ULong
+@SinceKotlin(...) @WasExperimental(...) @InlineOnly() fun maxOf(a: UShort, b: UShort, c: UShort): UShort
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun maxOf(a: UShort, vararg other: UShort): UShort
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2629:45 Argument type mismatch: actual type is 'kotlin.Float', but 'com.shawnrain.habe.data.telemetry.EnergyWh' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2630:49 Argument type mismatch: actual type is 'kotlin.Float', but 'com.shawnrain.habe.data.telemetry.EnergyWh' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2632:49 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2637:17 Assignment type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2638:37 None of the following candidates is applicable:
+@IntrinsicConstEvaluation() fun plus(other: Byte): Float
+@IntrinsicConstEvaluation() fun plus(other: Double): Double
+@IntrinsicConstEvaluation() fun plus(other: Float): Float
+@IntrinsicConstEvaluation() fun plus(other: Int): Float
+@IntrinsicConstEvaluation() fun plus(other: Long): Float
+@IntrinsicConstEvaluation() fun plus(other: Short): Float
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2638:111 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2706:35 Argument type mismatch: actual type is 'com.shawnrain.habe.data.telemetry.EnergyWh', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2711:33 Argument type mismatch: actual type is 'kotlin.Float', but 'com.shawnrain.habe.data.telemetry.EnergyWh' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2712:37 Argument type mismatch: actual type is 'kotlin.Float', but 'com.shawnrain.habe.data.telemetry.EnergyWh' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2717:62 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2720:27 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2720:34 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2720:60 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2721:13 Unresolved reference 'type'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2722:13 Unresolved reference 'putExtra'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2722:22 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2723:13 Unresolved reference 'putExtra'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2723:22 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2724:13 Unresolved reference 'addFlags'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2724:22 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2725:13 Unresolved reference 'clipData'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2731:16 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2734:59 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2737:27 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2737:34 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2737:60 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2738:13 Unresolved reference 'type'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2739:13 Unresolved reference 'putExtra'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2739:22 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2740:13 Unresolved reference 'putExtra'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2740:22 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2741:13 Unresolved reference 'addFlags'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2741:22 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2742:13 Unresolved reference 'clipData'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2748:16 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2758:62 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2761:27 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2761:34 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2761:60 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2762:13 Unresolved reference 'type'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2763:13 Unresolved reference 'putExtra'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2763:22 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2764:13 Unresolved reference 'putExtra'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2764:22 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2765:13 Unresolved reference 'addFlags'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2765:22 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2766:13 Unresolved reference 'clipData'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2772:16 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2861:34 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2862:34 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2863:34 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2864:34 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2865:34 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2866:34 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2867:34 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2868:34 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2869:34 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2870:34 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2871:34 Argument type mismatch: actual type is 'com.shawnrain.habe.data.telemetry.EfficiencyWhKm', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2872:34 Argument type mismatch: actual type is 'com.shawnrain.habe.data.telemetry.EfficiencyWhKm', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2873:34 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2874:34 Argument type mismatch: actual type is 'com.shawnrain.habe.data.telemetry.EnergyWh', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2875:34 Argument type mismatch: actual type is 'com.shawnrain.habe.data.telemetry.EnergyWh', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2876:34 Argument type mismatch: actual type is 'com.shawnrain.habe.data.telemetry.EnergyWh', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2877:34 Argument type mismatch: actual type is 'com.shawnrain.habe.data.telemetry.EnergyWh', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:2878:34 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:3006:33 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/MainViewModel.kt:3008:16 Unresolved reference 'Intent'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/RangeEstimator.kt:26:39 Initializer type mismatch: expected 'com.shawnrain.habe.data.telemetry.EnergyWh', actual 'kotlin.Float'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/RangeEstimator.kt:76:49 Initializer type mismatch: expected 'com.shawnrain.habe.data.telemetry.EfficiencyWhKm', actual 'kotlin.Float'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/RangeEstimator.kt:77:13 Type mismatch: inferred type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/RangeEstimator.kt:98:40 Initializer type mismatch: expected 'com.shawnrain.habe.data.telemetry.EnergyWh', actual 'kotlin.Float'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/RangeEstimator.kt:98:40 Type mismatch: inferred type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/RangeEstimator.kt:102:61 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/RangeEstimator.kt:108:32 Argument type mismatch: actual type is 'it(kotlin.Number & kotlin.Comparable<CapturedType(*)>)', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/TelemetryReplayRunner.kt:100:24 Argument type mismatch: actual type is 'it(kotlin.Number & kotlin.Comparable<CapturedType(*)>)', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/TelemetryReplayRunner.kt:101:23 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/TelemetryReplayRunner.kt:102:26 Argument type mismatch: actual type is 'it(kotlin.Number & kotlin.Comparable<CapturedType(*)>)', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/TelemetryReplayRunner.kt:103:28 Argument type mismatch: actual type is 'it(kotlin.Number & kotlin.Comparable<CapturedType(*)>)', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/TelemetryReplayRunner.kt:104:19 Argument type mismatch: actual type is 'it(kotlin.Number & kotlin.Comparable<CapturedType(*)>)', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/TelemetryReplayRunner.kt:105:30 Argument type mismatch: actual type is 'it(kotlin.Number & kotlin.Comparable<CapturedType(*)>)', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/TelemetryReplayRunner.kt:106:26 Argument type mismatch: actual type is 'it(kotlin.Number & kotlin.Comparable<CapturedType(*)>)', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/TelemetryReplayRunner.kt:109:26 Argument type mismatch: actual type is 'it(kotlin.Number & kotlin.Comparable<CapturedType(*)>)', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/TelemetryReplayRunner.kt:110:19 Argument type mismatch: actual type is 'it(kotlin.Number & kotlin.Comparable<CapturedType(*)>)', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/data/telemetry/TelemetryReplayRunner.kt:111:32 Argument type mismatch: actual type is 'it(kotlin.Number & kotlin.Comparable<CapturedType(*)>)', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/poster/PosterRenderer.kt:46:30 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/poster/PosterRenderer.kt:47:27 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/poster/PosterRenderer.kt:48:27 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/poster/PosterRenderer.kt:49:27 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/poster/PosterRenderer.kt:50:29 Argument type mismatch: actual type is 'kotlin.Float', but 'com.shawnrain.habe.data.telemetry.EnergyWh' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/poster/PosterRenderer.kt:51:33 Argument type mismatch: actual type is 'kotlin.Float', but 'com.shawnrain.habe.data.telemetry.EfficiencyWhKm' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/poster/PosterRenderer.kt:52:36 Argument type mismatch: actual type is 'kotlin.Float', but 'com.shawnrain.habe.data.telemetry.EfficiencyWhKm' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/poster/PosterRenderer.kt:53:41 Argument type mismatch: actual type is 'kotlin.Float', but 'com.shawnrain.habe.data.telemetry.EfficiencyWhKm' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:1699:100 Argument type mismatch: actual type is 'kotlin.collections.List<kotlin.Double>', but 'kotlin.collections.List<kotlin.Float>' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:1786:100 Argument type mismatch: actual type is 'kotlin.collections.List<kotlin.Double>', but 'kotlin.collections.List<kotlin.Float>' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:1789:41 Argument type mismatch: actual type is 'kotlin.collections.List<kotlin.Double>', but 'kotlin.collections.List<kotlin.Float>' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:1860:48 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:1860:71 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:1868:25 Cannot access 'constructor(packedValue: Long): Offset': it is internal in 'androidx/compose/ui/geometry/Offset'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:1869:23 Cannot access 'constructor(packedValue: Long): Offset': it is internal in 'androidx/compose/ui/geometry/Offset'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:1902:89 Cannot access 'constructor(packedValue: Long): Offset': it is internal in 'androidx/compose/ui/geometry/Offset'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:1903:69 Cannot access 'constructor(packedValue: Long): Offset': it is internal in 'androidx/compose/ui/geometry/Offset'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:1904:69 Cannot access 'constructor(packedValue: Long): Offset': it is internal in 'androidx/compose/ui/geometry/Offset'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:1905:67 Cannot access 'constructor(packedValue: Long): Offset': it is internal in 'androidx/compose/ui/geometry/Offset'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2188:33 None of the following candidates is applicable:
+@IntrinsicConstEvaluation() fun div(other: Byte): Double
+@IntrinsicConstEvaluation() fun div(other: Double): Double
+@IntrinsicConstEvaluation() fun div(other: Float): Double
+@IntrinsicConstEvaluation() fun div(other: Int): Double
+@IntrinsicConstEvaluation() fun div(other: Long): Double
+@IntrinsicConstEvaluation() fun div(other: Short): Double
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2192:25 Argument type mismatch: actual type is 'kotlin.collections.List<kotlin.Double>', but 'kotlin.collections.List<kotlin.Float>' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2359:100 Argument type mismatch: actual type is 'kotlin.collections.List<kotlin.Double>', but 'kotlin.collections.List<kotlin.Float>' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2695:107 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2753:69 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2753:73 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2753:77 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2762:69 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2762:74 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2762:78 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2832:32 Argument type mismatch: actual type is 'kotlin.collections.List<R>', but 'kotlin.collections.List<kotlin.Float>' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2880:41 Argument type mismatch: actual type is 'kotlin.collections.List<kotlin.Double>', but 'kotlin.collections.List<kotlin.Float>' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2881:41 Argument type mismatch: actual type is 'kotlin.collections.List<kotlin.Double>', but 'kotlin.collections.List<kotlin.Float>' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2889:21 Argument type mismatch: actual type is 'kotlin.collections.List<R>', but 'kotlin.collections.List<kotlin.Float>' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2889:80 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2889:84 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2892:111 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2892:153 Argument type mismatch: actual type is 'kotlin.Double', but 'kotlin.Float' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2963:68 Argument type mismatch: actual type is 'kotlin.collections.List<kotlin.Float>', but 'kotlin.collections.List<kotlin.Double>' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2965:12 Return type mismatch: expected 'kotlin.Float', actual 'kotlin.Double'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2974:81 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2975:74 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:2976:82 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:3162:53 None of the following candidates is applicable:
+@InlineOnly() fun BigDecimal.plus(other: BigDecimal): BigDecimal
+@InlineOnly() fun BigInteger.plus(other: BigInteger): BigInteger
+fun String?.plus(other: Any?): String
+fun <T> Array<T>.plus(element: T): Array<T>
+fun <T> Array<T>.plus(elements: Array<out T>): Array<T>
+fun <T> Array<T>.plus(elements: Collection<T>): Array<T>
+fun BooleanArray.plus(element: Boolean): BooleanArray
+fun BooleanArray.plus(elements: BooleanArray): BooleanArray
+fun BooleanArray.plus(elements: Collection<Boolean>): BooleanArray
+fun ByteArray.plus(element: Byte): ByteArray
+fun ByteArray.plus(elements: ByteArray): ByteArray
+fun ByteArray.plus(elements: Collection<Byte>): ByteArray
+fun CharArray.plus(element: Char): CharArray
+fun CharArray.plus(elements: CharArray): CharArray
+fun CharArray.plus(elements: Collection<Char>): CharArray
+fun DoubleArray.plus(element: Double): DoubleArray
+fun DoubleArray.plus(elements: DoubleArray): DoubleArray
+fun DoubleArray.plus(elements: Collection<Double>): DoubleArray
+fun FloatArray.plus(element: Float): FloatArray
+fun FloatArray.plus(elements: FloatArray): FloatArray
+fun FloatArray.plus(elements: Collection<Float>): FloatArray
+fun IntArray.plus(element: Int): IntArray
+fun IntArray.plus(elements: IntArray): IntArray
+fun IntArray.plus(elements: Collection<Int>): IntArray
+fun LongArray.plus(element: Long): LongArray
+fun LongArray.plus(elements: LongArray): LongArray
+fun LongArray.plus(elements: Collection<Long>): LongArray
+fun ShortArray.plus(element: Short): ShortArray
+fun ShortArray.plus(elements: ShortArray): ShortArray
+fun ShortArray.plus(elements: Collection<Short>): ShortArray
+fun <T> Collection<T>.plus(element: T): List<T>
+fun <T> Collection<T>.plus(elements: Array<out T>): List<T>
+fun <T> Collection<T>.plus(elements: Iterable<T>): List<T>
+fun <T> Collection<T>.plus(elements: Sequence<T>): List<T>
+fun <T> Iterable<T>.plus(element: T): List<T>
+fun <T> Iterable<T>.plus(elements: Array<out T>): List<T>
+fun <T> Iterable<T>.plus(elements: Iterable<T>): List<T>
+fun <T> Iterable<T>.plus(elements: Sequence<T>): List<T>
+fun <K, V> Map<out K, V>.plus(pairs: Array<out Pair<K, V>>): Map<K, V>
+fun <K, V> Map<out K, V>.plus(pair: Pair<K, V>): Map<K, V>
+fun <K, V> Map<out K, V>.plus(pairs: Iterable<Pair<K, V>>): Map<K, V>
+fun <K, V> Map<out K, V>.plus(map: Map<out K, V>): Map<K, V>
+fun <K, V> Map<out K, V>.plus(pairs: Sequence<Pair<K, V>>): Map<K, V>
+fun <T> Set<T>.plus(element: T): Set<T>
+fun <T> Set<T>.plus(elements: Array<out T>): Set<T>
+fun <T> Set<T>.plus(elements: Iterable<T>): Set<T>
+fun <T> Set<T>.plus(elements: Sequence<T>): Set<T>
+@SinceKotlin(...) @ExperimentalUnsignedTypes() @InlineOnly() fun UByteArray.plus(element: UByte): UByteArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() @InlineOnly() fun UByteArray.plus(elements: UByteArray): UByteArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun UByteArray.plus(elements: Collection<UByte>): UByteArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() @InlineOnly() fun UIntArray.plus(element: UInt): UIntArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() @InlineOnly() fun UIntArray.plus(elements: UIntArray): UIntArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun UIntArray.plus(elements: Collection<UInt>): UIntArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() @InlineOnly() fun ULongArray.plus(element: ULong): ULongArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() @InlineOnly() fun ULongArray.plus(elements: ULongArray): ULongArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun ULongArray.plus(elements: Collection<ULong>): ULongArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() @InlineOnly() fun UShortArray.plus(element: UShort): UShortArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() @InlineOnly() fun UShortArray.plus(elements: UShortArray): UShortArray
+@SinceKotlin(...) @ExperimentalUnsignedTypes() fun UShortArray.plus(elements: Collection<UShort>): UShortArray
+fun <T> Sequence<T>.plus(element: T): Sequence<T>
+fun <T> Sequence<T>.plus(elements: Array<out T>): Sequence<T>
+fun <T> Sequence<T>.plus(elements: Iterable<T>): Sequence<T>
+fun <T> Sequence<T>.plus(elements: Sequence<T>): Sequence<T>
+@InlineOnly() fun Char.plus(other: String): String
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:3162:60 'operator' modifier is required on 'FirNamedFunctionSymbol kotlin/compareTo' in 'compareTo'.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:3165:34 Assignment type mismatch: actual type is 'it(kotlin.Number & kotlin.Comparable<*>)', but 'kotlin.Double' was expected.
+e: file:///Users/shawnrain/Library/Mobile%20Documents/com~apple~CloudDocs/Shawn%20Rain/Vibe-Coding/SmartDash/app/src/main/java/com/shawnrain/habe/ui/speedtest/SpeedtestScreen.kt:3168:32 None of the following candidates is applicable:
+@IntrinsicConstEvaluation() fun plus(other: Byte): Double
+@IntrinsicConstEvaluation() fun plus(other: Double): Double
+@IntrinsicConstEvaluation() fun plus(other: Float): Double
+@IntrinsicConstEvaluation() fun plus(other: Int): Double
+@IntrinsicConstEvaluation() fun plus(other: Long): Double
+@IntrinsicConstEvaluation() fun plus(other: Short): Double
+
+> Task :app:compileDebugKotlin FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileDebugKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 4s
+14 actionable tasks: 1 executed, 13 up-to-date
+Configuration cache entry reused.

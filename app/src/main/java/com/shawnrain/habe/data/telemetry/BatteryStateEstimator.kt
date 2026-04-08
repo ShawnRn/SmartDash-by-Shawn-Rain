@@ -10,24 +10,24 @@ import kotlin.math.abs
 class BatteryStateEstimator {
     companion object {
         private const val EMA_ALPHA = 0.12f
-        private const val CURRENT_STEP_THRESHOLD_A = 10f
-        private const val STATIONARY_CURRENT_THRESHOLD_A = 1f
+        private const val CURRENT_STEP_THRESHOLD_A = 10.0f
+        private const val STATIONARY_CURRENT_THRESHOLD_A = 1.0f
         private const val OCV_RECALIBRATION_MS = 60_000L // 1分钟静置后大幅回归 OCV
         private const val OCV_SETTLED_MS = 180_000L      // 3分钟后几乎完全信任 OCV
     }
 
     private var filteredVoltage = Float.NaN
     private var filteredCurrent = Float.NaN
-    private var previousRawVoltage = 0f
-    private var previousRawCurrent = 0f
-    private var learnedInternalResistanceOhm = 0f
+    private var previousRawVoltage = 0.0f
+    private var previousRawCurrent = 0.0f
+    private var learnedInternalResistanceOhm = 0.0f
     
     private var lastSampleAtMs = 0L
     private var stationarySinceMs = 0L
     private var baseSocPercent = Float.NaN
     private var currentSocAhPercent = Float.NaN
-    private var lastRawSpeed = 0f
-    private var lastRawRpm = 0f
+    private var lastRawSpeed = 0.0f
+    private var lastRawRpm = 0.0f
 
     private var lastSampleId: Long? = null
     private var lastBatteryState: BatteryState? = null
@@ -37,12 +37,12 @@ class BatteryStateEstimator {
     private var voltageWindowPadding = 0
     private var voltageWindowIndex = 0
 
-    fun reset(initialResistance: Float = 0f) {
+    fun reset(initialResistance: Float = 0.0f) {
         filteredVoltage = Float.NaN
         filteredCurrent = Float.NaN
-        previousRawVoltage = 0f
-        previousRawCurrent = 0f
-        learnedInternalResistanceOhm = initialResistance.coerceAtLeast(0f)
+        previousRawVoltage = 0.0f
+        previousRawCurrent = 0.0f
+        learnedInternalResistanceOhm = initialResistance.coerceAtLeast(0.0f)
         lastSampleAtMs = 0L
         stationarySinceMs = 0L
         baseSocPercent = Float.NaN
@@ -51,9 +51,9 @@ class BatteryStateEstimator {
         lastBatteryState = null
         voltageWindowPadding = 0
         voltageWindowIndex = 0
-        voltageWindow.fill(0f)
-        lastRawSpeed = 0f
-        lastRawRpm = 0f
+        voltageWindow.fill(0.0f)
+        lastRawSpeed = 0.0f
+        lastRawRpm = 0.0f
     }
 
     fun estimate(
@@ -97,24 +97,24 @@ class BatteryStateEstimator {
         }
 
         // 4. 计算补偿后的 OCV SoC
-        val ocvCompensated = filteredVoltage + (filteredCurrent.coerceAtLeast(0f) * learnedInternalResistanceOhm)
+        val ocvCompensated = filteredVoltage + (filteredCurrent.coerceAtLeast(0.0f) * learnedInternalResistanceOhm)
         val socByOcv = socFromPackVoltage(ocvCompensated, batterySeries)
 
         // 5. 计算基于 Ah 积分的 SoC
-        val capacityAh = batteryCapacityAh.coerceAtLeast(1f)
-        val initialSoc = fallbackSocPercent?.takeIf { it in 1f..100f } ?: socByOcv
+        val capacityAh = batteryCapacityAh.coerceAtLeast(1.0f)
+        val initialSoc = fallbackSocPercent?.takeIf { it in 1.0f..100.0f } ?: socByOcv
         
         if (baseSocPercent.isNaN()) {
             baseSocPercent = initialSoc
         }
         
         val netAh = accumulator.netBatteryAh
-        val socByAh = (baseSocPercent - ((netAh / capacityAh) * 100.0)).toFloat().coerceIn(0f, 100f)
+        val socByAh = (baseSocPercent - ((netAh / capacityAh) * 100.0f)).coerceIn(0.0f, 100.0f)
 
         // 6. 静置检测与融合 (除电流、速度、转速外，引入电压稳定性门控)
         val isStationary = abs(filteredCurrent) < STATIONARY_CURRENT_THRESHOLD_A &&
                 sample.controllerSpeedKmH < 0.8f &&
-                sample.rpm < 10f &&
+                sample.rpm < 10.0f &&
                 isVoltageStable
                 
         if (isStationary) {
@@ -126,7 +126,7 @@ class BatteryStateEstimator {
         val stationaryDuration = if (stationarySinceMs > 0) now - stationarySinceMs else 0L
         val (wAh, wOcv) = getFusionWeights(abs(filteredCurrent), stationaryDuration)
         
-        val fusedSoc = ((socByAh * wAh) + (socByOcv * wOcv)).coerceIn(0f, 100f)
+        val fusedSoc = ((socByAh * wAh) + (socByOcv * wOcv)).coerceIn(0.0f, 100.0f)
 
         // 更新状态以供下次使用
         previousRawVoltage = rawVoltage
@@ -136,6 +136,8 @@ class BatteryStateEstimator {
         lastSampleAtMs = now
         lastSampleId = sample.sourceFrameId
         
+        val irContext = "soc_${(fusedSoc / 10).toInt() * 10}_temp_${(sample.controllerTempC / 10).toInt() * 10}_speed_${(sample.controllerSpeedKmH / 10).toInt() * 10}"
+        
         val result = BatteryState(
             socPercent = fusedSoc,
             socByAhPercent = socByAh,
@@ -144,13 +146,14 @@ class BatteryStateEstimator {
             filteredCurrent = filteredCurrent,
             learnedInternalResistanceOhm = learnedInternalResistanceOhm,
             isStationary = isStationary,
-            confidence = calculateConfidence(isStationary, stationaryDuration)
+            confidence = calculateConfidence(isStationary, stationaryDuration),
+            irContext = irContext
         )
         lastBatteryState = result
         return result
     }
 
-    private fun ema(prev: Float, curr: Float) = (EMA_ALPHA * curr) + ((1f - EMA_ALPHA) * prev)
+    private fun ema(prev: Float, curr: Float) = (EMA_ALPHA * curr) + ((1.0f - EMA_ALPHA) * prev)
 
     private fun updateLearnedResistance(rawV: Float, rawI: Float, now: Long, sample: TelemetrySample) {
         if (lastSampleAtMs == 0L) return
@@ -160,7 +163,7 @@ class BatteryStateEstimator {
         // 内阻学习稳定窗校验 (防止急加速/急减速/机械制动瞬间的干扰)
         if (sample.braking) return
         if (abs(sample.controllerSpeedKmH - lastRawSpeed) > 1.5f) return
-        if (abs(sample.rpm - lastRawRpm) > 50f) return
+        if (abs(sample.rpm - lastRawRpm) > 50.0f) return
 
         val deltaI = rawI - previousRawCurrent
         if (abs(deltaI) < CURRENT_STEP_THRESHOLD_A) return
@@ -168,7 +171,7 @@ class BatteryStateEstimator {
         val candidate = abs((previousRawVoltage - rawV) / deltaI)
         if (candidate !in 0.001f..1.0f) return
 
-        learnedInternalResistanceOhm = if (learnedInternalResistanceOhm <= 0f) {
+        learnedInternalResistanceOhm = if (learnedInternalResistanceOhm <= 0.0f) {
             candidate
         } else {
             (learnedInternalResistanceOhm * 0.85f + candidate * 0.15f)
@@ -179,8 +182,8 @@ class BatteryStateEstimator {
         return when {
             absI < STATIONARY_CURRENT_THRESHOLD_A && stationaryMs >= OCV_SETTLED_MS -> 0.1f to 0.9f
             absI < STATIONARY_CURRENT_THRESHOLD_A && stationaryMs >= OCV_RECALIBRATION_MS -> 0.4f to 0.6f
-            absI <= 2f -> 0.6f to 0.4f
-            absI <= 8f -> 0.85f to 0.15f
+            absI <= 2.0f -> 0.6f to 0.4f
+            absI <= 8.0f -> 0.85f to 0.15f
             else -> 0.98f to 0.02f
         }
     }
@@ -191,12 +194,12 @@ class BatteryStateEstimator {
     }
 
     private fun socFromPackVoltage(v: Float, series: Int): Float {
-        val cellV = if (series > 0) v / series else 0f
+        val cellV = if (series > 0) v / series else 0.0f
         val table = listOf(
-            4.20f to 100f, 4.15f to 96f, 4.10f to 91f, 4.05f to 85f, 4.00f to 78f,
-            3.95f to 71f, 3.90f to 63f, 3.85f to 55f, 3.80f to 47f, 3.75f to 39f,
-            3.70f to 31f, 3.65f to 24f, 3.60f to 17f, 3.55f to 12f, 3.50f to 8f,
-            3.45f to 5f, 3.40f to 3f, 3.30f to 1f, 3.20f to 0f
+            4.20f to 100.0f, 4.15f to 96.0f, 4.10f to 91.0f, 4.05f to 85.0f, 4.00f to 78.0f,
+            3.95f to 71.0f, 3.90f to 63.0f, 3.85f to 55.0f, 3.80f to 47.0f, 3.75f to 39.0f,
+            3.70f to 31.0f, 3.65f to 24.0f, 3.60f to 17.0f, 3.55f to 12.0f, 3.50f to 8.0f,
+            3.45f to 5.0f, 3.40f to 3.0f, 3.30f to 1.0f, 3.20f to 0.0f
         )
         if (cellV >= table.first().first) return table.first().second
         if (cellV <= table.last().first) return table.last().second
@@ -206,6 +209,6 @@ class BatteryStateEstimator {
                 return lo.second + (hi.second - lo.second) * p
             }
         }
-        return 0f
+        return 0.0f
     }
 }

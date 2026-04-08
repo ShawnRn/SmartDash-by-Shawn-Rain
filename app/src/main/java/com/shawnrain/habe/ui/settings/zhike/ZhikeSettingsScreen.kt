@@ -3,6 +3,7 @@ package com.shawnrain.habe.ui.settings.zhike
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,6 +67,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.shawnrain.habe.MainViewModel
+import com.shawnrain.habe.ble.protocols.WriteFailurePhase
 import com.shawnrain.habe.ble.protocols.ZhikeParamDefinition
 import com.shawnrain.habe.ble.protocols.ZhikeParamGroup
 import com.shawnrain.habe.ble.protocols.ZhikeParamKind
@@ -99,6 +101,7 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     // Dialogs state
     var showValidationDialog by remember { mutableStateOf(false) }
     var showFactoryResetDialog by remember { mutableStateOf(false) }
+    var showSafePresetsDialog by remember { mutableStateOf(false) }
     var showPasswordChangeDialog by remember { mutableStateOf(false) }
     var showExportSuccessDialog by remember { mutableStateOf(false) }
     var showImportDialog by remember { mutableStateOf(false) }
@@ -219,36 +222,111 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             if (isDirty || true) {
                 Surface(tonalElevation = 8.dp) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        // Write state progress indicator
-                        if (writeState !is ZhikeWriteState.Idle && writeState !is ZhikeWriteState.Succeeded) {
-                            val (progressText, showProgress) = when (writeState) {
-                                is ZhikeWriteState.Handshaking -> "正在握手..." to true
-                                is ZhikeWriteState.EnteringWriteMode -> "正在进入写入模式..." to true
-                                is ZhikeWriteState.ReadyToWrite -> "准备写入..." to true
-                                is ZhikeWriteState.WritingPackets -> "正在写入参数..." to true
-                                is ZhikeWriteState.WaitingWriteAck -> "等待控制器确认..." to true
-                                is ZhikeWriteState.Verifying -> "正在回读核对..." to true
-                                is ZhikeWriteState.Failed -> "写入失败: ${(writeState as ZhikeWriteState.Failed).reason}" to false
-                                else -> "" to false
-                            }
+                        // Write step progress indicator
+                        if (writeState !is ZhikeWriteState.Idle && writeState !is ZhikeWriteState.Succeeded && writeState !is ZhikeWriteState.Failed) {
+                            val steps = listOf(
+                                ZhikeWriteState.Handshaking to "1. 握手",
+                                ZhikeWriteState.EnteringWriteMode to "2. 写入模式",
+                                ZhikeWriteState.ReadyToWrite to "3. 准备",
+                                ZhikeWriteState.WritingPackets to "4. 写入",
+                                ZhikeWriteState.WaitingWriteAck to "5. 确认",
+                                ZhikeWriteState.Verifying to "6. 核对"
+                            )
+                            val currentStateIndex = steps.indexOfFirst { writeState is ZhikeWriteState && it.first::class == writeState::class }
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(bottom = 8.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                if (showProgress) {
-                                    CircularProgressIndicator(modifier = Modifier.width(24.dp), strokeWidth = 2.dp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    steps.forEachIndexed { index, step ->
+                                        val isCompleted = currentStateIndex > index
+                                        val isCurrent = currentStateIndex == index
+                                        val color = when {
+                                            isCompleted -> MaterialTheme.colorScheme.primary
+                                            isCurrent -> MaterialTheme.colorScheme.onSurface
+                                            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                        }
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(8.dp)
+                                                    .height(8.dp)
+                                                    .background(
+                                                        color = color,
+                                                        shape = androidx.compose.foundation.shape.CircleShape
+                                                    )
+                                            )
+                                            Text(
+                                                text = step.second,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = color,
+                                                fontSize = androidx.compose.ui.unit.TextUnit(6f, androidx.compose.ui.unit.TextUnitType.Sp)
+                                            )
+                                        }
+                                        if (index < steps.lastIndex) {
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                        }
+                                    }
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = progressText,
+                                    text = when (writeState) {
+                                        is ZhikeWriteState.Handshaking -> "正在握手..."
+                                        is ZhikeWriteState.EnteringWriteMode -> "正在进入写入模式..."
+                                        is ZhikeWriteState.ReadyToWrite -> "准备写入..."
+                                        is ZhikeWriteState.WritingPackets -> "正在写入参数..."
+                                        is ZhikeWriteState.WaitingWriteAck -> "等待控制器确认..."
+                                        is ZhikeWriteState.Verifying -> "正在回读核对..."
+                                        else -> ""
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = if (writeState is ZhikeWriteState.Failed)
-                                        MaterialTheme.colorScheme.error
-                                    else
-                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                CircularProgressIndicator(modifier = Modifier.width(24.dp), strokeWidth = 2.dp)
+                            }
+                        }
+
+                        // Failed state with phase-specific hint
+                        if (writeState is ZhikeWriteState.Failed) {
+                            val failed = writeState as ZhikeWriteState.Failed
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "❌ 写入失败",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.error,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = failed.phase.label,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                Text(
+                                    text = failed.phase.userHint,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                                if (failed.reason.isNotEmpty()) {
+                                    Text(
+                                        text = failed.reason,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    )
+                                }
                             }
                         }
 
@@ -287,6 +365,13 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                                     expanded = showBottomMenu,
                                     onDismissRequest = { showBottomMenu = false }
                                 ) {
+                                    DropdownMenuItem(
+                                        text = { Text("恢复安全参数") },
+                                        onClick = {
+                                            showBottomMenu = false
+                                            showSafePresetsDialog = true
+                                        }
+                                    )
                                     DropdownMenuItem(
                                         text = { Text("恢复出厂设置") },
                                         onClick = {
@@ -636,6 +721,55 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             dismissButton = {
                 TextButton(
                     onClick = { showPasswordChangeDialog = false },
+                    shape = bezierPillShape()
+                ) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    // Safe presets dialog
+    if (showSafePresetsDialog) {
+        BlurredAlertDialog(
+            onDismissRequest = { showSafePresetsDialog = false },
+            title = { Text("恢复安全参数") },
+            text = {
+                Column {
+                    Text("将以下参数恢复为保守安全值：")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("• 母线电流：25A", style = MaterialTheme.typography.bodySmall)
+                        Text("• 相线电流：80A", style = MaterialTheme.typography.bodySmall)
+                        Text("• 弱磁电流：15A", style = MaterialTheme.typography.bodySmall)
+                        Text("• 欠压点：39V", style = MaterialTheme.typography.bodySmall)
+                        Text("• 过压点：84V", style = MaterialTheme.typography.bodySmall)
+                        Text("• 回充电压上限：80V", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "此操作仅修改当前编辑模型，不会立即写入控制器。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val safeSettings = viewModel.applySafeZhikePresets()
+                        settings = safeSettings
+                        isDirty = true
+                        showSafePresetsDialog = false
+                    },
+                    shape = bezierPillShape()
+                ) {
+                    Text("应用安全参数")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showSafePresetsDialog = false },
                     shape = bezierPillShape()
                 ) {
                     Text("取消")

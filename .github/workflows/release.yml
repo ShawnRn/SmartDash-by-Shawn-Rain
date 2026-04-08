@@ -241,6 +241,7 @@ jobs:
           cp "${APK_PATH}" "${APK_BASENAME}.apk"
           SHA256="$(sha256sum "${APK_BASENAME}.apk" | awk '{print $1}')"
           printf '%s  %s\n' "${SHA256}" "${APK_BASENAME}.apk" > "${APK_BASENAME}.sha256"
+          RELEASE_NOTES_JSON="$(python3 -c 'import json, os; print(json.dumps(os.environ.get("RELEASE_NOTES_INPUT", "")))')"
           
           # Generate Manifest
           cat <<EOF > "${APK_BASENAME}-manifest.json"
@@ -253,11 +254,7 @@ jobs:
             "apkSha256": "${SHA256}",
             "publishedAt": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
             "htmlUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}",
-            "releaseNotes": $(python3 - <<'PY'
-import json, os
-print(json.dumps(os.environ.get("RELEASE_NOTES_INPUT", "")))
-PY
-)
+            "releaseNotes": ${RELEASE_NOTES_JSON}
           }
           EOF
           cp "${APK_BASENAME}-manifest.json" "release-manifest.json"

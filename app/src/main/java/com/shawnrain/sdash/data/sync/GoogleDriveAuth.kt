@@ -20,7 +20,8 @@ class GoogleDriveAuth(private val context: Context) {
         private const val DRIVE_APPDATA_SCOPE = "https://www.googleapis.com/auth/drive.appdata"
         const val SIGN_IN_REQUEST_CODE = 9001
         // OAuth 2.0 Client ID for Android (from Google Cloud Console)
-        private const val CLIENT_ID = "8447150714-6g8ef28e8n2k7n01ek1816kqulpngu45.apps.googleusercontent.com"
+        // Package: com.shawnrain.sdash | SHA-1: 9A:A1:A9:6F:2A:DB:C8:A2:62:42:04:8E:1B:5C:7D:4A:4F:A9:C5:F6
+        private const val CLIENT_ID = "8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.googleusercontent.com"
     }
 
     private val googleSignInClient by lazy {

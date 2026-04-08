@@ -26,6 +26,8 @@ class BatteryStateEstimator {
     private var stationarySinceMs = 0L
     private var baseSocPercent = Float.NaN
     private var currentSocAhPercent = Float.NaN
+    private var lastRawSpeed = 0f
+    private var lastRawRpm = 0f
 
     private var lastSampleId: Long? = null
     private var lastBatteryState: BatteryState? = null
@@ -49,6 +51,9 @@ class BatteryStateEstimator {
         lastBatteryState = null
         voltageWindowPadding = 0
         voltageWindowIndex = 0
+        voltageWindow.fill(0f)
+        lastRawSpeed = 0f
+        lastRawRpm = 0f
     }
 
     fun estimate(
@@ -86,9 +91,9 @@ class BatteryStateEstimator {
         filteredVoltage = if (filteredVoltage.isNaN()) rawVoltage else ema(filteredVoltage, rawVoltage)
         filteredCurrent = if (filteredCurrent.isNaN()) rawCurrent else ema(filteredCurrent, rawCurrent)
 
-        // 3. 内阻学习 (基于电流阶阶跃)
+        // 3. 内阻学习 (基于电流阶阶跃，增加物理稳定性校验)
         if (sample.allowLearning) {
-            updateLearnedResistance(rawVoltage, rawCurrent, now)
+            updateLearnedResistance(rawVoltage, rawCurrent, now, sample)
         }
 
         // 4. 计算补偿后的 OCV SoC
@@ -126,6 +131,8 @@ class BatteryStateEstimator {
         // 更新状态以供下次使用
         previousRawVoltage = rawVoltage
         previousRawCurrent = rawCurrent
+        lastRawSpeed = sample.controllerSpeedKmH
+        lastRawRpm = sample.rpm
         lastSampleAtMs = now
         lastSampleId = sample.sourceFrameId
         
@@ -145,10 +152,15 @@ class BatteryStateEstimator {
 
     private fun ema(prev: Float, curr: Float) = (EMA_ALPHA * curr) + ((1f - EMA_ALPHA) * prev)
 
-    private fun updateLearnedResistance(rawV: Float, rawI: Float, now: Long) {
+    private fun updateLearnedResistance(rawV: Float, rawI: Float, now: Long, sample: TelemetrySample) {
         if (lastSampleAtMs == 0L) return
         val dt = now - lastSampleAtMs
         if (dt !in 50L..2000L) return
+
+        // 内阻学习稳定窗校验 (防止急加速/急减速/机械制动瞬间的干扰)
+        if (sample.braking) return
+        if (abs(sample.controllerSpeedKmH - lastRawSpeed) > 1.5f) return
+        if (abs(sample.rpm - lastRawRpm) > 50f) return
 
         val deltaI = rawI - previousRawCurrent
         if (abs(deltaI) < CURRENT_STEP_THRESHOLD_A) return

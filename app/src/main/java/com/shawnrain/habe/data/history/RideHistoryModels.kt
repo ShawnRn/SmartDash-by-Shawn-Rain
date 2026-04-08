@@ -36,6 +36,8 @@ data class RideMetricSample(
     val rpm: Float,
     val efficiencyWhKm: Float,
     val avgEfficiencyWhKm: Float = 0f,
+    val avgNetEfficiencyWhKm: Float = 0f,
+    val avgTractionEfficiencyWhKm: Float = 0f,
     val distanceMeters: Float,
     val totalEnergyWh: Float = 0f,
     val tractionEnergyWh: Float = 0f,
@@ -60,6 +62,8 @@ data class RideMetricSample(
         .put("rpm", rpm.toDouble())
         .put("efficiencyWhKm", efficiencyWhKm.toDouble())
         .put("avgEfficiencyWhKm", avgEfficiencyWhKm.toDouble())
+        .put("avgNetEfficiencyWhKm", avgNetEfficiencyWhKm.toDouble())
+        .put("avgTractionEfficiencyWhKm", avgTractionEfficiencyWhKm.toDouble())
         .put("distanceMeters", distanceMeters.toDouble())
         .put("totalEnergyWh", totalEnergyWh.toDouble())
         .put("tractionEnergyWh", tractionEnergyWh.toDouble())
@@ -86,6 +90,8 @@ data class RideMetricSample(
                 rpm = json.optDouble("rpm", 0.0).toFloat(),
                 efficiencyWhKm = json.optDouble("efficiencyWhKm", 0.0).toFloat(),
                 avgEfficiencyWhKm = json.optDouble("avgEfficiencyWhKm", 0.0).toFloat(),
+                avgNetEfficiencyWhKm = json.optDouble("avgNetEfficiencyWhKm", json.optDouble("avgEfficiencyWhKm", 0.0)).toFloat(),
+                avgTractionEfficiencyWhKm = json.optDouble("avgTractionEfficiencyWhKm", 0.0).toFloat(),
                 distanceMeters = json.optDouble("distanceMeters", 0.0).toFloat(),
                 totalEnergyWh = json.optDouble("totalEnergyWh", 0.0).toFloat(),
                 tractionEnergyWh = json.optDouble("tractionEnergyWh", json.optDouble("totalEnergyWh", 0.0)).toFloat(),
@@ -113,6 +119,8 @@ data class RideHistoryRecord(
     val tractionEnergyWh: Float = 0f,
     val regenEnergyWh: Float = 0f,
     val avgEfficiencyWhKm: Float,
+    val avgNetEfficiencyWhKm: Float = 0f,
+    val avgTractionEfficiencyWhKm: Float = 0f,
     val trackPoints: List<RideTrackPoint>,
     val samples: List<RideMetricSample>
 ) {
@@ -135,6 +143,8 @@ data class RideHistoryRecord(
             .put("tractionEnergyWh", tractionEnergyWh.toDouble())
             .put("regenEnergyWh", regenEnergyWh.toDouble())
             .put("avgEfficiencyWhKm", avgEfficiencyWhKm.toDouble())
+            .put("avgNetEfficiencyWhKm", avgNetEfficiencyWhKm.toDouble())
+            .put("avgTractionEfficiencyWhKm", avgTractionEfficiencyWhKm.toDouble())
             .put("trackPoints", tracks)
             .put("samples", sampleArray)
     }
@@ -167,6 +177,8 @@ data class RideHistoryRecord(
                 tractionEnergyWh = json.optDouble("tractionEnergyWh", json.optDouble("totalEnergyWh", 0.0)).toFloat(),
                 regenEnergyWh = json.optDouble("regenEnergyWh", 0.0).toFloat(),
                 avgEfficiencyWhKm = json.optDouble("avgEfficiencyWhKm", 0.0).toFloat(),
+                avgNetEfficiencyWhKm = json.optDouble("avgNetEfficiencyWhKm", json.optDouble("avgEfficiencyWhKm", 0.0)).toFloat(),
+                avgTractionEfficiencyWhKm = json.optDouble("avgTractionEfficiencyWhKm", 0.0).toFloat(),
                 trackPoints = tracks,
                 samples = samples
             )

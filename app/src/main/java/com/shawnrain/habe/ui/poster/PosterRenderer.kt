@@ -49,6 +49,8 @@ class PosterRenderer(private val context: Context) {
             peakPowerKw = 0f,
             totalEnergyWh = session.totalWh,
             avgEfficiencyWhKm = session.avgEfficiency,
+            avgNetEfficiencyWhKm = session.avgEfficiency,
+            avgTractionEfficiencyWhKm = 0f,
             trackPoints = emptyList(),
             samples = emptyList()
         )
@@ -106,7 +108,7 @@ class PosterRenderer(private val context: Context) {
                     Triple("平均速度", formatFloat(record.avgSpeedKmh), "km/h"),
                     Triple("峰值功率", formatFloat(record.peakPowerKw), "kW"),
                     Triple("耗电量", formatFloat(record.totalEnergyWh), "Wh"),
-                    Triple("平均能耗", formatFloat(record.avgEfficiencyWhKm), "Wh/km")
+                    Triple("平均能耗", formatFloat(record.avgNetEfficiencyWhKm), "Wh/km")
                 )
             )
             drawRouteCard(

@@ -433,36 +433,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             batterySeries = currentVehicleProfile.batterySeries,
             activeProtocolId = activeProtocolId
         )
-        val batteryState = sample?.let {
-            batteryStateEstimator.estimate(
-                sample = it,
+        var batteryState = _batteryState.value ?: BatteryState()
+        var rangeEstimate = _rangeEstimate.value ?: RangeEstimate()
+
+        sample?.let { s ->
+            batteryState = batteryStateEstimator.estimate(
+                sample = s,
                 accumulator = accumulatorState,
                 batteryCapacityAh = currentVehicleProfile.batteryCapacityAh,
                 batterySeries = currentVehicleProfile.batterySeries,
                 fallbackSocPercent = fallbackSoc
             )
-        } ?: _batteryState.value ?: BatteryState()
-        
-        _batteryState.value = batteryState
+            _batteryState.value = batteryState
 
-        val rangeEstimate = rangeEstimator.estimate(
-            batteryState = batteryState,
-            accumulator = accumulatorState,
-            batterySeries = currentVehicleProfile.batterySeries,
-            batteryCapacityAh = currentVehicleProfile.batteryCapacityAh,
-            usableEnergyRatio = currentVehicleProfile.learnedUsableEnergyRatio
-        )
-        _rangeEstimate.value = rangeEstimate
+            rangeEstimate = rangeEstimator.estimate(
+                sample = s,
+                batteryState = batteryState,
+                accumulator = accumulatorState,
+                batterySeries = currentVehicleProfile.batterySeries,
+                batteryCapacityAh = currentVehicleProfile.batteryCapacityAh,
+                usableEnergyRatio = currentVehicleProfile.learnedUsableEnergyRatio
+            )
+            _rangeEstimate.value = rangeEstimate
+        }
 
         // 统一采用 Net Wh (Traction - Regen) 作为能效统计口径
         val currentTripEnergyWh = if (rideActive) accumulatorState.netBatteryEnergyWh else 0f
-        val tripAverageEfficiencyWhKm = when {
+        val currentTractionEnergyWh = if (rideActive) accumulatorState.tractionEnergyWh else 0f
+        
+        val tripAverageNetEfficiencyWhKm = when {
             distanceKm > 0.02 && currentTripEnergyWh > 0.5f -> (currentTripEnergyWh / distanceKm).toFloat()
             else -> 0f
         }
+        val tripAverageTractionEfficiencyWhKm = when {
+            distanceKm > 0.02 && currentTractionEnergyWh > 0.5f -> (currentTractionEnergyWh / distanceKm).toFloat()
+            else -> 0f
+        }
         
+        // UI 默认显示净能效 (最准，包含回收贡献)
         val avgEff = when {
-            tripAverageEfficiencyWhKm > 0.1f -> tripAverageEfficiencyWhKm
+            tripAverageNetEfficiencyWhKm > 0.1f -> tripAverageNetEfficiencyWhKm
             rangeEstimate.averageWindowEfficiencyWhKm > 0.1f -> rangeEstimate.averageWindowEfficiencyWhKm
             else -> 0f
         }
@@ -1576,9 +1586,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 estimatedRangeKm = metrics.estimatedRangeKm,
                 rpm = metrics.rpm,
                 efficiencyWhKm = metrics.efficiencyWhKm,
-                avgEfficiencyWhKm = metrics.avgEfficiencyWhKm,
+                avgEfficiencyWhKm = metrics.avgEfficiencyWhKm, // Maintain for legacy
+                avgNetEfficiencyWhKm = when {
+                    accState.totalDistanceMeters > 20f -> (accState.netBatteryEnergyWh / (accState.totalDistanceMeters / 1000f)).toFloat()
+                    else -> 0f
+                },
+                avgTractionEfficiencyWhKm = when {
+                    accState.totalDistanceMeters > 20f -> (accState.tractionEnergyWh / (accState.totalDistanceMeters / 1000f)).toFloat()
+                    else -> 0f
+                },
                 distanceMeters = accState.totalDistanceMeters.toFloat(),
-                totalEnergyWh = accState.netBatteryEnergyWh, // Previous totalEnergyWh was net
+                totalEnergyWh = accState.netBatteryEnergyWh,
                 tractionEnergyWh = accState.tractionEnergyWh,
                 regenEnergyWh = accState.regenEnergyWh,
                 recoveredEnergyWh = accState.regenEnergyWh,
@@ -1763,7 +1781,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val avgSpeed = if (accState.sampleCount > 0) accState.totalSpeedSum / accState.sampleCount else 0f
         val finalEnergyWh = accState.tractionEnergyWh
         
-        val finalAvgEfficiencyWhKm = if (finalTripDistanceMeters > 20f) {
+        val finalAvgNetEfficiency = if (finalTripDistanceMeters > 20f) {
+            (accState.netBatteryEnergyWh / (finalTripDistanceMeters / 1000.0f)).toFloat()
+        } else {
+            0f
+        }
+        val finalAvgTractionEfficiency = if (finalTripDistanceMeters > 20f) {
             (accState.tractionEnergyWh / (finalTripDistanceMeters / 1000.0f)).toFloat()
         } else {
             0f
@@ -1776,7 +1799,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             maxSpeed = accState.maxSpeedKmh,
             avgSpeed = avgSpeed,
             totalWh = accState.netBatteryEnergyWh,
-            avgEfficiency = finalAvgEfficiencyWhKm
+            avgEfficiency = finalAvgNetEfficiency
         )
         val rawHistoryRecord = RideHistoryRecord(
             id = UUID.randomUUID().toString(),
@@ -1791,7 +1814,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             totalEnergyWh = accState.netBatteryEnergyWh,
             tractionEnergyWh = accState.tractionEnergyWh,
             regenEnergyWh = accState.regenEnergyWh,
-            avgEfficiencyWhKm = finalAvgEfficiencyWhKm,
+            avgEfficiencyWhKm = finalAvgNetEfficiency,
+            avgNetEfficiencyWhKm = finalAvgNetEfficiency,
+            avgTractionEfficiencyWhKm = finalAvgTractionEfficiency,
             trackPoints = rideTrackPoints.toList(),
             samples = rideSamples.toList()
         )

@@ -747,7 +747,7 @@ private fun RideHistoryCard(
         "最高速度" to metricOf(record.maxSpeedKmh, "km/h"),
         "平均速度" to metricOf(displayAvgSpeedKmh, "km/h"),
         "峰值功率" to metricOf(record.peakPowerKw, "kW"),
-        "能耗" to metricOf(record.avgEfficiencyWhKm, "Wh/km"),
+        "能耗" to metricOf(record.avgNetEfficiencyWhKm, "Wh/km"),
         "采样点" to metricOf(record.samples.size.toString())
     )
 
@@ -2960,7 +2960,7 @@ private fun rideMetricSummaryValue(
     val last = samples.last()
     return when (metric) {
         RideChartMetric.AVG_EFFICIENCY -> when {
-            last.avgEfficiencyWhKm > 0.01f -> last.avgEfficiencyWhKm
+            last.avgNetEfficiencyWhKm > 0.01f -> last.avgNetEfficiencyWhKm
             last.distanceMeters > 10f && last.totalEnergyWh > 0.01f ->
                 last.totalEnergyWh / (last.distanceMeters / 1000f)
             else -> fallbackAverage
@@ -3008,6 +3008,7 @@ private fun robustAverage(values: List<Float>, trimFraction: Float = 0.08f): Flo
 private fun reliableEfficiencyValues(samples: List<RideMetricSample>): List<Float> {
     val primary = rideAverageSamples(samples).mapNotNull { sample ->
         val value = when {
+            sample.avgNetEfficiencyWhKm > 0.01f -> sample.avgNetEfficiencyWhKm
             sample.avgEfficiencyWhKm > 0.01f -> sample.avgEfficiencyWhKm
             else -> sample.efficiencyWhKm
         }
@@ -3016,6 +3017,7 @@ private fun reliableEfficiencyValues(samples: List<RideMetricSample>): List<Floa
     if (primary.isNotEmpty()) return primary
     return samples.mapNotNull { sample ->
         val value = when {
+            sample.avgNetEfficiencyWhKm > 0.01f -> sample.avgNetEfficiencyWhKm
             sample.avgEfficiencyWhKm > 0.01f -> sample.avgEfficiencyWhKm
             else -> sample.efficiencyWhKm
         }
@@ -3145,8 +3147,9 @@ private fun normalizeRideDetailSamples(record: RideHistoryRecord): List<RideMetr
         val avgEfficiencyWhKm = when {
             sample.distanceMeters > 10f && mergedTotalEnergyWh > 0.01f ->
                 mergedTotalEnergyWh / (sample.distanceMeters / 1000f)
+            record.avgNetEfficiencyWhKm > 0.1f -> record.avgNetEfficiencyWhKm
             record.avgEfficiencyWhKm > 0.1f -> record.avgEfficiencyWhKm
-            else -> sample.avgEfficiencyWhKm
+            else -> sample.avgNetEfficiencyWhKm.takeIf { it > 0.01f } ?: sample.avgEfficiencyWhKm
         }
         val recoveredEnergyWh = when {
             hasRecoveredEnergy -> sample.recoveredEnergyWh
@@ -3300,6 +3303,7 @@ private fun buildRideOverviewCards(
     val peakRpm = samples.maxOf { it.rpm }
     val avgInstantEfficiency = robustAverage(reliableEfficiencyValues(samples))
     val peakAverageEfficiency = reliableEfficiencyValues(samples).maxOrNull()
+        ?: record.avgNetEfficiencyWhKm.takeIf { it > 0.01f }
         ?: record.avgEfficiencyWhKm
     val recoveredEnergyWh = samples.maxOf { it.recoveredEnergyWh }.coerceAtLeast(last.recoveredEnergyWh)
     val cardsByType = linkedMapOf<MetricType, RideOverviewCard>(
@@ -3383,7 +3387,12 @@ private fun buildRideOverviewCards(
         MetricType.EFFICIENCY to RideOverviewCard(
             type = MetricType.EFFICIENCY,
             title = "平均能耗",
-            value = metricOf(record.avgEfficiencyWhKm.takeIf { it > 0.01f } ?: avgInstantEfficiency, "Wh/km"),
+            value = metricOf(
+                record.avgNetEfficiencyWhKm.takeIf { it > 0.01f } 
+                ?: record.avgEfficiencyWhKm.takeIf { it > 0.01f } 
+                ?: avgInstantEfficiency, 
+                "Wh/km"
+            ),
             supporting = "峰值 ${formatFloat(peakAverageEfficiency)} Wh/km",
             metric = RideChartMetric.AVG_EFFICIENCY
         ),

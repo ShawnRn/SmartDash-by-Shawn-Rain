@@ -11,16 +11,25 @@ class RideAccumulator {
     val state: RideAccumulatorState get() = _state
 
     fun accumulate(sample: TelemetrySample) {
-        val nextMaxSpeed = maxOf(_state.maxSpeedKmh, sample.controllerSpeedKmH)
-        val nextTotalSpeedSum = _state.totalSpeedSum + sample.controllerSpeedKmH
-        
-        _state = _state.copy(
-            sampleCount = _state.sampleCount + 1,
-            maxSpeedKmh = nextMaxSpeed,
-            totalSpeedSum = nextTotalSpeedSum,
-            maxControllerTempC = maxOf(_state.maxControllerTempC, sample.controllerTempC),
-            maxMotorTempC = maxOf(_state.maxMotorTempC, sample.motorTempC)
-        )
+        val isDuplicate = sample.quality == SampleQuality.DUPLICATE
+        val isOutlier = sample.quality == SampleQuality.OUTLIER || sample.quality == SampleQuality.GAP_RESET
+
+        // 统计量去污：重复包不参与平均值计算 (防止 dt 为 0 导致的平均速度失真)
+        if (!isDuplicate) {
+            _state = _state.copy(
+                sampleCount = _state.sampleCount + 1,
+                totalSpeedSum = _state.totalSpeedSum + sample.controllerSpeedKmH
+            )
+        }
+
+        // 峰值去污：异常包和重复包不参与峰值锁定 (防止脉冲噪声顶高极值)
+        if (!isDuplicate && !isOutlier) {
+            _state = _state.copy(
+                maxSpeedKmh = maxOf(_state.maxSpeedKmh, sample.controllerSpeedKmH),
+                maxControllerTempC = maxOf(_state.maxControllerTempC, sample.controllerTempC),
+                maxMotorTempC = maxOf(_state.maxMotorTempC, sample.motorTempC)
+            )
+        }
 
         if (!sample.allowIntegration) return
 

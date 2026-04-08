@@ -31,6 +31,10 @@ class TelemetryStreamProcessor {
             dtMs > 3000L -> SampleQuality.GAP_RESET
             rawMetrics.voltage !in 15f..120f -> SampleQuality.OUTLIER
             abs(rawMetrics.busCurrent) > 550f -> SampleQuality.OUTLIER
+            abs(rawMetrics.rpm) > 20000f -> SampleQuality.OUTLIER
+            rawMetrics.controllerSpeedKmH > 300f -> SampleQuality.OUTLIER
+            // RPM 与 速度逻辑矛盾 (例如转速 1000+ 但速度为 0)
+            abs(rawMetrics.rpm) > 1000f && rawMetrics.controllerSpeedKmH < 1f -> SampleQuality.OUTLIER
             else -> SampleQuality.GOOD
         }
 
@@ -72,7 +76,9 @@ class TelemetryStreamProcessor {
     fun reset() {
         lastRawVoltage = 0f
         lastRawBusCurrent = 0f
+        lastRawPhaseCurrent = 0f
         lastRawRpm = 0f
         lastTimestampMs = 0L
+        frameSequence = 0L
     }
 }

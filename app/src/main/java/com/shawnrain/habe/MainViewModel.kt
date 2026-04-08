@@ -454,7 +454,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         _rangeEstimate.value = rangeEstimate
 
-        val currentTripEnergyWh = if (rideActive) accumulatorState.tractionEnergyWh else 0f
+        // 统一采用 Net Wh (Traction - Regen) 作为能效统计口径
+        val currentTripEnergyWh = if (rideActive) accumulatorState.netBatteryEnergyWh else 0f
         val tripAverageEfficiencyWhKm = when {
             distanceKm > 0.02 && currentTripEnergyWh > 0.5f -> (currentTripEnergyWh / distanceKm).toFloat()
             else -> 0f

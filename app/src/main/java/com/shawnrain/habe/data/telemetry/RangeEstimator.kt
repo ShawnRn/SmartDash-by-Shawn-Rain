@@ -69,8 +69,9 @@ class RangeEstimator {
             0f
         }
 
-        // 3. 计算置信度
+        // 3. 计算置信度 (综合窗口距离与电池状态置信度)
         val confidence = when {
+            batteryState.confidence < 0.1f -> RangeConfidence.LOW // 电压极度不稳定
             rangeWindowDistanceKm < MIN_RANGE_WINDOW_DISTANCE_KM -> RangeConfidence.LOW
             rangeWindowDistanceKm < 1.0 -> RangeConfidence.MEDIUM
             else -> RangeConfidence.HIGH

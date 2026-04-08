@@ -4,6 +4,8 @@ description: SmartDash GitHub Actions 自动化发版流程
 
 本工作流用于通过 GitHub Actions 自动构建、签名并发布 SmartDash Android Release APK。
 
+如果目标只是“构建一份 release APK 给当前设备验证安装，但不要发 GitHub Release”，不要走本文档，改走 `.agents/workflows/github-verify-release-apk.md`。
+
 ## 触发方式
 
 ### 方式 1：推送 tag（推荐）

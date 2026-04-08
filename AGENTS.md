@@ -481,6 +481,7 @@ Release 签名约定：
 - `.agents/workflows/release-signing.md`
 - `.agents/workflows/user-owned-release-signing.md`
 - `.agents/workflows/github-release.md` — GitHub Actions 自动发版流程（tag 推送/手动触发/签名 Secret 配置/产物验证）
+- `.agents/workflows/github-verify-release-apk.md` — GitHub Actions 构建验证版 release APK、下载 artifact、adb 安装到真机
 - `.agents/workflows/preflight.md`
 - `.agents/workflows/build-debug.md`
 - `.agents/workflows/build-dev-release.md`
@@ -504,7 +505,7 @@ Release 签名约定：
 - `.agents/skills/smartdash-overlay-dialog/SKILL.md`: 统一约束设置页「关于」、应用更新、自定义 dialog、overlay、详情弹层的容器几何、图标适配、模糊、预测返回和 dismiss 动线
 - `.agents/skills/ble-telemetry-estimation/SKILL.md`: 统一约束 `BLE` 遥测采样、累计能量、`SoC / range` 估算、`CSV` 导出与回放验证，强调"只由新鲜控制器样本驱动物理积分"
 - `.agents/skills/direction-stabilization/SKILL.md`: 约束方向显示稳定化：速度分层冻结、GPS/传感器门控、死区、指数平滑、转向限速、文字滞回
-- `.agents/skills/github-release/SKILL.md`: GitHub Actions 自动发版：tag 推送/手动触发、签名 Secret 准备、版本升级、产物验证
+- `.agents/skills/github-release/SKILL.md`: GitHub Actions release / verify-release：区分“正式发版”和“仅构建验证 APK 并下载安装”
 - `.agents/skills/material-design/SKILL.md`: Google Material Design 3 实战参考
 - `.agents/skills/code-simplifier/SKILL.md`: 代码简化与清晰度提升
 - `.agents/skills/wxapp-decompose/SKILL.md`: macOS 微信小程序包获取与反编译
@@ -541,13 +542,26 @@ Release 签名约定：
 
 详见：`.agents/workflows/github-release.md`
 
-### 9.4 给用户输出新版本交付或联调
-1. 始终跑 `.agents/scripts/build-release.sh` 确保签名能够无缝覆盖安装
+### 9.4 GitHub Actions 验证 APK（默认用于真机验收）
+1. 当目标是“编一个 release APK 给当前设备验证/安装”，默认不要优先占用本机 `build-release.sh`
+2. 优先使用 `.github/workflows/verify-release.yml` 在 GitHub Actions 上执行 `:app:assembleRelease`
+3. `verify-release.yml` 只负责构建、校验并上传 artifact，不创建 GitHub Release
+4. 推荐流程：
+   - 在临时分支推送当前待验证代码
+   - 手动触发 `verify-release.yml`
+   - 等待产物上传后，用 `gh run download` 拉回 release APK
+   - 本机执行 `adb install -r <downloaded-apk>`
+5. 只有在 GitHub Actions 不可用、网络受限或 workflow 缺失时，才回退到本机 `.agents/scripts/build-release.sh`
+
+详见：`.agents/workflows/github-verify-release-apk.md`
+
+### 9.5 给用户输出新版本交付或联调
+1. 对外交付、归档、正式发布仍优先跑 `.agents/scripts/build-release.sh` 或 `.github/workflows/release.yml`
 2. 跑 `.agents/scripts/test-debug.sh` 执行单元测试拦截回归问题
 3. 将生成的 Release `.apk` 路径（位于 `.agents/artifacts/habe-release-xxxx.apk`）指引给用户
 4. 若用户同时明确要求安装到手机，继续直接执行 adb 安装，不要停下来等待二次确认
 
-### 9.5 本地真机高频联调
+### 9.6 本地真机高频联调
 1. 优先跑 `.agents/scripts/install-dev-release.sh`
 2. `devRelease` 继续使用 release 签名，可直接覆盖手机上的当前安装
 3. 首次构建或刚改过 `build.gradle.kts` / `gradle.properties` 时，首包会较慢；第二次开始会明显变快

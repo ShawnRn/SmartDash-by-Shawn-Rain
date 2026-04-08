@@ -8,10 +8,22 @@ description: Use when the user wants to publish a SmartDash Android release via 
 本 skill 用于所有涉及以下主题的修改或操作：
 
 - 通过 GitHub Actions 发布 Android release APK
+- 通过 GitHub Actions 构建“仅验证用”的 release APK，并下载 artifact 安装到手机
 - 准备 release 签名 secret（base64 keystore + 钥匙串密码）
 - versionCode / versionName 升级
 - 创建 release tag 并推送触发 workflow
 - 验证 release 构建产物与 GitHub Release 页面
+
+## 默认分流规则
+
+- 用户要“正式发布 / 对外交付 / 发 GitHub Release”：
+  - 走 `.github/workflows/release.yml`
+- 用户要“编一个 release APK 给当前设备安装验证，但不要发 release”：
+  - 默认优先走 `.github/workflows/verify-release.yml`
+  - 在远端构建 `:app:assembleRelease`
+  - 下载 Actions artifact
+  - 本机 `adb install -r`
+- 只有在 GitHub Actions 不可用时，才回退到本机 `.agents/scripts/build-release.sh`
 
 ## 核心流程
 
@@ -74,6 +86,8 @@ keystore 默认位置：
 ## 相关文件
 
 - `.github/workflows/release.yml` — workflow 定义
+- `.github/workflows/verify-release.yml` — 构建验证版 release APK 并上传 artifact
 - `app/build.gradle.kts` — versionCode / versionName / signingConfig
 - `.agents/workflows/github-release.md` — 详细工作流文档
+- `.agents/workflows/github-verify-release-apk.md` — GitHub Actions 验证 APK 下载与安装流程
 - `.agents/workflows/release-signing.md` — 本地签名配置

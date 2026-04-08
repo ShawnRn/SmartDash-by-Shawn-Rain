@@ -15,6 +15,8 @@ jobs:
   verify-release:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      CI: true
 
     steps:
       - name: Checkout
@@ -29,6 +31,34 @@ jobs:
           java-version: "17"
           cache: gradle
 
+      - name: Validate release signing secrets
+        env:
+          HABE_RELEASE_STORE_FILE_BASE64: ${{ secrets.HABE_RELEASE_STORE_FILE_BASE64 }}
+          HABE_RELEASE_STORE_PASSWORD: ${{ secrets.HABE_RELEASE_STORE_PASSWORD }}
+          HABE_RELEASE_KEY_ALIAS: ${{ secrets.HABE_RELEASE_KEY_ALIAS }}
+          HABE_RELEASE_KEY_PASSWORD: ${{ secrets.HABE_RELEASE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          missing=0
+          [[ -z "${HABE_RELEASE_STORE_FILE_BASE64}" ]] && echo "Missing required secret: HABE_RELEASE_STORE_FILE_BASE64" >&2 && missing=1
+          [[ -z "${HABE_RELEASE_STORE_PASSWORD}" ]] && echo "Missing required secret: HABE_RELEASE_STORE_PASSWORD" >&2 && missing=1
+          [[ -z "${HABE_RELEASE_KEY_ALIAS}" ]] && echo "Missing required secret: HABE_RELEASE_KEY_ALIAS" >&2 && missing=1
+          [[ -z "${HABE_RELEASE_KEY_PASSWORD}" ]] && echo "Missing required secret: HABE_RELEASE_KEY_PASSWORD" >&2 && missing=1
+          if [[ "${missing}" -ne 0 ]]; then
+            echo "verify-release requires the same signing secrets as release.yml so the APK can be installed over existing release builds." >&2
+            exit 1
+          fi
+
+      - name: Prepare release signing
+        shell: bash
+        run: |
+          STORE_FILE="${RUNNER_TEMP}/habe-release.jks"
+          echo "${{ secrets.HABE_RELEASE_STORE_FILE_BASE64 }}" | base64 --decode > "${STORE_FILE}"
+          echo "HABE_RELEASE_STORE_FILE=${STORE_FILE}" >> "${GITHUB_ENV}"
+          echo "HABE_RELEASE_STORE_PASSWORD=${{ secrets.HABE_RELEASE_STORE_PASSWORD }}" >> "${GITHUB_ENV}"
+          echo "HABE_RELEASE_KEY_ALIAS=${{ secrets.HABE_RELEASE_KEY_ALIAS }}" >> "${GITHUB_ENV}"
+          echo "HABE_RELEASE_KEY_PASSWORD=${{ secrets.HABE_RELEASE_KEY_PASSWORD }}" >> "${GITHUB_ENV}"
+
       - name: Build smoke verification
         shell: bash
         run: |
@@ -42,6 +72,8 @@ jobs:
           test -n "${APK_PATH}"
           echo "APK_PATH=${APK_PATH}"
           echo "apk_path=${APK_PATH}" >> "${GITHUB_OUTPUT}"
+          APKSIGNER="${ANDROID_HOME}/build-tools/$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -1)/apksigner"
+          "${APKSIGNER}" verify --print-certs "${APK_PATH}"
           sha256sum "${APK_PATH}"
 
       - name: Upload verified release APK

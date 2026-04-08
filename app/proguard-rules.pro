@@ -35,14 +35,14 @@
 -keep class androidx.datastore.** { *; }
 
 # Keep BLE related classes
--keep class com.shawnrain.habe.ble.** { *; }
+-keep class com.shawnrain.sdash.ble.** { *; }
 
 # Keep protocol classes from obfuscation
--keep class com.shawnrain.habe.ble.protocols.** { *; }
--keep class com.shawnrain.habe.ble.bms.protocols.** { *; }
+-keep class com.shawnrain.sdash.ble.protocols.** { *; }
+-keep class com.shawnrain.sdash.ble.bms.protocols.** { *; }
 
 # Keep Data sync (Google Drive)
--keep class com.shawnrain.habe.data.sync.** { *; }
+-keep class com.shawnrain.sdash.data.sync.** { *; }
 
 # Keep Google Play Services Auth
 -keep class com.google.android.gms.auth.** { *; }
@@ -53,10 +53,10 @@
 -dontwarn okio.**
 
 # Keep model/data classes
--keep class com.shawnrain.habe.data.** { *; }
+-keep class com.shawnrain.sdash.data.** { *; }
 
 # Keep ViewModel
--keep class com.shawnrain.habe.**ViewModel { *; }
+-keep class com.shawnrain.sdash.**ViewModel { *; }
 
 # Keep Enum values
 -keepclassmembers enum * {

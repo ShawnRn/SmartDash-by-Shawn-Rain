@@ -49,7 +49,8 @@
       "Bash(file_path *)",
       "Bash(lines *)",
       "Bash(python)",
-      "Bash(sed *)"
+      "Bash(sed *)",
+      "Bash(gh *)"
     ]
   },
   "$version": 3

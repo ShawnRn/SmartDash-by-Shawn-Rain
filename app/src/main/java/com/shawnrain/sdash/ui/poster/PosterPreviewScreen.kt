@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -13,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,6 +45,9 @@ fun PosterPreviewScreen(
     var settings by remember { mutableStateOf(initialSettings) }
     val spec = remember(settings) { buildSpec(settings) }
     val bitmap = remember(spec, context) { PosterRendererV2(context).render(spec) }
+    val previewAspectRatio = remember(spec.aspectRatio) {
+        spec.aspectRatio.width.toFloat() / spec.aspectRatio.height.toFloat()
+    }
 
     LaunchedEffect(settings) {
         onSettingsChange?.invoke(settings)
@@ -56,11 +61,18 @@ fun PosterPreviewScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(title, style = MaterialTheme.typography.headlineSmall)
-        Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = null,
-            modifier = Modifier.fillMaxWidth()
-        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.extraLarge
+        ) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(previewAspectRatio)
+            )
+        }
         Text("比例", style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             PosterAspectRatio.entries.forEach { ratio ->
@@ -83,7 +95,7 @@ fun PosterPreviewScreen(
             PosterTemplates.all().forEach { template ->
                 AssistChip(
                     onClick = { settings = settings.copy(defaultTemplate = template.id) },
-                    label = { Text(template.id.replace('_', ' ')) }
+                    label = { Text(templateDisplayName(template.id)) }
                 )
             }
         }
@@ -94,5 +106,14 @@ fun PosterPreviewScreen(
         Button(onClick = { onSave(settings) }, modifier = Modifier.fillMaxWidth()) {
             Text("保存到相册")
         }
+    }
+}
+
+private fun templateDisplayName(templateId: String): String {
+    return when (templateId) {
+        "performance_dark" -> "性能海报"
+        "ride_minimal" -> "简约行程"
+        "track_focus" -> "轨迹优先"
+        else -> templateId.replace('_', ' ')
     }
 }

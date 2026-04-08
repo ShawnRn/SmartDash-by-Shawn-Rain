@@ -98,6 +98,7 @@ fun ApplyDialogWindowBlurEffect(blurRadius: Dp, fullscreen: Boolean = false) {
     }
 }
 
+@Suppress("DEPRECATION")
 fun configurePopupWindow(
     window: Window,
     blurRadiusPx: Int,

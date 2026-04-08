@@ -1,6 +1,5 @@
 package com.shawnrain.sdash.data.telemetry
 
-import com.shawnrain.sdash.debug.AppLogger
 import kotlin.math.abs
 
 /**
@@ -81,11 +80,6 @@ class RideAccumulator {
         } else {
             _state.movingTimeMs
         }
-
-        AppLogger.d(
-            "RideAccumulator",
-            "integrate dt=${safeDtMs}ms speed=${distanceSpeedKmh} dist=${distanceMeters} netWh=${netWh}"
-        )
 
         _state = _state.copy(
             tractionEnergyWh = tractionWh,

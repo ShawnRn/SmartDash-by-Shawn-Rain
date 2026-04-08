@@ -1,7 +1,10 @@
+@file:Suppress("DEPRECATION")
+
 package com.shawnrain.sdash.data.sync
 
 import android.content.Context
 import android.os.Build
+import androidx.core.content.pm.PackageInfoCompat
 import com.google.android.gms.auth.GoogleAuthUtil
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.shawnrain.sdash.debug.AppLogger
@@ -370,7 +373,7 @@ class GoogleDriveSyncManager(private val context: Context) {
         return try {
             val pm = context.packageManager
             val info = pm.getPackageInfo(context.packageName, 0)
-            info.versionName ?: info.versionCode.toString()
+            info.versionName ?: PackageInfoCompat.getLongVersionCode(info).toString()
         } catch (e: Exception) {
             "Unknown"
         }

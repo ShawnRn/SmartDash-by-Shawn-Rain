@@ -51,7 +51,8 @@
       "Bash(python)",
       "Bash(sed *)",
       "Bash(gh *)",
-      "Bash(tr *)"
+      "Bash(tr *)",
+      "Bash(git ls-remote *)"
     ]
   },
   "$version": 3

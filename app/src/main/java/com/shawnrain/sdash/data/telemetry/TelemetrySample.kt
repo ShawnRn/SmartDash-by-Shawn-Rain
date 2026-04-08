@@ -10,6 +10,8 @@ data class TelemetrySample(
     val busCurrentA: Float,
     val phaseCurrentA: Float,
     val rpm: Float,
+    val displaySpeedKmH: Float,
+    val distanceSpeedKmH: Float,
     val controllerSpeedKmH: Float,
     val motorTempC: Float,
     val controllerTempC: Float,

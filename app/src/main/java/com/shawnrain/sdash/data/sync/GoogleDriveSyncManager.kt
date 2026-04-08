@@ -375,4 +375,117 @@ class GoogleDriveSyncManager(private val context: Context) {
             "Unknown"
         }
     }
+
+    // ======== V2 Sync Helper Methods ========
+
+    /**
+     * Upload a raw (unencrypted) file to Drive appDataFolder.
+     * Used for manifest and current state files.
+     */
+    suspend fun uploadRawFile(
+        fileName: String,
+        content: ByteArray,
+        mimeType: String = MANIFEST_MIME_TYPE
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val client = createAuthenticatedClient()
+            val fileId = uploadFile(
+                client = client,
+                fileName = fileName,
+                content = content,
+                description = "SmartDash V2 Sync - $fileName"
+            )
+            if (fileId != null) {
+                Result.success(fileId)
+            } else {
+                Result.failure(Exception("Upload returned null file ID"))
+            }
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "uploadRawFile failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Upload a text file (JSON manifest) to Drive appDataFolder.
+     */
+    suspend fun uploadTextFile(
+        fileName: String,
+        content: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        uploadRawFile(fileName, content.toByteArray(Charsets.UTF_8))
+    }
+
+    /**
+     * Download a raw file from Drive appDataFolder by name.
+     */
+    suspend fun downloadRawFile(fileName: String): Result<ByteArray> = withContext(Dispatchers.IO) {
+        try {
+            val client = createAuthenticatedClient()
+            val query = "name = '$fileName' and trashed = false"
+            val fields = "files(id,name,createdTime)"
+            val url = "$DRIVE_API_BASE/drive/v3/files" +
+                    "?q=$query&orderBy=createdTime desc&spaces=appDataFolder&fields=$fields"
+
+            val response = client.newCall(
+                okhttp3.Request.Builder().url(url).get().build()
+            ).execute()
+
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("Query failed: ${response.code}"))
+            }
+
+            val body = response.body?.string() ?: ""
+            val root = kotlinx.serialization.json.Json.parseToJsonElement(body)
+            val files = root.jsonObject["files"]?.jsonArray ?: return@withContext Result.failure(Exception("No files found"))
+            val file = files.firstOrNull() ?: return@withContext Result.failure(Exception("File not found: $fileName"))
+            val fileId = file.jsonObject["id"]?.jsonPrimitive?.content
+                ?: return@withContext Result.failure(Exception("No file ID"))
+
+            // Download the file content
+            val downloadUrl = "$DRIVE_API_BASE/drive/v3/files/$fileId?alt=media"
+            val downloadResponse = client.newCall(
+                okhttp3.Request.Builder().url(downloadUrl).get().build()
+            ).execute()
+
+            if (!downloadResponse.isSuccessful) {
+                return@withContext Result.failure(Exception("Download failed: ${downloadResponse.code}"))
+            }
+
+            val bytes = downloadResponse.body?.bytes()
+                ?: return@withContext Result.failure(Exception("Empty download response"))
+
+            Result.success(bytes)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "downloadRawFile failed: $fileName", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Download a text file from Drive by fileId.
+     */
+    suspend fun downloadTextFile(fileId: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val client = createAuthenticatedClient()
+            val url = "$DRIVE_API_BASE/drive/v3/files/$fileId?alt=media"
+            val response = client.newCall(
+                okhttp3.Request.Builder().url(url).get().build()
+            ).execute()
+
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("Download failed: ${response.code}"))
+            }
+
+            val body = response.body?.string()
+            if (body != null) {
+                Result.success(body)
+            } else {
+                Result.failure(Exception("Empty download response"))
+            }
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "downloadTextFile failed: $fileId", e)
+            Result.failure(e)
+        }
+    }
 }

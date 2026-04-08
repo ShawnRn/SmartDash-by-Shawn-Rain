@@ -1,0 +1,42 @@
+name: Warning Baseline
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  warning-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Make warning collector executable
+        shell: bash
+        run: chmod +x .agents/scripts/collect-build-warnings.sh
+
+      - name: Collect warning baseline
+        shell: bash
+        run: .agents/scripts/collect-build-warnings.sh
+
+      - name: Upload warning reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartdash-warning-baseline
+          path: |
+            reports/build-warnings/current.txt
+            reports/build-warnings/assemble-debug.txt
+            reports/build-warnings/assemble-release.txt
+            reports/build-warnings/compile-debug-kotlin.txt
+            reports/lint/lint-debug.txt

@@ -1,0 +1,215 @@
+package com.shawnrain.sdash.data.sync
+
+import android.content.Context
+import com.shawnrain.sdash.data.SettingsRepository
+import com.shawnrain.sdash.data.VehicleProfile
+import com.shawnrain.sdash.data.history.RideHistoryRecord
+import com.shawnrain.sdash.data.speedtest.SpeedTestRecord
+import com.shawnrain.sdash.debug.AppLogger
+
+/**
+ * Merges local and remote DriveCurrentState with entity-level conflict resolution.
+ * Uses Last-Write-Wins (LWW) with additional semantics for rides (completeness-based).
+ */
+class DriveStateMerger(
+    private val context: Context,
+    private val settingsRepository: SettingsRepository
+) {
+    companion object {
+        private const val TAG = "DriveStateMerger"
+    }
+
+    /**
+     * Merge remote state into local state.
+     * Returns a MergeResult with notes about what changed.
+     */
+    suspend fun merge(
+        localState: DriveCurrentState,
+        remoteState: DriveCurrentState,
+        localMetadata: SyncMetadata
+    ): MergeResult {
+        val notes = mutableListOf<String>()
+        var conflictCount = 0
+
+        // 1. Merge settings (field-level LWW)
+        val mergedSettings = mergeSettings(localState.settings, remoteState.settings, notes)
+        val settingsUpdated = mergedSettings != localState.settings
+
+        // 2. Merge vehicle profiles (by ID, LWW)
+        val (mergedProfiles, profileNotes, profileConflicts) = mergeVehicleProfiles(
+            localState.vehicleProfiles,
+            remoteState.vehicleProfiles
+        )
+        notes.addAll(profileNotes)
+        conflictCount += profileConflicts
+
+        // 3. Merge rides (by ID, completeness-aware)
+        val (mergedRides, rideNotes, rideConflicts, ridesAdded) = mergeRides(
+            localState.rides,
+            remoteState.rides
+        )
+        notes.addAll(rideNotes)
+        conflictCount += rideConflicts
+
+        // 4. Merge speed tests (by ID, LWW)
+        val (mergedSpeedTests, speedTestNotes) = mergeSpeedTests(
+            localState.speedTests,
+            remoteState.speedTests
+        )
+        notes.addAll(speedTestNotes)
+
+        val mergedState = remoteState.copy(
+            settings = mergedSettings,
+            vehicleProfiles = mergedProfiles,
+            rides = mergedRides,
+            speedTests = mergedSpeedTests,
+            stateVersion = maxOf(localState.stateVersion, remoteState.stateVersion) + 1,
+            updatedAt = System.currentTimeMillis()
+        )
+
+        val changedLocally = settingsUpdated || profileConflicts > 0 || rideConflicts > 0
+        val changedRemotely = remoteState.stateVersion > localMetadata.lastAppliedRemoteVersion
+
+        if (notes.isEmpty()) {
+            notes.add("No changes needed")
+        }
+
+        AppLogger.i(TAG, "Merge complete: ${notes.joinToString("; ")}")
+
+        return MergeResult(
+            mergedState = mergedState,
+            changedLocally = changedLocally,
+            changedRemotely = changedRemotely,
+            conflictCount = conflictCount,
+            notes = notes,
+            ridesMerged = ridesAdded,
+            profilesMerged = profileConflicts,
+            settingsUpdated = settingsUpdated
+        )
+    }
+
+    private fun mergeSettings(
+        local: SyncSettingsSnapshot,
+        remote: SyncSettingsSnapshot,
+        notes: MutableList<String>
+    ): SyncSettingsSnapshot {
+        // Simple LWW: use whichever has a later updatedAt
+        return if (remote.updatedAt > local.updatedAt) {
+            notes.add("Settings updated from remote (newer)")
+            remote
+        } else {
+            local
+        }
+    }
+
+    private fun mergeVehicleProfiles(
+        local: List<SyncVehicleProfileSnapshot>,
+        remote: List<SyncVehicleProfileSnapshot>
+    ): Triple<List<SyncVehicleProfileSnapshot>, List<String>, Int> {
+        val notes = mutableListOf<String>()
+        var conflicts = 0
+        val mergedMap = local.associateBy { it.id }.toMutableMap()
+
+        for (remoteProfile in remote) {
+            val localProfile = mergedMap[remoteProfile.id]
+            if (localProfile == null) {
+                // New profile from remote
+                if (!remoteProfile.isDeleted) {
+                    mergedMap[remoteProfile.id] = remoteProfile
+                    notes.add("Added vehicle profile: ${remoteProfile.name}")
+                }
+            } else {
+                // Both exist - LWW
+                if (remoteProfile.updatedAt > localProfile.updatedAt) {
+                    if (remoteProfile.isDeleted) {
+                        mergedMap.remove(remoteProfile.id)
+                        notes.add("Deleted vehicle profile: ${remoteProfile.name}")
+                    } else {
+                        mergedMap[remoteProfile.id] = remoteProfile
+                        conflicts++
+                        notes.add("Updated vehicle profile: ${remoteProfile.name}")
+                    }
+                }
+            }
+        }
+
+        return Triple(mergedMap.values.toList(), notes, conflicts)
+    }
+
+    private fun mergeRides(
+        local: List<SyncRideSnapshot>,
+        remote: List<SyncRideSnapshot>
+    ): Quad<List<SyncRideSnapshot>, List<String>, Int, Int> {
+        val notes = mutableListOf<String>()
+        var conflicts = 0
+        var ridesAdded = 0
+        val mergedMap = local.associateBy { it.id }.toMutableMap()
+
+        for (remoteRide in remote) {
+            val localRide = mergedMap[remoteRide.id]
+            if (localRide == null) {
+                // New ride from remote
+                if (!remoteRide.isDeleted) {
+                    mergedMap[remoteRide.id] = remoteRide
+                    ridesAdded++
+                    notes.add("Added ride: ${remoteRide.title}")
+                }
+            } else {
+                // Both exist - use completeness-aware merge
+                val winner = when {
+                    remoteRide.isDeleted && !localRide.isDeleted -> localRide  // Don't delete locally-existing rides
+                    localRide.isDeleted -> remoteRide  // Remote wins if local is deleted
+                    remoteRide.summaryRevision > localRide.summaryRevision -> remoteRide.also { conflicts++ }
+                    localRide.summaryRevision > remoteRide.summaryRevision -> localRide
+                    remoteRide.completenessScore > localRide.completenessScore -> remoteRide.also { conflicts++ }
+                    localRide.completenessScore > remoteRide.completenessScore -> localRide
+                    remoteRide.updatedAt > localRide.updatedAt -> remoteRide.also { conflicts++ }
+                    else -> localRide
+                }
+                mergedMap[remoteRide.id] = winner
+            }
+        }
+
+        // Sort by startedAtMs descending (newest first)
+        val merged = mergedMap.values.sortedByDescending { it.startedAtMs }
+
+        return Quad(merged, notes, conflicts, ridesAdded)
+    }
+
+    private fun mergeSpeedTests(
+        local: List<SyncSpeedTestSnapshot>,
+        remote: List<SyncSpeedTestSnapshot>
+    ): Pair<List<SyncSpeedTestSnapshot>, List<String>> {
+        val notes = mutableListOf<String>()
+        val mergedMap = local.associateBy { it.id }.toMutableMap()
+
+        for (remoteTest in remote) {
+            val localTest = mergedMap[remoteTest.id]
+            if (localTest == null) {
+                if (!remoteTest.isDeleted) {
+                    mergedMap[remoteTest.id] = remoteTest
+                    notes.add("Added speed test: ${remoteTest.label}")
+                }
+            } else if (remoteTest.updatedAt > localTest.updatedAt) {
+                if (remoteTest.isDeleted) {
+                    mergedMap.remove(remoteTest.id)
+                } else {
+                    mergedMap[remoteTest.id] = remoteTest
+                    notes.add("Updated speed test: ${remoteTest.label}")
+                }
+            }
+        }
+
+        return Pair(mergedMap.values.sortedByDescending { it.startedAtMs }, notes)
+    }
+}
+
+/**
+ * Simple 4-tuple for merge results.
+ */
+data class Quad<A, B, C, D>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D
+)

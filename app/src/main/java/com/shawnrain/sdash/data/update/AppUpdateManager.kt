@@ -8,58 +8,31 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.shawnrain.sdash.debug.AppLogger
 import java.io.File
+import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
-
-data class InstalledAppVersion(
-    val versionName: String,
-    val versionCode: Long
-) {
-    val displayName: String = "v$versionName ($versionCode)"
-}
-
-data class AppReleaseInfo(
-    val tagName: String,
-    val versionName: String,
-    val buildCode: Long?,
-    val title: String,
-    val notes: String,
-    val htmlUrl: String,
-    val publishedAt: String?,
-    val apkName: String,
-    val apkUrl: String
-)
-
-data class AppUpdateUiState(
-    val currentVersion: InstalledAppVersion,
-    val isChecking: Boolean = false,
-    val availableRelease: AppReleaseInfo? = null,
-    val lastCheckedAt: Long? = null,
-    val isDownloading: Boolean = false,
-    val downloadProgress: Float? = null,
-    val downloadedApkPath: String? = null,
-    val errorMessage: String? = null
-) {
-    val isUpdateAvailable: Boolean get() = availableRelease != null
-    val hasDownloadedApk: Boolean get() = !downloadedApkPath.isNullOrBlank()
-}
+import okhttp3.Response
 
 class AppUpdateManager(
     private val context: Context,
     private val client: OkHttpClient = OkHttpClient()
 ) {
     companion object {
-        private const val TAG = "AppUpdate"
+        private const val TAG = "AppUpdateManager"
         private const val RELEASES_LATEST_URL =
             "https://api.github.com/repos/ShawnRn/SmartDash-by-Shawn-Rain/releases/latest"
         private val versionRegex = Regex("""(\d+)\.(\d+)\.(\d+)""")
         private val buildRegex = Regex("""(?im)build(?:\s+code)?\s*[:=]?\s*(\d{6,})""")
+        private val json = Json { ignoreUnknownKeys = true }
     }
+
+    private val prefs = AppUpdatePreferences(context)
 
     fun getInstalledVersion(): InstalledAppVersion {
         val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
@@ -75,37 +48,64 @@ class AppUpdateManager(
         )
     }
 
-    suspend fun checkForUpdate(): Result<AppReleaseInfo?> = withContext(Dispatchers.IO) {
+    /**
+     * Checks for updates by fetching the latest release from GitHub.
+     * Uses release-manifest.json if available, otherwise falls back to parsing the release notes and assets.
+     */
+    suspend fun checkForUpdate(honorIgnoredTag: Boolean = true): Result<AppUpdatePackage?> = withContext(Dispatchers.IO) {
         runCatching {
+            val cachedEtag = prefs.etag.first()
             val request = Request.Builder()
                 .url(RELEASES_LATEST_URL)
                 .header("Accept", "application/vnd.github+json")
                 .header("X-GitHub-Api-Version", "2022-11-28")
                 .header("User-Agent", "${context.packageName}/android")
+                .apply {
+                    if (!cachedEtag.isNullOrBlank()) {
+                        header("If-None-Match", cachedEtag)
+                    }
+                }
                 .build()
+
             client.newCall(request).execute().use { response ->
+                val checkedAt = System.currentTimeMillis()
+                val responseEtag = response.header("ETag")
+                if (response.code == 304) {
+                    prefs.saveLastChecked(
+                        atMs = checkedAt,
+                        tag = prefs.lastSeenTag.first(),
+                        etag = responseEtag ?: cachedEtag
+                    )
+                    return@runCatching null
+                }
                 if (!response.isSuccessful) {
                     error("检查更新失败：HTTP ${response.code}")
                 }
                 val body = response.body?.string().orEmpty()
-                val release = json.decodeFromString<GithubReleaseResponse>(body)
-                val apkAsset = release.assets.firstOrNull { asset ->
-                    asset.name.endsWith(".apk", ignoreCase = true) &&
-                        asset.downloadUrl.isNotBlank()
-                } ?: return@use null
-                val releaseInfo = AppReleaseInfo(
-                    tagName = release.tagName,
-                    versionName = normalizeTag(release.tagName),
-                    buildCode = resolveBuildCode(release.body, apkAsset.name),
-                    title = release.name.ifBlank { "SmartDash by Shawn Rain ${normalizeTag(release.tagName)}" },
-                    notes = release.body.trim(),
-                    htmlUrl = release.htmlUrl,
-                    publishedAt = release.publishedAt,
-                    apkName = apkAsset.name,
-                    apkUrl = apkAsset.downloadUrl
-                )
-                if (isNewerThanInstalled(releaseInfo, getInstalledVersion())) {
-                    releaseInfo
+                val githubRelease = json.decodeFromString<GithubReleaseResponse>(body)
+                
+                // Try to find release-manifest.json
+                val manifestAsset = githubRelease.assets.firstOrNull {
+                    it.name.equals("release-manifest.json", ignoreCase = true) ||
+                        it.name.endsWith("-manifest.json", ignoreCase = true)
+                }
+                
+                val pkg = if (manifestAsset != null) {
+                    fetchManifest(manifestAsset.downloadUrl, githubRelease.assets)
+                } else {
+                    parseReleaseFromAssets(githubRelease)
+                }
+
+                prefs.saveLastChecked(checkedAt, pkg?.tag, responseEtag)
+
+                val ignoredTag = prefs.ignoredTag.first()
+                if (honorIgnoredTag && pkg != null && ignoredTag == pkg.tag) {
+                    AppLogger.i(TAG, "Skip ignored release tag=${pkg.tag}")
+                    return@runCatching null
+                }
+
+                if (pkg != null && isNewerThanInstalled(pkg, getInstalledVersion())) {
+                    pkg
                 } else {
                     null
                 }
@@ -113,47 +113,133 @@ class AppUpdateManager(
         }
     }
 
+    private suspend fun fetchManifest(url: String, assets: List<GithubReleaseAsset>): AppUpdatePackage? {
+        return runCatching {
+            val request = Request.Builder().url(url).build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                val body = response.body?.string() ?: return null
+                val manifest = json.decodeFromString<ReleaseManifestJson>(body)
+                
+                val apkAsset = assets.firstOrNull { it.name == manifest.apkName } ?: return null
+                
+                AppUpdatePackage(
+                    tag = manifest.tag,
+                    versionName = manifest.versionName,
+                    versionCode = manifest.versionCode,
+                    channel = ReleaseChannel.valueOf(manifest.channel.uppercase()),
+                    apkName = manifest.apkName,
+                    apkUrl = apkAsset.downloadUrl,
+                    htmlUrl = manifest.htmlUrl,
+                    sha256 = manifest.apkSha256,
+                    publishedAt = manifest.publishedAt,
+                    releaseNotes = manifest.releaseNotes
+                )
+            }
+        }.getOrNull()
+    }
+
+    private fun parseReleaseFromAssets(release: GithubReleaseResponse): AppUpdatePackage? {
+        val apkAsset = selectBestApkAsset(release) ?: return null
+        
+        return AppUpdatePackage(
+            tag = release.tagName,
+            versionName = normalizeTag(release.tagName),
+            versionCode = resolveBuildCode(release.body, apkAsset.name) ?: 0L,
+            channel = ReleaseChannel.fromTag(release.tagName),
+            apkName = apkAsset.name,
+            apkUrl = apkAsset.downloadUrl,
+            htmlUrl = release.htmlUrl,
+            publishedAt = release.publishedAt,
+            releaseNotes = release.body.trim()
+        )
+    }
+
+    /**
+     * Downloads the APK with SHA256 verification.
+     * Stores in filesDir/app-updates/
+     */
     suspend fun downloadReleaseApk(
-        release: AppReleaseInfo,
+        pkg: AppUpdatePackage,
         onProgress: (Float?) -> Unit
     ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
             val request = Request.Builder()
-                .url(release.apkUrl)
+                .url(pkg.apkUrl)
                 .header("Accept", "application/octet-stream")
                 .header("User-Agent", "${context.packageName}/android")
                 .build()
+
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     error("下载更新失败：HTTP ${response.code}")
                 }
                 val body = response.body ?: error("下载更新失败：响应为空")
-                val targetDir = File(context.cacheDir, "app-updates").apply { mkdirs() }
-                targetDir.listFiles()?.forEach { existing ->
-                    if (existing.name.endsWith(".apk", ignoreCase = true)) {
-                        existing.delete()
-                    }
-                }
-                val targetFile = File(targetDir, release.apkName)
-                val total = body.contentLength().takeIf { it > 0L }
+                
+                // Use filesDir instead of cacheDir for persistence and reliability
+                val targetDir = File(context.filesDir, "app-updates").apply { mkdirs() }
+                
+                // Clean up old update files
+                targetDir.listFiles()?.forEach { if (it.name.endsWith(".apk")) it.delete() }
+                
+                val targetFile = File(targetDir, pkg.apkName)
+                val totalLength = body.contentLength().takeIf { it > 0L }
+                
                 body.byteStream().use { input ->
                     targetFile.outputStream().use { output ->
                         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                        var bytesCopied = 0L
+                        var bytesRead = 0L
+                        var lastProgressUpdate = 0L
                         while (true) {
                             val read = input.read(buffer)
                             if (read < 0) break
                             output.write(buffer, 0, read)
-                            bytesCopied += read
-                            onProgress(total?.let { bytesCopied.toFloat() / it.toFloat() })
+                            bytesRead += read
+                            
+                            // Throttle progress updates
+                            val now = System.currentTimeMillis()
+                            if (now - lastProgressUpdate > 100) {
+                                onProgress(totalLength?.let { bytesRead.toFloat() / it.toFloat() })
+                                lastProgressUpdate = now
+                            }
                         }
                     }
                 }
+                
                 onProgress(1f)
+                
+                // SHA256 Verification
+                if (!pkg.sha256.isNullOrBlank()) {
+                    val actualSha = calculateSha256(targetFile)
+                    if (!actualSha.equals(pkg.sha256, ignoreCase = true)) {
+                        targetFile.delete()
+                        prefs.clearDownload()
+                        error("校验失败：SHA256 不匹配")
+                    }
+                    AppLogger.i(TAG, "SHA256 verified for ${pkg.apkName}")
+                } else {
+                    AppLogger.w(TAG, "No SHA256 provided for ${pkg.apkName}, skipping verification")
+                }
+
+                prefs.clearIgnoredTag()
+                prefs.saveDownloadedApk(pkg.tag, targetFile.absolutePath)
                 AppLogger.i(TAG, "Downloaded update apk=${targetFile.absolutePath}")
                 targetFile
             }
         }
+    }
+
+    private fun calculateSha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(8192)
+            var bytesRead = input.read(buffer)
+            while (bytesRead != -1) {
+                digest.update(buffer, 0, bytesRead)
+                bytesRead = input.read(buffer)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     fun canRequestPackageInstalls(): Boolean {
@@ -181,19 +267,67 @@ class AppUpdateManager(
         }
     }
 
+    suspend fun findDownloadedApkPath(tag: String): String? = withContext(Dispatchers.IO) {
+        val downloadedTag = prefs.downloadedTag.first()
+        val downloadedPath = prefs.downloadedApkPath.first()
+        if (downloadedTag != tag || downloadedPath.isNullOrBlank()) return@withContext null
+        val file = File(downloadedPath)
+        if (!file.exists()) {
+            prefs.clearDownload()
+            return@withContext null
+        }
+        downloadedPath
+    }
+
+    suspend fun ignoreRelease(tag: String) {
+        prefs.setIgnoredTag(tag)
+    }
+
     private fun isNewerThanInstalled(
-        release: AppReleaseInfo,
+        pkg: AppUpdatePackage,
         installed: InstalledAppVersion
     ): Boolean {
-        val releaseBuildCode = release.buildCode
         return when {
-            releaseBuildCode != null && releaseBuildCode > installed.versionCode -> true
-            releaseBuildCode != null && releaseBuildCode < installed.versionCode -> false
-            else -> compareSemanticVersion(release.versionName, installed.versionName) > 0
+            pkg.versionCode > 0 && pkg.versionCode > installed.versionCode -> true
+            pkg.versionCode > 0 && pkg.versionCode < installed.versionCode -> false
+            else -> compareSemanticVersion(pkg.versionName, installed.versionName) > 0
         }
     }
 
     private fun normalizeTag(tagName: String): String = tagName.removePrefix("v").trim()
+
+    private fun selectBestApkAsset(release: GithubReleaseResponse): GithubReleaseAsset? {
+        val channel = ReleaseChannel.fromTag(release.tagName)
+        return release.assets
+            .asSequence()
+            .filter { it.name.endsWith(".apk", ignoreCase = true) && it.downloadUrl.isNotBlank() }
+            .map { asset -> asset to apkAssetScore(asset.name, channel) }
+            .sortedByDescending { it.second }
+            .firstOrNull { it.second > Int.MIN_VALUE }?.first
+    }
+
+    private fun apkAssetScore(name: String, channel: ReleaseChannel): Int {
+        val lower = name.lowercase()
+        if (!lower.endsWith(".apk")) return Int.MIN_VALUE
+        if ("sha256" in lower || "mapping" in lower || "symbols" in lower) return Int.MIN_VALUE
+
+        var score = 0
+        if ("release" in lower) score += 80
+        if ("smartdash" in lower || "sdash" in lower) score += 30
+        if ("universal" in lower) score += 12
+        if ("arm64" in lower) score += 6
+        if ("signed" in lower) score += 4
+        if ("debug" in lower) score -= 200
+        if ("devrelease" in lower || "fastdevrelease" in lower || "fast-dev-release" in lower) score -= 220
+        if ("test" in lower) score -= 160
+
+        when (channel) {
+            ReleaseChannel.STABLE -> if ("beta" in lower || "nightly" in lower) score -= 120
+            ReleaseChannel.BETA -> if ("beta" in lower) score += 20
+            ReleaseChannel.NIGHTLY -> if ("nightly" in lower) score += 20
+        }
+        return score
+    }
 
     private fun resolveBuildCode(body: String, assetName: String): Long? {
         return buildRegex.find(body)?.groupValues?.getOrNull(1)?.toLongOrNull()
@@ -201,8 +335,8 @@ class AppUpdateManager(
     }
 
     private fun compareSemanticVersion(left: String, right: String): Int {
-        val leftParts = versionRegex.find(left)?.groupValues?.drop(1)?.map { it.toInt() }.orEmpty()
-        val rightParts = versionRegex.find(right)?.groupValues?.drop(1)?.map { it.toInt() }.orEmpty()
+        val leftParts = versionRegex.find(left)?.groupValues?.drop(1)?.map { it.toIntOrNull() ?: 0 }.orEmpty()
+        val rightParts = versionRegex.find(right)?.groupValues?.drop(1)?.map { it.toIntOrNull() ?: 0 }.orEmpty()
         val max = maxOf(leftParts.size, rightParts.size)
         for (index in 0 until max) {
             val leftValue = leftParts.getOrElse(index) { 0 }
@@ -229,4 +363,15 @@ private data class GithubReleaseAsset(
     @SerialName("browser_download_url") val downloadUrl: String
 )
 
-private val json = Json { ignoreUnknownKeys = true }
+@Serializable
+private data class ReleaseManifestJson(
+    val tag: String,
+    val versionName: String,
+    val versionCode: Long,
+    val channel: String,
+    val apkName: String,
+    val apkSha256: String,
+    val publishedAt: String,
+    val htmlUrl: String? = null,
+    val releaseNotes: String? = null
+)

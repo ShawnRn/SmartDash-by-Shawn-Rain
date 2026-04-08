@@ -72,7 +72,19 @@ jobs:
         shell: bash
         run: |
           rm -rf ~/.gradle/caches/build-cache-1
+          rm -rf ~/.gradle/caches/transforms-*
           rm -rf .gradle/configuration-cache
+
+      - name: Verify applicationId matches expected package
+        shell: bash
+        run: |
+          EXPECTED_APP_ID="com.shawnrain.sdash"
+          ACTUAL_APP_ID="$(grep -m1 'applicationId' app/build.gradle.kts | sed -n 's/.*"\([^"]*\)".*/\1/p')"
+          if [[ "${ACTUAL_APP_ID}" != "${EXPECTED_APP_ID}" ]]; then
+            echo "ERROR: applicationId mismatch. Expected '${EXPECTED_APP_ID}', got '${ACTUAL_APP_ID}'" >&2
+            exit 1
+          fi
+          echo "applicationId verified: ${ACTUAL_APP_ID}"
 
       - name: Validate release signing secrets
         env:
@@ -108,6 +120,29 @@ jobs:
         shell: bash
         run: |
           ./gradlew clean :app:assembleRelease --console plain
+
+      - name: Verify APK applicationId
+        shell: bash
+        run: |
+          APK_PATH="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' ! -name '*-unsigned.apk' | head -n 1)"
+          if [[ -z "${APK_PATH}" ]]; then
+            echo "No APK found" >&2
+            exit 1
+          fi
+          # Extract applicationId from APK using aapt2 or unzip + dump
+          if command -v aapt &>/dev/null; then
+            APP_ID="$(aapt dump badging "${APK_PATH}" | grep -oP "package: name='\K[^']+")"
+          else
+            # Fallback: extract AndroidManifest.xml and check
+            APP_ID="$(unzip -p "${APK_PATH}" AndroidManifest.xml 2>/dev/null | strings | grep -o 'com\.shawnrain\.[a-z]\+' | head -1)"
+          fi
+          if [[ -z "${APP_ID}" ]]; then
+            echo "WARNING: Could not extract applicationId from APK, skipping verification" >&2
+          elif [[ "${APP_ID}" != "com.shawnrain.sdash" ]]; then
+            echo "ERROR: APK contains wrong applicationId: ${APP_ID} (expected com.shawnrain.sdash)" >&2
+            exit 1
+          fi
+          echo "APK applicationId verified: ${APP_ID}"
 
       - name: Collect artifact path
         id: artifact

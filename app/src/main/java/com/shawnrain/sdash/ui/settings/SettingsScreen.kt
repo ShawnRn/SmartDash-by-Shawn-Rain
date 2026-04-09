@@ -645,9 +645,9 @@ fun SettingsScreen(
 
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("换机助手", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("局域网直连迁移", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                     Text(
-                        "支持同一局域网下设备直接迁移 App 资料。旧设备开启发送，新设备输入地址、端口和配对码后可立即恢复。",
+                        "默认推荐直接使用下方的 Google Drive 云同步完成换机；如果两台设备在同一局域网，或暂时不方便使用 Google 服务，再用这里直接迁移。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -831,7 +831,7 @@ fun SettingsScreen(
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Google Drive 云同步", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                     Text(
-                        "开启后自动双向同步并智能合并云端/本地数据。通常无需手动上传或恢复。",
+                        "换机优先用它。开启后会自动双向同步并智能合并云端/本地数据；局域网直连迁移只作为补充方式。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

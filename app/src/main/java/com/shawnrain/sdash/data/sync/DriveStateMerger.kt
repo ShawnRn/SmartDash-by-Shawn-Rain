@@ -33,7 +33,12 @@ class DriveStateMerger(
 
         // 1. Merge settings (field-level LWW)
         val mergedSettings = mergeSettings(localState.settings, remoteState.settings, notes)
-        val settingsUpdated = mergedSettings != localState.settings
+        val (mergedVehicleSettings, vehicleSettingsUpdated) = mergeVehicleSettings(
+            localState.vehicleSettings,
+            remoteState.vehicleSettings,
+            notes
+        )
+        val settingsUpdated = mergedSettings != localState.settings || vehicleSettingsUpdated
 
         // 2. Merge vehicle profiles (by ID, LWW)
         val (mergedProfiles, profileNotes, profileConflicts) = mergeVehicleProfiles(
@@ -60,6 +65,7 @@ class DriveStateMerger(
 
         val mergedState = remoteState.copy(
             settings = mergedSettings,
+            vehicleSettings = mergedVehicleSettings,
             vehicleProfiles = mergedProfiles,
             rides = mergedRides,
             speedTests = mergedSpeedTests,
@@ -134,6 +140,33 @@ class DriveStateMerger(
         }
 
         return Triple(mergedMap.values.toList(), notes, conflicts)
+    }
+
+    private fun mergeVehicleSettings(
+        local: List<SyncVehicleSettingsSnapshot>,
+        remote: List<SyncVehicleSettingsSnapshot>,
+        notes: MutableList<String>
+    ): Pair<List<SyncVehicleSettingsSnapshot>, Boolean> {
+        if (local.isEmpty() && remote.isEmpty()) return emptyList<SyncVehicleSettingsSnapshot>() to false
+        if (remote.isEmpty()) return local to false
+        if (local.isEmpty()) {
+            notes.add("已从云端更新设置")
+            return remote to true
+        }
+
+        var updated = false
+        val mergedMap = local.associateBy { it.vehicleProfileId }.toMutableMap()
+        for (remoteSettings in remote) {
+            val localSettings = mergedMap[remoteSettings.vehicleProfileId]
+            if (localSettings == null || remoteSettings.updatedAt > localSettings.updatedAt) {
+                mergedMap[remoteSettings.vehicleProfileId] = remoteSettings
+                updated = true
+            }
+        }
+        if (updated && notes.none { it == "已从云端更新设置" }) {
+            notes.add("已从云端更新设置")
+        }
+        return mergedMap.values.sortedBy { it.vehicleProfileId } to updated
     }
 
     private fun mergeRides(

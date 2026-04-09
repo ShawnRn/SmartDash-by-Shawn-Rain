@@ -58,6 +58,7 @@ class DriveStateSerializer(
             updatedAt = now,
             updatedByDeviceId = deviceId
         )
+        val vehicleSettings = settingsRepository.buildSyncVehicleSettingsSnapshots(deviceId)
 
         // Load vehicle profiles
         val profiles = settingsRepository.vehicleProfiles.first().map { profile ->
@@ -82,6 +83,7 @@ class DriveStateSerializer(
             updatedByDeviceName = deviceName,
             activeVehicleProfileId = activeVehicleId,
             settings = settings,
+            vehicleSettings = vehicleSettings,
             vehicleProfiles = profiles,
             rides = rides,
             speedTests = speedTests

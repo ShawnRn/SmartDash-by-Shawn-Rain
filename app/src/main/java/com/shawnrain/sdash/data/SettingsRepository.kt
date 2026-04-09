@@ -25,6 +25,7 @@ import com.shawnrain.sdash.data.sync.DriveCurrentState
 import com.shawnrain.sdash.data.sync.SyncRideSnapshot
 import com.shawnrain.sdash.data.sync.SyncSettingsSnapshot
 import com.shawnrain.sdash.data.sync.SyncSpeedTestSnapshot
+import com.shawnrain.sdash.data.sync.SyncVehicleSettingsSnapshot
 import com.shawnrain.sdash.data.sync.SyncVehicleProfileSnapshot
 import com.shawnrain.sdash.debug.AppLogLevel
 import com.shawnrain.sdash.debug.AppLogger
@@ -558,6 +559,40 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
+    suspend fun buildSyncVehicleSettingsSnapshots(deviceId: String): List<SyncVehicleSettingsSnapshot> {
+        val pref = preferencesFlow.first()
+        return loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
+            .distinctBy { it.id }
+            .map { profile ->
+                val vehicleId = profile.id
+                val updatedAt = listOf(
+                    readLocalModifiedAt(pref, "v_${vehicleId}_$K_SPEED_SRC"),
+                    readLocalModifiedAt(pref, "v_${vehicleId}_$K_BATT_SRC"),
+                    readLocalModifiedAt(pref, "v_${vehicleId}_$K_WHEEL"),
+                    readLocalModifiedAt(pref, "v_${vehicleId}_$K_POLE"),
+                    readLocalModifiedAt(pref, "v_${vehicleId}_$K_BRAND"),
+                    readLocalModifiedAt(pref, "v_${vehicleId}_$K_DASH_ITEMS"),
+                    readLocalModifiedAt(pref, "v_${vehicleId}_$K_RIDE_OVERVIEW_ITEMS")
+                ).maxOrNull() ?: 0L
+                SyncVehicleSettingsSnapshot(
+                    vehicleProfileId = vehicleId,
+                    speedSource = (pref.safeGet(vKey(vehicleId, K_SPEED_SRC)) ?: SpeedSource.CONTROLLER.name),
+                    battDataSource = (pref.safeGet(vKey(vehicleId, K_BATT_SRC)) ?: DataSource.CONTROLLER.name),
+                    wheelCircumferenceMm = (pref.safeGet(vKeyF(vehicleId, K_WHEEL))
+                        ?: profile.wheelCircumferenceMm.takeIf { it > 0f }
+                        ?: 1800f),
+                    polePairs = (pref.safeGet(vKeyI(vehicleId, K_POLE))
+                        ?: profile.polePairs.takeIf { it > 0 }
+                        ?: 50),
+                    controllerBrand = pref.safeGet(vKey(vehicleId, K_BRAND)) ?: "auto",
+                    dashboardItems = parseMetricNames(pref.safeGet(vKey(vehicleId, K_DASH_ITEMS))),
+                    rideOverviewItems = parseMetricNames(pref.safeGet(vKey(vehicleId, K_RIDE_OVERVIEW_ITEMS))),
+                    updatedAt = updatedAt,
+                    updatedByDeviceId = deviceId
+                )
+            }
+    }
+
     suspend fun applyDriveSyncState(state: DriveCurrentState) {
         val sanitizedProfiles = state.vehicleProfiles
             .map { it.toVehicleProfile() }
@@ -574,7 +609,16 @@ class SettingsRepository(private val context: Context) {
             pref[CURRENT_VEHICLE_ID] = resolvedCurrentVehicleId
             markSyncedAt(pref, VEHICLE_LIST.name, CURRENT_VEHICLE_ID.name)
 
-            applySyncSettingsLocked(pref, resolvedCurrentVehicleId, state.settings)
+            if (state.vehicleSettings.isNotEmpty()) {
+                state.vehicleSettings
+                    .filter { snapshot -> sanitizedProfiles.any { it.id == snapshot.vehicleProfileId } }
+                    .forEach { snapshot ->
+                        applyVehicleSyncSettingsLocked(pref, snapshot)
+                    }
+                applyGlobalSyncSettingsLocked(pref, state.settings)
+            } else {
+                applySyncSettingsLocked(pref, resolvedCurrentVehicleId, state.settings)
+            }
 
             sanitizedProfiles.forEach { profile ->
                 val vehicleId = profile.id
@@ -690,6 +734,29 @@ class SettingsRepository(private val context: Context) {
         vehicleId: String,
         snapshot: SyncSettingsSnapshot
     ) {
+        applyVehicleSyncSettingsLocked(
+            pref = pref,
+            snapshot = SyncVehicleSettingsSnapshot(
+                vehicleProfileId = vehicleId,
+                speedSource = snapshot.speedSource,
+                battDataSource = snapshot.battDataSource,
+                wheelCircumferenceMm = snapshot.wheelCircumferenceMm,
+                polePairs = snapshot.polePairs,
+                controllerBrand = snapshot.controllerBrand,
+                dashboardItems = snapshot.dashboardItems,
+                rideOverviewItems = snapshot.rideOverviewItems,
+                updatedAt = snapshot.updatedAt,
+                updatedByDeviceId = snapshot.updatedByDeviceId
+            )
+        )
+        applyGlobalSyncSettingsLocked(pref, snapshot)
+    }
+
+    private fun applyVehicleSyncSettingsLocked(
+        pref: androidx.datastore.preferences.core.MutablePreferences,
+        snapshot: SyncVehicleSettingsSnapshot
+    ) {
+        val vehicleId = snapshot.vehicleProfileId
         pref[vKey(vehicleId, K_SPEED_SRC)] = snapshot.speedSource
         pref[vKey(vehicleId, K_BATT_SRC)] = snapshot.battDataSource
         pref[vKeyF(vehicleId, K_WHEEL)] = snapshot.wheelCircumferenceMm
@@ -697,6 +764,22 @@ class SettingsRepository(private val context: Context) {
         pref[vKey(vehicleId, K_BRAND)] = snapshot.controllerBrand
         pref[vKey(vehicleId, K_DASH_ITEMS)] = snapshot.dashboardItems.joinToString(",")
         pref[vKey(vehicleId, K_RIDE_OVERVIEW_ITEMS)] = snapshot.rideOverviewItems.joinToString(",")
+        markSyncedAt(
+            pref,
+            "v_${vehicleId}_$K_SPEED_SRC",
+            "v_${vehicleId}_$K_BATT_SRC",
+            "v_${vehicleId}_$K_WHEEL",
+            "v_${vehicleId}_$K_POLE",
+            "v_${vehicleId}_$K_BRAND",
+            "v_${vehicleId}_$K_DASH_ITEMS",
+            "v_${vehicleId}_$K_RIDE_OVERVIEW_ITEMS"
+        )
+    }
+
+    private fun applyGlobalSyncSettingsLocked(
+        pref: androidx.datastore.preferences.core.MutablePreferences,
+        snapshot: SyncSettingsSnapshot
+    ) {
         pref[OVERLAY_ENABLED] = snapshot.overlayEnabled
         pref[DRIVE_BACKUP_RETENTION] = snapshot.driveBackupRetention
         pref[stringPreferencesKey(K_POSTER_TEMPLATE)] = PosterTemplates.byId(snapshot.posterTemplateId).id
@@ -707,13 +790,6 @@ class SettingsRepository(private val context: Context) {
         pref[booleanPreferencesKey(K_POSTER_SHOW_WATERMARK)] = snapshot.posterShowWatermark
         markSyncedAt(
             pref,
-            "v_${vehicleId}_$K_SPEED_SRC",
-            "v_${vehicleId}_$K_BATT_SRC",
-            "v_${vehicleId}_$K_WHEEL",
-            "v_${vehicleId}_$K_POLE",
-            "v_${vehicleId}_$K_BRAND",
-            "v_${vehicleId}_$K_DASH_ITEMS",
-            "v_${vehicleId}_$K_RIDE_OVERVIEW_ITEMS",
             OVERLAY_ENABLED.name,
             DRIVE_BACKUP_RETENTION.name,
             K_POSTER_TEMPLATE,
@@ -722,6 +798,12 @@ class SettingsRepository(private val context: Context) {
             K_POSTER_SHOW_WATERMARK
         )
     }
+
+    private fun parseMetricNames(raw: String?): List<String> =
+        raw.orEmpty()
+            .split(',')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
 
     private fun SyncVehicleProfileSnapshot.toVehicleProfile(): VehicleProfile = normalizedProfile(
         VehicleProfile(

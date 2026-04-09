@@ -398,6 +398,7 @@ class DriveSyncCoordinator(
             localState.vehicleProfiles.size > 1
 
         if (!localHasMeaningfulData) return@withContext false
+        if (metadata.localStateVersion > metadata.lastPushedLocalVersion) return@withContext true
         if (metadata.lastPushedLocalVersion == 0L) return@withContext true
         if (remoteManifest == null) return@withContext true
 

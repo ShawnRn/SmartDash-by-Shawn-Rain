@@ -1119,7 +1119,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     remoteDeviceName = backups.firstOrNull()?.deviceName
                 )
                 if (showMessage) {
-                    _driveSyncMessage.value = result.notes.joinToString("；").ifBlank { "Google Drive 双向同步已完成" }
+                    _driveSyncMessage.value = formatDriveSyncMessage(result.notes)
                 }
             }
             is com.shawnrain.sdash.data.sync.SyncRunResult.Skipped -> {
@@ -1144,6 +1144,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             else -> Unit
         }
+    }
+
+    private fun formatDriveSyncMessage(notes: List<String>): String {
+        if (notes.isEmpty()) return "Google Drive 双向同步已完成"
+        if (notes.size == 1) return notes.first()
+
+        val addedRides = notes.count { it.startsWith("已新增行程：") }
+        val addedSpeedTests = notes.count { it.startsWith("已新增测速记录：") }
+        val addedProfiles = notes.count { it.startsWith("已新增车辆档案：") }
+        val updatedProfiles = notes.count { it.startsWith("已更新车辆档案：") }
+        val updatedSpeedTests = notes.count { it.startsWith("已更新测速记录：") }
+        val deletedProfiles = notes.count { it.startsWith("已删除车辆档案：") }
+        val settingsUpdated = notes.any { it == "已从云端更新设置" }
+        val uploaded = notes.any { it == "本地变更已上传到云端" || it == "已将本地完整资料补传到云端" }
+        val synced = notes.any { it == "已同步到最新云端数据" }
+        val noChanges = notes.any { it == "云端和本地都没有新的资料变更" }
+
+        if (noChanges) return "云端和本地都没有新的资料变更"
+
+        val summaryParts = buildList {
+            if (addedRides > 0) add("新增 $addedRides 条行程")
+            if (addedSpeedTests > 0) add("新增 $addedSpeedTests 条测速")
+            val profileDelta = addedProfiles + updatedProfiles + deletedProfiles
+            if (profileDelta > 0) add("更新 $profileDelta 个车辆档案")
+            if (updatedSpeedTests > 0) add("更新 $updatedSpeedTests 条测速")
+            if (settingsUpdated) add("设置已更新")
+            if (uploaded) add("已上传云端")
+            if (synced) add("已同步完成")
+        }
+
+        return summaryParts.firstOrNull()?.let { first ->
+            if (summaryParts.size == 1) first else first
+        } ?: "Google Drive 双向同步已完成"
     }
 
     /**

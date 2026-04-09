@@ -18,6 +18,7 @@ data class DriveCurrentState(
     val updatedByDeviceName: String,
     val activeVehicleProfileId: String = "",
     val settings: SyncSettingsSnapshot = SyncSettingsSnapshot(),
+    val vehicleSettings: List<SyncVehicleSettingsSnapshot> = emptyList(),
     val vehicleProfiles: List<SyncVehicleProfileSnapshot> = emptyList(),
     val rides: List<SyncRideSnapshot> = emptyList(),
     val speedTests: List<SyncSpeedTestSnapshot> = emptyList()
@@ -40,6 +41,20 @@ data class SyncSettingsSnapshot(
     val posterShowWatermark: Boolean = true,
     val learnedEfficiencyWhKm: Float = 35f,
     val learnedUsableEnergyRatio: Float = 0.85f,
+    val updatedAt: Long = 0L,
+    val updatedByDeviceId: String = ""
+)
+
+@Serializable
+data class SyncVehicleSettingsSnapshot(
+    val vehicleProfileId: String,
+    val speedSource: String = "CONTROLLER",
+    val battDataSource: String = "CONTROLLER",
+    val wheelCircumferenceMm: Float = 1800f,
+    val polePairs: Int = 50,
+    val controllerBrand: String = "auto",
+    val dashboardItems: List<String> = emptyList(),
+    val rideOverviewItems: List<String> = emptyList(),
     val updatedAt: Long = 0L,
     val updatedByDeviceId: String = ""
 )

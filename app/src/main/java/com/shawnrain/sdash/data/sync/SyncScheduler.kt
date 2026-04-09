@@ -109,14 +109,7 @@ class SyncScheduler(
         settingsDebounceJob = schedulerScope.launch {
             try {
                 kotlinx.coroutines.delay(30_000)
-
-                val metadata = metadataRepository.getMetadata(context)
-                val newVersion = metadata.localStateVersion + 1
-
-                mutationRepository.enqueueForSettings(newVersion, metadata.deviceId)
-                metadataRepository.incrementLocalStateVersion(context)
-
-                DrivePushWorker.enqueuePush(context, SyncTriggerReason.SETTINGS_CHANGED)
+                enqueueSettingsMutation(pushImmediately = true)
                 AppLogger.i(TAG, "Settings change sync scheduled (debounced)")
             } catch (e: CancellationException) {
                 AppLogger.d(TAG, "Settings change sync debounced")
@@ -213,7 +206,32 @@ class SyncScheduler(
      * Call this for manual sync (pull then push).
      */
     fun onManualSync() {
-        DriveReconcileWorker.scheduleReconcile(context, SyncTriggerReason.MANUAL_SYNC)
+        schedulerScope.launch {
+            try {
+                val pendingSettingsJob = settingsDebounceJob
+                if (pendingSettingsJob?.isActive == true) {
+                    pendingSettingsJob.cancel()
+                    enqueueSettingsMutation(pushImmediately = false)
+                    AppLogger.i(TAG, "Manual sync flushed pending settings changes before reconcile")
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Failed to flush pending settings before manual sync: ${e.message}")
+            } finally {
+                DriveReconcileWorker.scheduleReconcile(context, SyncTriggerReason.MANUAL_SYNC)
+            }
+        }
+    }
+
+    private suspend fun enqueueSettingsMutation(pushImmediately: Boolean) = withContext(Dispatchers.IO) {
+        val metadata = metadataRepository.getMetadata(context)
+        val newVersion = metadata.localStateVersion + 1
+
+        mutationRepository.enqueueForSettings(newVersion, metadata.deviceId)
+        metadataRepository.incrementLocalStateVersion(context)
+
+        if (pushImmediately) {
+            DrivePushWorker.enqueuePush(context, SyncTriggerReason.SETTINGS_CHANGED)
+        }
     }
 
     /**

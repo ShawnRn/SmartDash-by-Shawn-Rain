@@ -6,9 +6,11 @@ data class RideSummaryStats(
     val distanceMeters: Float,
     val maxSpeedKmh: Float,
     val avgSpeedKmh: Float,
+    val hasGradeData: Boolean,
     val maxUphillGradePercent: Float,
     val maxDownhillGradePercent: Float,
     val avgSignedGradePercent: Float,
+    val hasAltitudeData: Boolean,
     val maxAltitudeMeters: Float,
     val minAltitudeMeters: Float,
     val avgAltitudeMeters: Float
@@ -38,28 +40,33 @@ fun computeRideSummaryStats(record: RideHistoryRecord): RideSummaryStats {
         record.avgSpeedKmh.coerceAtLeast(0f)
     }
 
-    val gradeValues = record.samples
-        .asSequence()
-        .map { it.gradePercent }
-        .filter { it.isFinite() && it in -35f..35f }
-        .toList()
-    val maxUphillGradePercent = gradeValues.filter { it > 0f }.maxOrNull() ?: 0f
-    val maxDownhillGradePercent = gradeValues.filter { it < 0f }.minOrNull() ?: 0f
-    val avgSignedGradePercent = if (gradeValues.isNotEmpty()) {
-        gradeValues.sum() / gradeValues.size.toFloat()
-    } else {
-        0f
-    }
-
     val altitudeValues = record.samples
         .asSequence()
         .mapNotNull { it.altitudeMeters?.toFloat() }
         .filter { it.isFinite() }
         .toList()
+    val hasAltitudeData = altitudeValues.isNotEmpty()
     val maxAltitudeMeters = altitudeValues.maxOrNull() ?: 0f
     val minAltitudeMeters = altitudeValues.minOrNull() ?: 0f
-    val avgAltitudeMeters = if (altitudeValues.isNotEmpty()) {
+    val avgAltitudeMeters = if (hasAltitudeData) {
         altitudeValues.sum() / altitudeValues.size.toFloat()
+    } else {
+        0f
+    }
+
+    val gradeValues = record.samples
+        .asSequence()
+        .mapNotNull { sample ->
+            sample.gradePercent?.takeIf {
+                hasAltitudeData && it.isFinite() && it in -35f..35f
+            }
+        }
+        .toList()
+    val hasGradeData = gradeValues.isNotEmpty()
+    val maxUphillGradePercent = gradeValues.filter { it > 0f }.maxOrNull() ?: 0f
+    val maxDownhillGradePercent = gradeValues.filter { it < 0f }.minOrNull() ?: 0f
+    val avgSignedGradePercent = if (hasGradeData) {
+        gradeValues.sum() / gradeValues.size.toFloat()
     } else {
         0f
     }
@@ -68,9 +75,11 @@ fun computeRideSummaryStats(record: RideHistoryRecord): RideSummaryStats {
         distanceMeters = distanceMeters,
         maxSpeedKmh = maxSpeedKmh,
         avgSpeedKmh = avgSpeedKmh,
+        hasGradeData = hasGradeData,
         maxUphillGradePercent = maxUphillGradePercent,
         maxDownhillGradePercent = maxDownhillGradePercent,
         avgSignedGradePercent = avgSignedGradePercent,
+        hasAltitudeData = hasAltitudeData,
         maxAltitudeMeters = maxAltitudeMeters,
         minAltitudeMeters = minAltitudeMeters,
         avgAltitudeMeters = avgAltitudeMeters

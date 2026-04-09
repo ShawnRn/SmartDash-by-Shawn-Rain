@@ -5,7 +5,14 @@ source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 
 ensure_android_tools
 
-"$SCRIPT_DIR/build-fast-dev-release.sh" >/tmp/habe-install-fast-dev-release.out
+BUILD_OUTPUT_FILE="$(mktemp)"
+"$SCRIPT_DIR/build-fast-dev-release.sh" | tee "$BUILD_OUTPUT_FILE"
+INSTALL_APK_PATH="$(extract_output_var "$BUILD_OUTPUT_FILE" "FAST_DEV_RELEASE_APK_PATH")"
+
+if [[ -z "$INSTALL_APK_PATH" ]]; then
+  echo "Build output did not include FAST_DEV_RELEASE_APK_PATH." >&2
+  exit 1
+fi
 
 ADB_TARGET="${ADB_TARGET:-}"
 if [[ -n "$ADB_TARGET" ]]; then
@@ -19,6 +26,6 @@ fi
   exit 1
 }
 
-"${ADB_PREFIX[@]}" install -r "$FAST_DEV_RELEASE_APK_PATH"
+"${ADB_PREFIX[@]}" install -r "$INSTALL_APK_PATH"
 
-echo "INSTALLED_APK=$FAST_DEV_RELEASE_APK_PATH"
+echo "INSTALLED_APK=$INSTALL_APK_PATH"

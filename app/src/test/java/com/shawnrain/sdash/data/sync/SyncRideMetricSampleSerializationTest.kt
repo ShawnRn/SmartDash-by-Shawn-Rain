@@ -33,7 +33,7 @@ class SyncRideMetricSampleSerializationTest {
         val encoded = json.encodeToString(SyncRideMetricSample.serializer(), sample)
         val decoded = json.decodeFromString(SyncRideMetricSample.serializer(), encoded)
 
-        assertEquals(6.5f, decoded.gradePercent, 0.001f)
+        assertEquals(6.5f, decoded.gradePercent ?: 0f, 0.001f)
         assertEquals(123.4, decoded.altitudeMeters ?: 0.0, 0.001)
     }
 
@@ -60,7 +60,7 @@ class SyncRideMetricSampleSerializationTest {
             """.trimIndent()
         )
 
-        assertEquals(0f, decoded.gradePercent, 0.001f)
+        assertNull(decoded.gradePercent)
         assertNull(decoded.altitudeMeters)
     }
 }

@@ -33,6 +33,23 @@
 - `proguard-rules.pro` 位于 `app/` 根目录，保留 Compose、BLE、协议类、云同步类免于混淆
 - `devRelease` 构建可能因 configuration cache 序列化问题失败，需加 `--no-configuration-cache` 参数
 
+### 主编译机约定
+
+- SmartDash 的唯一主编译机固定为这台 `MacBook Pro M1`
+  - 设备名：`shawn-rains-macbook-pro`
+  - Tailscale IP：`100.103.86.124`
+- 所有 `Gradle compile / assemble / test` 任务默认优先在主编译机执行：
+  - 若当前就是主编译机，脚本继续本地执行
+  - 若当前不是主编译机，脚本通过 Tailscale SSH 自动路由到主编译机执行
+- `adb install` 默认仍在当前发起命令的机器执行，不跟随远端编译：
+  - 在非主编译机上执行“装到手机上”时，标准流程是“远端构建 -> 产物回传到当前机器 -> 当前机器本地 adb 安装”
+- 前置条件：
+  - 两台 Mac 都已登录同一 Tailscale 网络
+  - 主编译机已开启 macOS `Remote Login`
+  - 非主编译机到主编译机的 SSH 已免密可用
+  - 主编译机已配置 Android SDK、JDK 17、release 签名和仓库工作区
+  - 两台机器的仓库路径保持一致，或通过环境变量覆盖远端仓库路径
+
 ### 编译速度保障
 
 **关键配置（`gradle.properties`）：**
@@ -55,8 +72,8 @@
 **AI Agent 编译决策树：**
 - 用户说"装到手机上" → `.agents/scripts/install-dev-release.sh`（不二次确认）
 - 用户说"出个包" → `.agents/scripts/build-release.sh`
-- 用户说"编译验证" → `./gradlew :app:compileDebugKotlin --console plain`
-- 用户说"改 UI 看效果" → `./gradlew :app:assembleDebug && adb install -r ...`
+- 用户说"编译验证" → `.agents/scripts/compile-debug-kotlin.sh`
+- 用户说"改 UI 看效果" → `.agents/scripts/build-debug.sh`，需要安装时再接 `adb install`
 
 **推荐的低干扰 devRelease 构建方式：**
 - 当目标是"编一个可覆盖安装的联调包"，优先使用输出节流版命令，避免终端刷屏拖慢桌面响应：
@@ -88,6 +105,10 @@ cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vib
 - `ANDROID_HOME=/Users/shawnrain/android-sdk`
 - `JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home`
 - `ANDROID_SDK_ROOT=/Users/shawnrain/android-sdk`
+- `SMARTDASH_BUILD_HOST=shawn-rains-macbook-pro`
+- `SMARTDASH_BUILD_HOST_IP=100.103.86.124`
+- `SMARTDASH_REMOTE_PROJECT_ROOT=/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vibe-Coding/SmartDash`
+- `SMARTDASH_REMOTE_JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home`
 
 Release 签名约定：
 - keystore 文件默认保存在 iCloud Drive：
@@ -132,7 +153,7 @@ Release 签名约定：
 新 Mac 首次装机建议：
 - 先跑 `.agents/scripts/bootstrap-mac.sh`
 - 再跑 `.agents/scripts/preflight.sh`
-- 最后跑 `./gradlew :app:assembleDebug --console plain`
+- 最后跑 `.agents/scripts/compile-debug-kotlin.sh`
 
 ## 3. 当前代码结构
 核心目录：
@@ -465,6 +486,7 @@ Release 签名约定：
 - `.agents/scripts/setup-release-signing.sh`: 创建或检查 release keystore，并把路径/密码写入钥匙串
 - `.agents/scripts/preflight.sh`: 检查 Java / Android SDK / adb / gh
 - `.agents/scripts/build-debug.sh`: 构建 Debug APK、校验、归档
+- `.agents/scripts/compile-debug-kotlin.sh`: 编译 `:app:compileDebugKotlin`，支持自动路由到主编译机
 - `.agents/scripts/build-dev-release.sh`: 使用 release 签名快速构建 `devRelease` APK，适合真机联调
 - `.agents/scripts/build-fast-dev-release.sh`: 使用 release 签名快速构建 `fastDevRelease`，默认跳过 `lintVital`
 - `.agents/scripts/build-release.sh`: 读取钥匙串中的 release 签名信息并构建已签名 APK
@@ -515,7 +537,7 @@ Release 签名约定：
 1. 新 Mac 首次装机先跑 `.agents/scripts/bootstrap-mac.sh`
 2. 跑 `.agents/scripts/preflight.sh`
 3. 确认 `gh auth status`、`adb version`、`JAVA_HOME`
-4. 首次热身建议先执行一次 `./gradlew :app:compileDebugKotlin --console plain`，让 Gradle daemon 与 configuration cache 建立好
+4. 首次热身建议先执行一次 `.agents/scripts/compile-debug-kotlin.sh`，让主编译机上的 Gradle daemon 与 configuration cache 建立好
 
 ### 9.2 本地 Release 构建
 1. 首次执行 `.agents/scripts/setup-release-signing.sh`
@@ -551,9 +573,10 @@ Release 签名约定：
 1. 优先跑 `.agents/scripts/install-dev-release.sh`
 2. `devRelease` 继续使用 release 签名，可直接覆盖手机上的当前安装
 3. 首次构建或刚改过 `build.gradle.kts` / `gradle.properties` 时，首包会较慢；第二次开始会明显变快
-4. 只有在对外交付 APK、归档版本或最终验收时，再切回 `.agents/scripts/build-release.sh`
-5. 用户只要明确表达"装到手机上"，就把安装视为默认动作，不要再额外确认
-6. 若只是先产出 `devRelease` 包，不急着安装，优先使用低干扰 shell 方式：
+4. 若当前机器不是主编译机，脚本会自动通过 Tailscale SSH 到 `shawn-rains-macbook-pro` 编译，并把 APK 回传到当前机器后再执行本地 `adb install`
+5. 只有在对外交付 APK、归档版本或最终验收时，再切回 `.agents/scripts/build-release.sh`
+6. 用户只要明确表达"装到手机上"，就把安装视为默认动作，不要再额外确认
+7. 若只是先产出 `devRelease` 包，不急着安装，优先使用低干扰 shell 方式：
 
 ```bash
 cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vibe-Coding/SmartDash" \
@@ -562,7 +585,7 @@ cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vib
   && .agents/scripts/build-dev-release.sh 2>&1 | tail -5
 ```
 
-7. 对 Codex / 桌面代理尤其推荐上面这种"尾部输出"模式，能明显减少终端刷屏导致的系统卡顿感
+8. 对 Codex / 桌面代理尤其推荐上面这种"尾部输出"模式，能明显减少终端刷屏导致的系统卡顿感
 
 ### 9.7 本地个人极速迭代
 1. 需要最快的真机覆盖安装时，优先跑 `.agents/scripts/install-fast-dev-release.sh`

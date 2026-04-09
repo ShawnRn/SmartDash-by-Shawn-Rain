@@ -969,16 +969,20 @@ private fun RideHistoryCard(
     val summaryStats = remember(record) { computeRideSummaryStats(record) }
     val displayDistanceMeters = summaryStats.distanceMeters
     val displayAvgSpeedKmh = summaryStats.avgSpeedKmh
-    val summaryMetrics = listOf(
-        "里程" to metricOf(displayDistanceMeters / 1000f, "km"),
-        "最高速度" to metricOf(summaryStats.maxSpeedKmh, "km/h"),
-        "平均速度" to metricOf(displayAvgSpeedKmh, "km/h"),
-        "最大坡度" to metricOf(dominantSignedGrade(summaryStats), "%"),
-        "最高海拔" to metricOf(summaryStats.maxAltitudeMeters, "m"),
-        "峰值功率" to metricOf(record.peakPowerKw, "kW"),
-        "能耗" to metricOf(record.avgNetEfficiencyWhKm, "Wh/km"),
-        "采样点" to metricOfLabel(record.samples.size.toString())
-    )
+    val summaryMetrics = buildList {
+        add("里程" to metricOf(displayDistanceMeters / 1000f, "km"))
+        add("最高速度" to metricOf(summaryStats.maxSpeedKmh, "km/h"))
+        add("平均速度" to metricOf(displayAvgSpeedKmh, "km/h"))
+        if (summaryStats.hasGradeData) {
+            add("最大坡度" to metricOf(dominantSignedGrade(summaryStats), "%"))
+        }
+        if (summaryStats.hasAltitudeData) {
+            add("最高海拔" to metricOf(summaryStats.maxAltitudeMeters, "m"))
+        }
+        add("峰值功率" to metricOf(record.peakPowerKw, "kW"))
+        add("能耗" to metricOf(record.avgNetEfficiencyWhKm, "Wh/km"))
+        add("采样点" to metricOfLabel(record.samples.size.toString()))
+    }
 
     AnimatedVisibility(
         visible = !isRemoving,
@@ -3501,99 +3505,103 @@ private fun buildRideOverviewCards(
         ?: record.avgNetEfficiencyWhKm.takeIf { it > 0.01f }
         ?: record.avgEfficiencyWhKm
     val recoveredEnergyWh = samples.maxOf { it.recoveredEnergyWh }.coerceAtLeast(last.recoveredEnergyWh)
-    val cardsByType = linkedMapOf<MetricType, RideOverviewCard>(
-        MetricType.SPEED to RideOverviewCard(
+    val cardsByType = linkedMapOf<MetricType, RideOverviewCard>()
+    cardsByType[MetricType.SPEED] = RideOverviewCard(
             type = MetricType.SPEED,
             title = "速度",
             value = metricOf(peakSpeedKmh, "km/h"),
             supporting = "平均 ${formatFloat(avgSpeedKmh)} km/h",
             metric = RideChartMetric.SPEED
-        ),
-        MetricType.GRADE to RideOverviewCard(
+        )
+    if (summaryStats.hasGradeData) {
+        cardsByType[MetricType.GRADE] = RideOverviewCard(
             type = MetricType.GRADE,
             title = "坡度",
             value = metricOf(summaryStats.maxUphillGradePercent, "%"),
             supporting = "最大下坡 ${formatSignedFloat(summaryStats.maxDownhillGradePercent)} %",
             metric = RideChartMetric.GRADE
-        ),
-        MetricType.ALTITUDE to RideOverviewCard(
+        )
+    }
+    if (summaryStats.hasAltitudeData) {
+        cardsByType[MetricType.ALTITUDE] = RideOverviewCard(
             type = MetricType.ALTITUDE,
             title = "海拔高度",
             value = metricOf(summaryStats.maxAltitudeMeters, "m"),
             supporting = "最低 ${formatFloat(summaryStats.minAltitudeMeters)} m",
             metric = RideChartMetric.ALTITUDE
-        ),
-        MetricType.POWER to RideOverviewCard(
+        )
+    }
+    cardsByType[MetricType.POWER] = RideOverviewCard(
             type = MetricType.POWER,
             title = "功率",
             value = metricOf(avgPowerKw, "kW"),
             supporting = "峰值 ${formatFloat(peakPowerKw)} kW",
             metric = RideChartMetric.POWER
-        ),
-        MetricType.VOLTAGE to RideOverviewCard(
+        )
+    cardsByType[MetricType.VOLTAGE] = RideOverviewCard(
             type = MetricType.VOLTAGE,
             title = "电压",
             value = metricOf(avgVoltage, "V"),
             supporting = "最低 ${formatFloat(minVoltage)} V",
             metric = RideChartMetric.VOLTAGE
-        ),
-        MetricType.VOLTAGE_SAG to RideOverviewCard(
+        )
+    cardsByType[MetricType.VOLTAGE_SAG] = RideOverviewCard(
             type = MetricType.VOLTAGE_SAG,
             title = "压降",
             value = metricOf(avgVoltageSag, "V"),
             supporting = "最大 ${formatFloat(peakVoltageSag)} V",
             metric = RideChartMetric.VOLTAGE_SAG
-        ),
-        MetricType.BUS_CURRENT to RideOverviewCard(
+        )
+    cardsByType[MetricType.BUS_CURRENT] = RideOverviewCard(
             type = MetricType.BUS_CURRENT,
             title = "母线电流",
             value = metricOf(avgBusCurrent, "A"),
             supporting = "峰值 ${formatFloat(peakBusCurrent)} A",
             metric = RideChartMetric.BUS_CURRENT
-        ),
-        MetricType.PHASE_CURRENT to RideOverviewCard(
+        )
+    cardsByType[MetricType.PHASE_CURRENT] = RideOverviewCard(
             type = MetricType.PHASE_CURRENT,
             title = "相电流",
             value = metricOf(avgPhaseCurrent, "A"),
             supporting = "峰值 ${formatFloat(peakPhaseCurrent)} A",
             metric = RideChartMetric.PHASE_CURRENT
-        ),
-        MetricType.TEMP to RideOverviewCard(
+        )
+    cardsByType[MetricType.TEMP] = RideOverviewCard(
             type = MetricType.TEMP,
             title = "控制器温度",
             value = metricOf(avgControllerTemp, "°C"),
             supporting = "最高 ${formatFloat(peakControllerTemp)} °C",
             metric = RideChartMetric.CONTROLLER_TEMP
-        ),
-        MetricType.MAX_CONTROLLER_TEMP to RideOverviewCard(
+        )
+    cardsByType[MetricType.MAX_CONTROLLER_TEMP] = RideOverviewCard(
             type = MetricType.MAX_CONTROLLER_TEMP,
             title = "控制器最高温度",
             value = metricOf(peakControllerTemp, "°C"),
             supporting = "平均 ${formatFloat(avgControllerTemp)} °C",
             metric = RideChartMetric.MAX_CONTROLLER_TEMP
-        ),
-        MetricType.SOC to RideOverviewCard(
+        )
+    cardsByType[MetricType.SOC] = RideOverviewCard(
             type = MetricType.SOC,
             title = "电量",
             value = metricOf(last.soc, "%"),
             supporting = "起点 ${formatFloat(startSoc)} %",
             metric = RideChartMetric.SOC
-        ),
-        MetricType.RANGE to RideOverviewCard(
+        )
+    cardsByType[MetricType.RANGE] = RideOverviewCard(
             type = MetricType.RANGE,
             title = "剩余续航",
             value = metricOf(last.estimatedRangeKm, "km"),
             supporting = "起点 ${formatFloat(startRangeKm)} km",
             metric = RideChartMetric.RANGE
-        ),
-        MetricType.RPM to RideOverviewCard(
+        )
+    cardsByType[MetricType.RPM] = RideOverviewCard(
             type = MetricType.RPM,
             title = "转速",
             value = metricOf(avgRpm, "rpm"),
             supporting = "峰值 ${formatFloat(peakRpm)} rpm",
             metric = RideChartMetric.RPM
-        ),
-        MetricType.EFFICIENCY to RideOverviewCard(
+        )
+    cardsByType[MetricType.EFFICIENCY] = RideOverviewCard(
             type = MetricType.EFFICIENCY,
             title = "平均能耗",
             value = metricOf(
@@ -3604,36 +3612,35 @@ private fun buildRideOverviewCards(
             ),
             supporting = "峰值 ${formatFloat(peakAverageEfficiency)} Wh/km",
             metric = RideChartMetric.AVG_EFFICIENCY
-        ),
-        MetricType.TRIP_DISTANCE to RideOverviewCard(
+        )
+    cardsByType[MetricType.TRIP_DISTANCE] = RideOverviewCard(
             type = MetricType.TRIP_DISTANCE,
             title = "里程",
             value = metricOf(finalDistanceKm, "km"),
             supporting = "平均 ${formatFloat(summaryStats.avgSpeedKmh)} km/h",
             metric = RideChartMetric.DISTANCE
-        ),
-        MetricType.TOTAL_ENERGY to RideOverviewCard(
+        )
+    cardsByType[MetricType.TOTAL_ENERGY] = RideOverviewCard(
             type = MetricType.TOTAL_ENERGY,
             title = "净耗电量",
             value = metricOf(record.totalEnergyWh, "Wh"),
             supporting = "回收 ${formatFloat(recoveredEnergyWh)} Wh",
             metric = RideChartMetric.TOTAL_ENERGY
-        ),
-        MetricType.PEAK_REGEN_POWER to RideOverviewCard(
+        )
+    cardsByType[MetricType.PEAK_REGEN_POWER] = RideOverviewCard(
             type = MetricType.PEAK_REGEN_POWER,
             title = "最大回收功率",
             value = metricOf(peakRegenPowerKw * 1000f, "W"),
             supporting = "总回收 ${formatFloat(recoveredEnergyWh)} Wh",
             metric = RideChartMetric.REGEN_POWER
-        ),
-        MetricType.RECOVERED_ENERGY to RideOverviewCard(
+        )
+    cardsByType[MetricType.RECOVERED_ENERGY] = RideOverviewCard(
             type = MetricType.RECOVERED_ENERGY,
             title = "总回收能量",
             value = metricOf(recoveredEnergyWh, "Wh"),
             supporting = "回收峰值 ${formatFloat(peakRegenPowerKw * 1000f)} W",
             metric = RideChartMetric.RECOVERED_ENERGY
         )
-    )
     val ordered = orderedTypes
         .distinct()
         .mapNotNull { type -> cardsByType[type] }
@@ -3647,36 +3654,40 @@ private fun buildRideOverviewFallbackCards(
     val summaryStats = computeRideSummaryStats(record)
     val durationMinutes = (record.durationMs / 60000.0f).coerceAtLeast(0.0f)
     val recoveredEnergyWh = record.regenEnergyWh.coerceAtLeast(0.0f)
-    val cardsByType = linkedMapOf<MetricType, RideOverviewCard>(
-        MetricType.SPEED to RideOverviewCard(
+    val cardsByType = linkedMapOf<MetricType, RideOverviewCard>()
+    cardsByType[MetricType.SPEED] = RideOverviewCard(
             type = MetricType.SPEED,
             title = "速度",
             value = metricOf(summaryStats.maxSpeedKmh, "km/h"),
             supporting = "平均 ${formatFloat(summaryStats.avgSpeedKmh)} km/h",
             metric = RideChartMetric.SPEED
-        ),
-        MetricType.GRADE to RideOverviewCard(
+        )
+    if (summaryStats.hasGradeData) {
+        cardsByType[MetricType.GRADE] = RideOverviewCard(
             type = MetricType.GRADE,
             title = "坡度",
             value = metricOf(summaryStats.maxUphillGradePercent, "%"),
             supporting = "最大下坡 ${formatSignedFloat(summaryStats.maxDownhillGradePercent)} %",
             metric = RideChartMetric.GRADE
-        ),
-        MetricType.ALTITUDE to RideOverviewCard(
+        )
+    }
+    if (summaryStats.hasAltitudeData) {
+        cardsByType[MetricType.ALTITUDE] = RideOverviewCard(
             type = MetricType.ALTITUDE,
             title = "海拔高度",
             value = metricOf(summaryStats.maxAltitudeMeters, "m"),
             supporting = "最低 ${formatFloat(summaryStats.minAltitudeMeters)} m",
             metric = RideChartMetric.ALTITUDE
-        ),
-        MetricType.POWER to RideOverviewCard(
+        )
+    }
+    cardsByType[MetricType.POWER] = RideOverviewCard(
             type = MetricType.POWER,
             title = "功率",
             value = metricOf(record.peakPowerKw, "kW"),
             supporting = "本次行程摘要",
             metric = RideChartMetric.POWER
-        ),
-        MetricType.EFFICIENCY to RideOverviewCard(
+        )
+    cardsByType[MetricType.EFFICIENCY] = RideOverviewCard(
             type = MetricType.EFFICIENCY,
             title = "平均能耗",
             value = metricOf(
@@ -3686,29 +3697,28 @@ private fun buildRideOverviewFallbackCards(
             ),
             supporting = "暂无采样曲线，已回落到记录摘要",
             metric = RideChartMetric.AVG_EFFICIENCY
-        ),
-        MetricType.TRIP_DISTANCE to RideOverviewCard(
+        )
+    cardsByType[MetricType.TRIP_DISTANCE] = RideOverviewCard(
             type = MetricType.TRIP_DISTANCE,
             title = "里程",
             value = metricOf(record.distanceMeters / 1000.0f, "km"),
             supporting = "时长 ${formatFloat(durationMinutes)} min",
             metric = RideChartMetric.DISTANCE
-        ),
-        MetricType.TOTAL_ENERGY to RideOverviewCard(
+        )
+    cardsByType[MetricType.TOTAL_ENERGY] = RideOverviewCard(
             type = MetricType.TOTAL_ENERGY,
             title = "净耗电量",
             value = metricOf(record.totalEnergyWh, "Wh"),
             supporting = "回收 ${formatFloat(recoveredEnergyWh)} Wh",
             metric = RideChartMetric.TOTAL_ENERGY
-        ),
-        MetricType.RECOVERED_ENERGY to RideOverviewCard(
+        )
+    cardsByType[MetricType.RECOVERED_ENERGY] = RideOverviewCard(
             type = MetricType.RECOVERED_ENERGY,
             title = "总回收能量",
             value = metricOf(recoveredEnergyWh, "Wh"),
             supporting = "来自记录摘要",
             metric = RideChartMetric.RECOVERED_ENERGY
         )
-    )
     val ordered = orderedTypes
         .distinct()
         .mapNotNull { type -> cardsByType[type] }
@@ -4143,7 +4153,7 @@ private fun EmptyCard(title: String, subtitle: String) {
 private fun RideMetricSample.metricValue(metric: RideChartMetric): Float {
     return when (metric) {
         RideChartMetric.SPEED -> speedKmH
-        RideChartMetric.GRADE -> gradePercent
+        RideChartMetric.GRADE -> gradePercent ?: 0.0f
         RideChartMetric.ALTITUDE -> altitudeMeters?.toFloat() ?: 0.0f
         RideChartMetric.POWER -> powerKw
         RideChartMetric.REGEN_POWER -> (-powerKw * 1000.0f).coerceAtLeast(0.0f)
@@ -4174,8 +4184,8 @@ private fun dominantSignedGrade(summaryStats: com.shawnrain.sdash.data.history.R
 }
 
 private fun dominantSignedGrade(samples: List<RideMetricSample>): Float {
-    val uphill = samples.map { it.gradePercent }.filter { it.isFinite() && it > 0f }.maxOrNull() ?: 0f
-    val downhill = samples.map { it.gradePercent }.filter { it.isFinite() && it < 0f }.minOrNull() ?: 0f
+    val uphill = samples.mapNotNull { it.gradePercent }.filter { it.isFinite() && it > 0f }.maxOrNull() ?: 0f
+    val downhill = samples.mapNotNull { it.gradePercent }.filter { it.isFinite() && it < 0f }.minOrNull() ?: 0f
     return if (kotlin.math.abs(downhill) > kotlin.math.abs(uphill)) downhill else uphill
 }
 

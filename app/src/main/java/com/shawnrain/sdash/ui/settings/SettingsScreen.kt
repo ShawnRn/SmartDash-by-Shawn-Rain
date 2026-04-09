@@ -1,7 +1,10 @@
 package com.shawnrain.sdash.ui.settings
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
@@ -9,6 +12,7 @@ import android.widget.Toast
 import android.graphics.Color as AndroidColor
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.IntentSenderRequest
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
@@ -106,6 +110,7 @@ import com.shawnrain.sdash.data.migration.LanBackupQrPayload
 import com.shawnrain.sdash.data.sync.BackupMetadata
 import com.shawnrain.sdash.data.sync.BackupPreview
 import com.shawnrain.sdash.data.sync.BackupRetentionPolicy
+import com.shawnrain.sdash.data.sync.DriveAuthorizationStep
 import com.shawnrain.sdash.data.sync.GoogleDriveAuth
 import com.shawnrain.sdash.data.sync.SyncState
 import com.shawnrain.sdash.data.update.AppUpdatePackage
@@ -144,6 +149,8 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val speedSource by viewModel.speedSource.collectAsState()
     val battDataSource by viewModel.battDataSource.collectAsState()
@@ -197,27 +204,47 @@ fun SettingsScreen(
         }
     }
 
-    // Google Drive sign-in launcher
     val appContext = LocalContext.current
-    val driveSignInLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
+    val driveAuth = remember(appContext) { GoogleDriveAuth(appContext) }
+    val driveAuthorizationLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
-            val account = GoogleDriveAuth(appContext).getCurrentAccount()
-            if (account != null) {
+            runCatching { driveAuth.completeAuthorization(result.data) }
+                .onSuccess {
                 viewModel.completeDriveSignIn()
-            } else {
-                viewModel.checkDriveSignInStatus()
-            }
+                }
+                .onFailure { error ->
+                    viewModel.failDriveSignIn(error.message ?: "Google Drive 授权失败")
+                }
         } else {
             viewModel.checkDriveSignInStatus()
         }
     }
 
-    // Direct sign-in handler (no LaunchedEffect needed)
-    val handleDriveSignIn = {
-        val intent = GoogleDriveAuth(appContext).getSignInIntent()
-        driveSignInLauncher.launch(intent)
+    val handleDriveSignIn: () -> Unit = {
+        val currentActivity = activity
+        if (currentActivity == null) {
+            viewModel.failDriveSignIn("当前页面无法启动 Google 登录")
+        } else {
+            viewModel.startDriveSignIn()
+            scope.launch {
+                runCatching { driveAuth.beginSignIn(currentActivity) }
+                    .onSuccess { step ->
+                        when (step) {
+                            is DriveAuthorizationStep.Authorized -> viewModel.completeDriveSignIn()
+                            is DriveAuthorizationStep.RequiresAuthorization -> {
+                                driveAuthorizationLauncher.launch(
+                                    IntentSenderRequest.Builder(step.intentSender).build()
+                                )
+                            }
+                        }
+                    }
+                    .onFailure { error ->
+                        viewModel.failDriveSignIn(error.message ?: "Google 登录失败")
+                    }
+            }
+        }
     }
     val openGithub = {
         context.startActivity(
@@ -840,6 +867,11 @@ fun SettingsScreen(
                     Text("Google Drive 云同步", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                     Text(
                         "换机优先用它。开启后会自动双向同步并智能合并云端/本地数据；局域网直连迁移只作为补充方式。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "系统自动备份已关闭。卸载重装后不会自动恢复旧数据，请使用这里的 Google Drive 云同步或局域网迁移。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -3310,4 +3342,10 @@ private fun formatWheelInput(value: Float): String {
     } else {
         String.format("%.1f", value)
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

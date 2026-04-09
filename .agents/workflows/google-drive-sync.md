@@ -10,7 +10,7 @@
 ### 当前客户端 ID（com.shawnrain.sdash）
 `8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.googleusercontent.com`
 
-位于 `GoogleDriveAuth.kt`：
+位于 `GoogleAccountAuth.kt`：
 ```kotlin
 private const val CLIENT_ID = "8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.googleusercontent.com"
 ```
@@ -35,6 +35,18 @@ private const val CLIENT_ID = "8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.
 - 旧备份仍兼容，新备份默认使用 v2
 
 ## 同步行为
+
+### 鉴权结构
+- `GoogleAccountAuth`：通过 Credential Manager 获取当前 Google 账号，并在本地持久化当前账号 email
+- `GoogleDriveAuthorization`：向 Google Play Services 请求 `drive.appdata` scope，并为 REST API 提供 access token
+- `GoogleDriveSyncManager`：继续保留 OkHttp + Drive REST 上传/下载逻辑，只替换 token 来源
+
+### 系统备份
+- `AndroidManifest.xml` 中固定使用 `android:allowBackup="false"`
+- 卸载重装后不会依赖 Android 系统自动恢复旧设置
+- 所有恢复路径都必须来自：
+  - Google Drive 云同步
+  - LAN 迁移 / Restore
 
 ### 上传
 1. 用户点击"上传备份"

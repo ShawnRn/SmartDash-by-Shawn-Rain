@@ -1,77 +1,35 @@
-@file:Suppress("DEPRECATION")
-
 package com.shawnrain.sdash.data.sync
 
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
-import com.google.android.gms.common.api.Scope
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
 
 /**
- * Handles Google Sign-In authentication for Drive access.
- * Uses the simplified Google Sign-In API with appDataFolder scope.
+ * High-level Google Drive auth facade:
+ * - GoogleAccountAuth handles account sign-in and current account persistence
+ * - GoogleDriveAuthorization handles drive.appdata scope + access token acquisition
  */
-class GoogleDriveAuth(private val context: Context) {
+class GoogleDriveAuth(context: Context) {
 
-    companion object {
-        // Scope for accessing only the app's private data folder on Drive
-        private const val DRIVE_APPDATA_SCOPE = "https://www.googleapis.com/auth/drive.appdata"
-        const val SIGN_IN_REQUEST_CODE = 9001
-        // OAuth 2.0 Client ID for Android (from Google Cloud Console)
-        // Package: com.shawnrain.sdash | SHA-1: 9A:A1:A9:6F:2A:DB:C8:A2:62:42:04:8E:1B:5C:7D:4A:4F:A9:C5:F6
-        private const val CLIENT_ID = "8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.googleusercontent.com"
+    private val accountAuth = GoogleAccountAuth(context)
+    private val driveAuthorization = GoogleDriveAuthorization(context, accountAuth)
+
+    suspend fun beginSignIn(activity: Activity): DriveAuthorizationStep {
+        val account = accountAuth.signIn(activity)
+        return driveAuthorization.beginAuthorization(account)
     }
 
-    private val googleSignInClient by lazy {
-        val options = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestEmail()
-            .requestId()
-            .requestScopes(Scope(DRIVE_APPDATA_SCOPE))
-            .build()
-        GoogleSignIn.getClient(context, options)
+    fun completeAuthorization(data: Intent?): String {
+        return driveAuthorization.completeAuthorization(data)
     }
 
-    /**
-     * Returns the sign-in intent to launch via startActivityForResult.
-     */
-    fun getSignInIntent(): Intent = googleSignInClient.signInIntent
+    fun isSignedIn(): Boolean = accountAuth.isSignedIn()
 
-    /**
-     * Checks if the user is already signed in with the required Drive scope.
-     */
-    fun isSignedIn(): Boolean {
-        val account = GoogleSignIn.getLastSignedInAccount(context)
-        return account != null && GoogleSignIn.hasPermissions(
-            account,
-            Scope(DRIVE_APPDATA_SCOPE)
-        )
-    }
+    fun getCurrentAccount(): GoogleAccountSession? = accountAuth.getCurrentAccount()
 
-    /**
-     * Gets the currently signed-in account, or null.
-     */
-    fun getCurrentAccount() = GoogleSignIn.getLastSignedInAccount(context)
+    suspend fun signOut() = accountAuth.signOut()
 
-    /**
-     * Signs the user out.
-     */
-    suspend fun signOut() = suspendCancellableCoroutine { cont ->
-        googleSignInClient.signOut()
-            .addOnCompleteListener { cont.resume(Unit) }
-    }
+    suspend fun silentSignIn(): Boolean = accountAuth.silentSignIn()
 
-    /**
-     * Silently signs in if credentials are cached.
-     * Returns true if successful.
-     */
-    suspend fun silentSignIn(): Boolean = suspendCancellableCoroutine { cont ->
-        googleSignInClient.silentSignIn()
-            .addOnCompleteListener { task ->
-                cont.resume(task.isSuccessful)
-            }
-    }
+    suspend fun getAccessToken(): String = driveAuthorization.getAccessToken()
 }

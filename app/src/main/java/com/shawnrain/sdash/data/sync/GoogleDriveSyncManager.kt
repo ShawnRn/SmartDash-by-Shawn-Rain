@@ -1,12 +1,8 @@
-@file:Suppress("DEPRECATION")
-
 package com.shawnrain.sdash.data.sync
 
 import android.content.Context
 import android.os.Build
 import androidx.core.content.pm.PackageInfoCompat
-import com.google.android.gms.auth.GoogleAuthUtil
-import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.shawnrain.sdash.debug.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -35,7 +31,6 @@ class GoogleDriveSyncManager(private val context: Context) {
         private const val TAG = "GDriveSync"
         private const val DRIVE_API_BASE = "https://www.googleapis.com"
         private const val UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3"
-        private const val APP_DATA_SCOPE = "oauth2:https://www.googleapis.com/auth/drive.appdata"
         private const val BACKUP_FILE_PREFIX = "habe_backup_"
         private const val METADATA_FILE_NAME = "habe_metadata.json"
         private const val BACKUP_MIME_TYPE = "application/octet-stream"
@@ -49,21 +44,12 @@ class GoogleDriveSyncManager(private val context: Context) {
     fun getCurrentAccount() = auth.getCurrentAccount()
     suspend fun signOut() = auth.signOut()
     suspend fun silentSignIn() = auth.silentSignIn()
-    fun getSignInIntent() = auth.getSignInIntent()
 
     /**
      * Gets a fresh OAuth access token for Drive API calls.
      */
     private suspend fun getAccessToken(): String = withContext(Dispatchers.IO) {
-        val account = GoogleSignIn.getLastSignedInAccount(context)
-            ?: throw IllegalStateException("Not signed in to Google")
-
-        val accountName = account.account?.name
-            ?: throw IllegalStateException("Google account has no name")
-
-        // Use GoogleAuthUtil with the account name string
-        @Suppress("DEPRECATION")
-        GoogleAuthUtil.getToken(context, accountName, APP_DATA_SCOPE)
+        auth.getAccessToken()
     }
 
     /**
@@ -71,9 +57,9 @@ class GoogleDriveSyncManager(private val context: Context) {
      * This ensures all devices signed in to the same account can decrypt each other's backups.
      */
     private suspend fun getEncryptionPassword(): String {
-        val account = GoogleSignIn.getLastSignedInAccount(context)
+        val account = auth.getCurrentAccount()
             ?: throw IllegalStateException("Not signed in to Google")
-        val email = account.email ?: throw IllegalStateException("No email in account")
+        val email = account.email
 
         // Derive a consistent password from the account email
         // Using SHA-256 hash ensures the password is not the raw email

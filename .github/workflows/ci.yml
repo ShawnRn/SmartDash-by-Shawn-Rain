@@ -51,9 +51,30 @@ jobs:
           java-version: "17"
           cache: gradle
 
+      - name: Make warning scripts executable
+        shell: bash
+        run: chmod +x .agents/scripts/collect-build-warnings.sh .agents/scripts/check-warning-baseline.sh
+
+      - name: Check warning baseline
+        shell: bash
+        run: .agents/scripts/check-warning-baseline.sh
+
       - name: Lint + Unit Test + Debug Build
         shell: bash
         run: ./gradlew :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --console plain
+
+      - name: Upload warning reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartdash-warning-reports-${{ github.run_number }}
+          path: |
+            reports/build-warnings/current.txt
+            reports/build-warnings/normalized.txt
+            reports/build-warnings/new-warnings.txt
+            reports/lint/lint-debug.txt
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload debug APK (push only)
         if: github.event_name == 'push'

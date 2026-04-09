@@ -16,6 +16,7 @@ data class DriveCurrentState(
     val updatedAt: Long,
     val updatedByDeviceId: String,
     val updatedByDeviceName: String,
+    val activeVehicleProfileId: String = "",
     val settings: SyncSettingsSnapshot = SyncSettingsSnapshot(),
     val vehicleProfiles: List<SyncVehicleProfileSnapshot> = emptyList(),
     val rides: List<SyncRideSnapshot> = emptyList(),
@@ -30,6 +31,13 @@ data class SyncSettingsSnapshot(
     val polePairs: Int = 50,
     val controllerBrand: String = "auto",
     val overlayEnabled: Boolean = false,
+    val dashboardItems: List<String> = emptyList(),
+    val rideOverviewItems: List<String> = emptyList(),
+    val driveBackupRetention: String = "KEEP_ALL",
+    val posterTemplateId: String = "performance_dark",
+    val posterAspectRatio: String = "STORY_9_16",
+    val posterShowTrack: Boolean = true,
+    val posterShowWatermark: Boolean = true,
     val learnedEfficiencyWhKm: Float = 35f,
     val learnedUsableEnergyRatio: Float = 0.85f,
     val updatedAt: Long = 0L,
@@ -55,6 +63,7 @@ data class SyncVehicleProfileSnapshot(
 @Serializable
 data class SyncRideSnapshot(
     val id: String,
+    val vehicleProfileId: String,
     val title: String,
     val startedAtMs: Long,
     val endedAtMs: Long,
@@ -75,12 +84,15 @@ data class SyncRideSnapshot(
     val summaryRevision: Int = 1,
     val completenessScore: Float = 1f,
     val sampleCount: Int = 0,
+    val trackPoints: List<SyncRideTrackPoint> = emptyList(),
+    val samples: List<SyncRideMetricSample> = emptyList(),
     val isDeleted: Boolean = false
 )
 
 @Serializable
 data class SyncSpeedTestSnapshot(
     val id: String,
+    val vehicleProfileId: String,
     val label: String,
     val startedAtMs: Long,
     val endedAtMs: Long,
@@ -93,7 +105,48 @@ data class SyncSpeedTestSnapshot(
     val minVoltageV: Float,
     val updatedAt: Long,
     val updatedByDeviceId: String,
+    val trackPoints: List<SyncSpeedTestTrackPoint> = emptyList(),
     val isDeleted: Boolean = false
+)
+
+@Serializable
+data class SyncRideTrackPoint(
+    val latitude: Double,
+    val longitude: Double
+)
+
+@Serializable
+data class SyncRideMetricSample(
+    val elapsedMs: Long,
+    val timestampMs: Long,
+    val speedKmH: Float,
+    val powerKw: Float,
+    val voltage: Float,
+    val voltageSag: Float,
+    val busCurrent: Float,
+    val phaseCurrent: Float,
+    val controllerTemp: Float,
+    val soc: Float,
+    val estimatedRangeKm: Float = 0.0f,
+    val rpm: Float,
+    val efficiencyWhKm: Float,
+    val avgEfficiencyWhKm: Float = 0.0f,
+    val avgNetEfficiencyWhKm: Float = 0.0f,
+    val avgTractionEfficiencyWhKm: Float = 0.0f,
+    val distanceMeters: Float,
+    val totalEnergyWh: Float = 0.0f,
+    val tractionEnergyWh: Float = 0.0f,
+    val regenEnergyWh: Float = 0.0f,
+    val recoveredEnergyWh: Float = 0.0f,
+    val maxControllerTemp: Float = 0.0f,
+    val latitude: Double? = null,
+    val longitude: Double? = null
+)
+
+@Serializable
+data class SyncSpeedTestTrackPoint(
+    val latitude: Double,
+    val longitude: Double
 )
 
 // ─── Cloud Manifest ────────────────────────────────────────────
@@ -110,7 +163,7 @@ data class DriveChangeManifest(
     val latestRideEndedAt: Long? = null,
     val latestSpeedTestId: String? = null,
     val entityCounters: EntityCounters = EntityCounters(),
-    val currentStateFileName: String = "current_state.json"
+    val currentStateFileName: String = "current_state.json.enc"
 )
 
 @Serializable

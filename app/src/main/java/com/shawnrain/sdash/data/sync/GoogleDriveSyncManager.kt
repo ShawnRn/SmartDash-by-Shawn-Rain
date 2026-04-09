@@ -491,4 +491,11 @@ class GoogleDriveSyncManager(private val context: Context) {
             Result.failure(e)
         }
     }
+
+    /**
+     * Download a text file from Drive appDataFolder by name.
+     */
+    suspend fun downloadTextFileByName(fileName: String): Result<String> = withContext(Dispatchers.IO) {
+        downloadRawFile(fileName).map { bytes -> String(bytes, Charsets.UTF_8) }
+    }
 }

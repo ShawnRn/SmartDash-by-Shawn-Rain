@@ -5,11 +5,13 @@ import com.shawnrain.sdash.data.SettingsRepository
 import com.shawnrain.sdash.debug.AppLogger
 import com.shawnrain.sdash.worker.DrivePullWorker
 import com.shawnrain.sdash.worker.DrivePushWorker
+import com.shawnrain.sdash.worker.DriveReconcileWorker
 import com.shawnrain.sdash.worker.PeriodicDriveSyncWorker
-import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -40,6 +42,7 @@ class SyncScheduler(
         private var lastForegroundPullAtMs: Long = 0L
     }
 
+    private val schedulerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val metadataRepository = SyncMetadataRepository(context)
     private val mutationRepository = PendingMutationRepository(context)
 
@@ -48,17 +51,25 @@ class SyncScheduler(
      * Enqueues a mutation for the ride and schedules a push.
      */
     suspend fun onRideSaved(rideId: String) = withContext(Dispatchers.IO) {
+        enqueueRideHistoryMutation(rideId, SyncTriggerReason.RIDE_ENDED)
+    }
+
+    suspend fun onRideHistoryChanged(entityId: String = "ride_history") = withContext(Dispatchers.IO) {
+        enqueueRideHistoryMutation(entityId, SyncTriggerReason.RIDE_ENDED)
+    }
+
+    private suspend fun enqueueRideHistoryMutation(entityId: String, reason: SyncTriggerReason) {
         try {
             val metadata = metadataRepository.getMetadata(context)
             val newVersion = metadata.localStateVersion + 1
 
-            mutationRepository.enqueueForRide(rideId, newVersion, metadata.deviceId)
+            mutationRepository.enqueueForRide(entityId, newVersion, metadata.deviceId)
             metadataRepository.incrementLocalStateVersion(context)
 
-            DrivePushWorker.enqueuePush(context, SyncTriggerReason.RIDE_ENDED)
-            AppLogger.i(TAG, "Ride saved sync scheduled: rideId=$rideId")
+            DrivePushWorker.enqueuePush(context, reason)
+            AppLogger.i(TAG, "Ride history sync scheduled: entityId=$entityId reason=$reason")
         } catch (e: Exception) {
-            AppLogger.w(TAG, "Failed to schedule ride sync: ${e.message}")
+            AppLogger.w(TAG, "Failed to schedule ride history sync: ${e.message}")
         }
     }
 
@@ -66,15 +77,23 @@ class SyncScheduler(
      * Call this when a speed test is saved.
      */
     suspend fun onSpeedTestSaved(testId: String) = withContext(Dispatchers.IO) {
+        enqueueSpeedTestMutation(testId, SyncTriggerReason.SPEED_TEST_COMPLETED)
+    }
+
+    suspend fun onSpeedTestHistoryChanged(entityId: String = "speed_test_history") = withContext(Dispatchers.IO) {
+        enqueueSpeedTestMutation(entityId, SyncTriggerReason.SPEED_TEST_COMPLETED)
+    }
+
+    private suspend fun enqueueSpeedTestMutation(entityId: String, reason: SyncTriggerReason) {
         try {
             val metadata = metadataRepository.getMetadata(context)
             val newVersion = metadata.localStateVersion + 1
 
-            mutationRepository.enqueueForSpeedTest(testId, newVersion, metadata.deviceId)
+            mutationRepository.enqueueForSpeedTest(entityId, newVersion, metadata.deviceId)
             metadataRepository.incrementLocalStateVersion(context)
 
-            DrivePushWorker.enqueuePush(context, SyncTriggerReason.SPEED_TEST_COMPLETED)
-            AppLogger.i(TAG, "Speed test saved sync scheduled: testId=$testId")
+            DrivePushWorker.enqueuePush(context, reason)
+            AppLogger.i(TAG, "Speed test sync scheduled: entityId=$entityId reason=$reason")
         } catch (e: Exception) {
             AppLogger.w(TAG, "Failed to schedule speed test sync: ${e.message}")
         }
@@ -84,11 +103,10 @@ class SyncScheduler(
      * Call this when settings change.
      * Debounces multiple settings changes within 30 seconds.
      */
-    @OptIn(DelicateCoroutinesApi::class)
     fun onSettingsChanged() {
         settingsDebounceJob?.cancel()
 
-        settingsDebounceJob = GlobalScope.launch(Dispatchers.IO) {
+        settingsDebounceJob = schedulerScope.launch {
             try {
                 kotlinx.coroutines.delay(30_000)
 
@@ -100,7 +118,7 @@ class SyncScheduler(
 
                 DrivePushWorker.enqueuePush(context, SyncTriggerReason.SETTINGS_CHANGED)
                 AppLogger.i(TAG, "Settings change sync scheduled (debounced)")
-            } catch (e: kotlinx.coroutines.CancellationException) {
+            } catch (e: CancellationException) {
                 AppLogger.d(TAG, "Settings change sync debounced")
             } catch (e: Exception) {
                 AppLogger.w(TAG, "Failed to schedule settings sync: ${e.message}")
@@ -149,9 +167,8 @@ class SyncScheduler(
      * Call this when user signs in to Google Drive.
      * Initializes V2 sync and starts periodic sync.
      */
-    @OptIn(DelicateCoroutinesApi::class)
     fun onAuthSuccess() {
-        GlobalScope.launch(Dispatchers.IO) {
+        schedulerScope.launch {
             try {
                 AppLogger.i(TAG, "Auth success: initializing V2 sync")
 
@@ -196,7 +213,7 @@ class SyncScheduler(
      * Call this for manual sync (pull then push).
      */
     fun onManualSync() {
-        DrivePullWorker.enqueuePull(context, SyncTriggerReason.MANUAL_SYNC)
+        DriveReconcileWorker.scheduleReconcile(context, SyncTriggerReason.MANUAL_SYNC)
     }
 
     /**

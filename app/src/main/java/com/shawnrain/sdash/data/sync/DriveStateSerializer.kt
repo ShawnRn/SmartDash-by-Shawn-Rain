@@ -3,8 +3,12 @@ package com.shawnrain.sdash.data.sync
 import android.content.Context
 import com.shawnrain.sdash.data.SettingsRepository
 import com.shawnrain.sdash.data.history.RideHistoryRecord
+import com.shawnrain.sdash.data.history.RideMetricSample
+import com.shawnrain.sdash.data.history.RideTrackPoint
 import com.shawnrain.sdash.data.speedtest.SpeedTestRecord
+import com.shawnrain.sdash.data.speedtest.SpeedTestTrackPoint
 import com.shawnrain.sdash.data.VehicleProfile
+import com.shawnrain.sdash.ui.poster.PosterSettings
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -33,6 +37,8 @@ class DriveStateSerializer(
         deviceName: String
     ): DriveCurrentState {
         val now = System.currentTimeMillis()
+        val activeVehicleId = settingsRepository.currentVehicleId.first()
+        val posterSettings = settingsRepository.posterSettings.first()
 
         // Load settings
         val settings = SyncSettingsSnapshot(
@@ -42,6 +48,13 @@ class DriveStateSerializer(
             polePairs = settingsRepository.polePairs.first(),
             controllerBrand = settingsRepository.controllerBrand.first(),
             overlayEnabled = settingsRepository.overlayEnabled.first(),
+            dashboardItems = settingsRepository.dashboardItems.first().map { it.name },
+            rideOverviewItems = settingsRepository.rideOverviewItems.first().map { it.name },
+            driveBackupRetention = settingsRepository.driveBackupRetentionPolicy.first().name,
+            posterTemplateId = posterSettings.defaultTemplate,
+            posterAspectRatio = posterSettings.defaultAspectRatio.name,
+            posterShowTrack = posterSettings.showTrack,
+            posterShowWatermark = posterSettings.showWatermark,
             updatedAt = now,
             updatedByDeviceId = deviceId
         )
@@ -53,12 +66,12 @@ class DriveStateSerializer(
 
         // Load ride history
         val rides = settingsRepository.rideHistory.first().map { ride ->
-            ride.toSyncSnapshot(deviceId, now)
+            ride.toSyncSnapshot(deviceId, now, activeVehicleId)
         }
 
         // Load speed test history
         val speedTests = settingsRepository.speedTestHistory.first().map { test ->
-            test.toSyncSnapshot(deviceId, now)
+            test.toSyncSnapshot(deviceId, now, activeVehicleId)
         }
 
         return DriveCurrentState(
@@ -67,6 +80,7 @@ class DriveStateSerializer(
             updatedAt = now,
             updatedByDeviceId = deviceId,
             updatedByDeviceName = deviceName,
+            activeVehicleProfileId = activeVehicleId,
             settings = settings,
             vehicleProfiles = profiles,
             rides = rides,
@@ -115,9 +129,10 @@ private fun VehicleProfile.toSyncSnapshot(deviceId: String, updatedAt: Long) =
         updatedByDeviceId = deviceId
     )
 
-private fun RideHistoryRecord.toSyncSnapshot(deviceId: String, now: Long) =
+private fun RideHistoryRecord.toSyncSnapshot(deviceId: String, now: Long, vehicleProfileId: String) =
     SyncRideSnapshot(
         id = id,
+        vehicleProfileId = vehicleProfileId,
         title = title,
         startedAtMs = startedAtMs,
         endedAtMs = endedAtMs,
@@ -135,12 +150,19 @@ private fun RideHistoryRecord.toSyncSnapshot(deviceId: String, now: Long) =
         updatedAt = now,
         updatedByDeviceId = deviceId,
         sampleCount = samples.size,
-        completenessScore = if (samples.isNotEmpty()) 1f else 0.5f
+        completenessScore = when {
+            samples.isNotEmpty() -> 1f
+            trackPoints.isNotEmpty() -> 0.75f
+            else -> 0.5f
+        },
+        trackPoints = trackPoints.map { it.toSyncSnapshot() },
+        samples = samples.map { it.toSyncSnapshot() }
     )
 
-private fun SpeedTestRecord.toSyncSnapshot(deviceId: String, now: Long) =
+private fun SpeedTestRecord.toSyncSnapshot(deviceId: String, now: Long, vehicleProfileId: String) =
     SyncSpeedTestSnapshot(
         id = id,
+        vehicleProfileId = vehicleProfileId,
         label = label,
         startedAtMs = timestampMs,
         endedAtMs = timestampMs + timeMs,
@@ -152,5 +174,43 @@ private fun SpeedTestRecord.toSyncSnapshot(deviceId: String, now: Long) =
         peakBusCurrentA = peakBusCurrentA,
         minVoltageV = minVoltage,
         updatedAt = now,
-        updatedByDeviceId = deviceId
+        updatedByDeviceId = deviceId,
+        trackPoints = trackPoints.map { it.toSyncSnapshot() }
     )
+
+private fun RideTrackPoint.toSyncSnapshot() = SyncRideTrackPoint(
+    latitude = latitude,
+    longitude = longitude
+)
+
+private fun RideMetricSample.toSyncSnapshot() = SyncRideMetricSample(
+    elapsedMs = elapsedMs,
+    timestampMs = timestampMs,
+    speedKmH = speedKmH,
+    powerKw = powerKw,
+    voltage = voltage,
+    voltageSag = voltageSag,
+    busCurrent = busCurrent,
+    phaseCurrent = phaseCurrent,
+    controllerTemp = controllerTemp,
+    soc = soc,
+    estimatedRangeKm = estimatedRangeKm,
+    rpm = rpm,
+    efficiencyWhKm = efficiencyWhKm,
+    avgEfficiencyWhKm = avgEfficiencyWhKm,
+    avgNetEfficiencyWhKm = avgNetEfficiencyWhKm,
+    avgTractionEfficiencyWhKm = avgTractionEfficiencyWhKm,
+    distanceMeters = distanceMeters,
+    totalEnergyWh = totalEnergyWh,
+    tractionEnergyWh = tractionEnergyWh,
+    regenEnergyWh = regenEnergyWh,
+    recoveredEnergyWh = recoveredEnergyWh,
+    maxControllerTemp = maxControllerTemp,
+    latitude = latitude,
+    longitude = longitude
+)
+
+private fun SpeedTestTrackPoint.toSyncSnapshot() = SyncSpeedTestTrackPoint(
+    latitude = latitude,
+    longitude = longitude
+)

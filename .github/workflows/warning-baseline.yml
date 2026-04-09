@@ -36,6 +36,7 @@ jobs:
           name: smartdash-warning-baseline
           path: |
             reports/build-warnings/current.txt
+            reports/build-warnings/normalized.txt
             reports/build-warnings/assemble-debug.txt
             reports/build-warnings/assemble-release.txt
             reports/build-warnings/compile-debug-kotlin.txt

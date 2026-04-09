@@ -52,3 +52,6 @@ keystore.properties
 
 # Local reverse-engineering / helper tools
 tools/unveilr/
+
+# Local desktop/file-manager workspace metadata
+.qspacesettings/

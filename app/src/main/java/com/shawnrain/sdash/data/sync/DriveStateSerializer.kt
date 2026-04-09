@@ -4,6 +4,7 @@ import android.content.Context
 import com.shawnrain.sdash.data.SettingsRepository
 import com.shawnrain.sdash.data.history.RideHistoryRecord
 import com.shawnrain.sdash.data.history.RideMetricSample
+import com.shawnrain.sdash.data.history.RideMetricSampleSchema
 import com.shawnrain.sdash.data.history.RideTrackPoint
 import com.shawnrain.sdash.data.speedtest.SpeedTestRecord
 import com.shawnrain.sdash.data.speedtest.SpeedTestTrackPoint
@@ -19,6 +20,8 @@ private val syncJson = Json {
     encodeDefaults = true
     prettyPrint = false
 }
+
+private const val RIDE_DETAIL_SCHEMA_REVISION = 2
 
 /**
  * Builds, serializes, and deserializes the DriveCurrentState.
@@ -151,6 +154,8 @@ private fun RideHistoryRecord.toSyncSnapshot(deviceId: String, now: Long, vehicl
         avgTractionEfficiencyWhKm = avgTractionEfficiencyWhKm,
         updatedAt = now,
         updatedByDeviceId = deviceId,
+        detailSchemaRevision = RIDE_DETAIL_SCHEMA_REVISION,
+        detailFingerprint = computeRideDetailFingerprint(trackPoints, samples),
         sampleCount = samples.size,
         completenessScore = when {
             samples.isNotEmpty() -> 1f
@@ -185,36 +190,35 @@ private fun RideTrackPoint.toSyncSnapshot() = SyncRideTrackPoint(
     longitude = longitude
 )
 
-private fun RideMetricSample.toSyncSnapshot() = SyncRideMetricSample(
-    elapsedMs = elapsedMs,
-    timestampMs = timestampMs,
-    speedKmH = speedKmH,
-    powerKw = powerKw,
-    voltage = voltage,
-    voltageSag = voltageSag,
-    busCurrent = busCurrent,
-    phaseCurrent = phaseCurrent,
-    controllerTemp = controllerTemp,
-    soc = soc,
-    estimatedRangeKm = estimatedRangeKm,
-    rpm = rpm,
-    efficiencyWhKm = efficiencyWhKm,
-    avgEfficiencyWhKm = avgEfficiencyWhKm,
-    avgNetEfficiencyWhKm = avgNetEfficiencyWhKm,
-    avgTractionEfficiencyWhKm = avgTractionEfficiencyWhKm,
-    distanceMeters = distanceMeters,
-    totalEnergyWh = totalEnergyWh,
-    tractionEnergyWh = tractionEnergyWh,
-    regenEnergyWh = regenEnergyWh,
-    recoveredEnergyWh = recoveredEnergyWh,
-    maxControllerTemp = maxControllerTemp,
-    gradePercent = gradePercent,
-    altitudeMeters = altitudeMeters,
-    latitude = latitude,
-    longitude = longitude
-)
-
 private fun SpeedTestTrackPoint.toSyncSnapshot() = SyncSpeedTestTrackPoint(
     latitude = latitude,
     longitude = longitude
 )
+
+private fun computeRideDetailFingerprint(
+    trackPoints: List<RideTrackPoint>,
+    samples: List<RideMetricSample>
+): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    val payload = buildString {
+        append("tracks:")
+        trackPoints.forEach { point ->
+            append(point.latitude)
+            append(',')
+            append(point.longitude)
+            append(';')
+        }
+        append("|samples:")
+        samples.forEach { sample ->
+            RideMetricSampleSchema.toValueMap(sample).forEach { (key, value) ->
+                append(key)
+                append('=')
+                append(value ?: "null")
+                append('|')
+            }
+            append(';')
+        }
+    }
+    return digest.digest(payload.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
+}

@@ -80,6 +80,8 @@ ssh_base_opts() {
 ensure_remote_build_tools() {
   ensure_base_env
   require_cmd ssh
+  require_cmd rsync
+  populate_release_signing_env_from_local_keychain
 }
 
 resolve_remote_ssh_target() {
@@ -117,6 +119,22 @@ run_remote_script_capture() {
   local output_file="$3"
   shift 3
 
+  sync_workspace_to_remote "$target"
+
+  local signing_env=""
+  if [[ -n "${HABE_RELEASE_STORE_FILE:-}" ]]; then
+    signing_env+="HABE_RELEASE_STORE_FILE=$(shell_quote "$HABE_RELEASE_STORE_FILE") \\"$'\n'
+  fi
+  if [[ -n "${HABE_RELEASE_STORE_PASSWORD:-}" ]]; then
+    signing_env+="HABE_RELEASE_STORE_PASSWORD=$(shell_quote "$HABE_RELEASE_STORE_PASSWORD") \\"$'\n'
+  fi
+  if [[ -n "${HABE_RELEASE_KEY_ALIAS:-}" ]]; then
+    signing_env+="HABE_RELEASE_KEY_ALIAS=$(shell_quote "$HABE_RELEASE_KEY_ALIAS") \\"$'\n'
+  fi
+  if [[ -n "${HABE_RELEASE_KEY_PASSWORD:-}" ]]; then
+    signing_env+="HABE_RELEASE_KEY_PASSWORD=$(shell_quote "$HABE_RELEASE_KEY_PASSWORD") \\"$'\n'
+  fi
+
   local remote_cmd
   remote_cmd=$(
     cat <<EOF
@@ -128,13 +146,62 @@ SMARTDASH_REMOTE_PROJECT_ROOT=$(shell_quote "$SMARTDASH_REMOTE_PROJECT_ROOT") \
 SMARTDASH_REMOTE_JAVA_HOME=$(shell_quote "$SMARTDASH_REMOTE_JAVA_HOME") \
 JAVA_HOME=$(shell_quote "$SMARTDASH_REMOTE_JAVA_HOME") \
 ANDROID_HOME=$(shell_quote "$ANDROID_HOME") \
-bash $(shell_quote "$script_rel")
+${signing_env}bash $(shell_quote "$script_rel")
 EOF
   )
 
   ssh $(ssh_base_opts) "$target" "bash -lc $(shell_quote "$remote_cmd")" 2>&1 | tee "$output_file"
   local status=${PIPESTATUS[0]}
   return "$status"
+}
+
+populate_release_signing_env_from_local_keychain() {
+  if [[ -n "${HABE_RELEASE_STORE_FILE:-}" && -n "${HABE_RELEASE_STORE_PASSWORD:-}" && -n "${HABE_RELEASE_KEY_ALIAS:-}" && -n "${HABE_RELEASE_KEY_PASSWORD:-}" ]]; then
+    return 0
+  fi
+
+  local store_file store_password key_alias key_password
+  store_file="$(keychain_get "habe.android.release.store.path" || true)"
+  store_password="$(keychain_get "habe.android.release.store.password" || true)"
+  key_alias="$(keychain_get "habe.android.release.key.alias" || true)"
+  key_password="$(keychain_get "habe.android.release.key.password" || true)"
+
+  if [[ -n "$store_file" && -f "$store_file" && -n "$store_password" && -n "$key_alias" && -n "$key_password" ]]; then
+    export HABE_RELEASE_STORE_FILE="$store_file"
+    export HABE_RELEASE_STORE_PASSWORD="$store_password"
+    export HABE_RELEASE_KEY_ALIAS="$key_alias"
+    export HABE_RELEASE_KEY_PASSWORD="$key_password"
+  fi
+}
+
+sync_workspace_to_remote() {
+  local target="$1"
+
+  ensure_dirs
+  require_cmd rsync
+
+  local remote_root_quoted
+  remote_root_quoted="$(shell_quote "$SMARTDASH_REMOTE_PROJECT_ROOT")"
+  local remote_rsync_path
+  remote_rsync_path="$(shell_quote "$SMARTDASH_REMOTE_PROJECT_ROOT/")"
+
+  ssh $(ssh_base_opts) "$target" "mkdir -p $remote_root_quoted"
+
+  rsync -az --delete \
+    -e "ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new" \
+    --exclude '.git/' \
+    --exclude '.gradle/' \
+    --exclude 'build/' \
+    --exclude 'app/build/' \
+    --exclude '.agents/logs/' \
+    --exclude '.agents/artifacts/' \
+    --exclude 'zhike_source/' \
+    --exclude 'habe_miniprogram/' \
+    --exclude 'tools/unveilr/' \
+    "$PROJECT_ROOT/" "$target:$remote_rsync_path"
+
+  echo "REMOTE_SYNC_HOST=$target"
+  echo "REMOTE_SYNC_ROOT=$SMARTDASH_REMOTE_PROJECT_ROOT"
 }
 
 extract_output_var() {
@@ -206,6 +273,18 @@ ensure_release_signing() {
   local store_password
   local key_alias
   local key_password
+
+  if [[ -n "${HABE_RELEASE_STORE_FILE:-}" && -n "${HABE_RELEASE_STORE_PASSWORD:-}" && -n "${HABE_RELEASE_KEY_ALIAS:-}" && -n "${HABE_RELEASE_KEY_PASSWORD:-}" ]]; then
+    if [[ ! -f "$HABE_RELEASE_STORE_FILE" ]]; then
+      echo "Release keystore file is missing: $HABE_RELEASE_STORE_FILE" >&2
+      exit 1
+    fi
+    export HABE_RELEASE_STORE_FILE
+    export HABE_RELEASE_STORE_PASSWORD
+    export HABE_RELEASE_KEY_ALIAS
+    export HABE_RELEASE_KEY_PASSWORD
+    return 0
+  fi
 
   store_file="$(keychain_get "habe.android.release.store.path" || true)"
   store_password="$(keychain_get "habe.android.release.store.password" || true)"

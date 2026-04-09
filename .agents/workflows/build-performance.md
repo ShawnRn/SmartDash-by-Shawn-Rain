@@ -13,10 +13,15 @@
 ## 主编译机路由
 
 - SmartDash 的 `Gradle compile / assemble / test` 默认统一路由到主编译机 `shawn-rains-macbook-pro`（`100.103.86.124`）
+- 主编译机常驻性能监控地址：`http://100.103.86.124:8765/`
 - 当前机器若就是这台 M1 Pro，则脚本继续本地执行
-- 当前机器若不是主编译机，则脚本通过 Tailscale SSH 到主编译机执行，并在需要时回传日志或 APK
+- 当前机器若不是主编译机，则脚本会先通过 `rsync` 把当前工作区同步到主编译机，再通过 Tailscale SSH 到主编译机执行，并在需要时回传日志或 APK
 - `adb install` 默认仍在当前发起命令的机器执行；安装脚本会先完成远端构建，再把 APK 回传到本机安装
 - 使用前需先在主编译机开启 macOS `Remote Login`，否则 SSH 会被拒绝
+- **硬约束：AI Agent / Codex 不得在非主编译机上直接执行 `./gradlew`。所有编译、打包、测试必须通过 `.agents/scripts/*` 触发远端路由。**
+- **若任务输出中没有看到 `REMOTE_BUILD_HOST=...`，且当前机器又不是 `shawn-rains-macbook-pro`，必须立即停止并认定为错误执行路径。**
+- **若任务输出中没有看到 `REMOTE_SYNC_HOST=...`，且当前机器又不是主编译机，也不能默认远端代码已更新；应停止并排查同步链路。**
+- **若用户怀疑“其实跑在 Air 上”或“Pro 当前是不是满载”，优先打开主编译机性能监控页面核对，不要凭感觉判断。**
 
 ## 关键优化配置
 
@@ -44,6 +49,13 @@ android.enableR8.desugaring=true
 | "编译验证" | `.agents/scripts/compile-debug-kotlin.sh` |
 | "改 UI 看效果" | `.agents/scripts/build-debug.sh`，需要安装时再执行 `adb install` |
 | "先编一个 devRelease 包，别刷太多输出" | `cd ".../SmartDash" && export JAVA_HOME=... && set -o pipefail && .agents/scripts/build-dev-release.sh 2>&1 | tail -5` |
+
+## 禁止事项
+
+- 禁止在 MacBook Air 或任何非主编译机上直接执行 `./gradlew`
+- 禁止为了“快一点”而绕过 `.agents/scripts/build-*.sh`、`.agents/scripts/compile-debug-kotlin.sh`、`.agents/scripts/test-debug.sh`
+- 禁止在没有确认 `REMOTE_BUILD_HOST` 的情况下假定任务已经跑在主编译机
+- 禁止在没有确认 `REMOTE_SYNC_HOST` 的情况下假定主编译机工作区已经是最新代码
 
 ## 环境变量
 

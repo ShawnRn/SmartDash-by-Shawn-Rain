@@ -14,6 +14,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStore
 import com.shawnrain.sdash.data.history.RideHistoryRecord
 import com.shawnrain.sdash.data.history.RideMetricSample
+import com.shawnrain.sdash.data.history.RideMetricSampleSchema
 import com.shawnrain.sdash.data.history.RideTrackPoint
 import com.shawnrain.sdash.data.speedtest.SpeedTestRecord
 import com.shawnrain.sdash.data.speedtest.SpeedTestTrackPoint
@@ -862,34 +863,8 @@ class SettingsRepository(private val context: Context) {
         longitude = longitude
     )
 
-    private fun com.shawnrain.sdash.data.sync.SyncRideMetricSample.toRideMetricSample() = RideMetricSample(
-        elapsedMs = elapsedMs,
-        timestampMs = timestampMs,
-        speedKmH = speedKmH,
-        powerKw = powerKw,
-        voltage = voltage,
-        voltageSag = voltageSag,
-        busCurrent = busCurrent,
-        phaseCurrent = phaseCurrent,
-        controllerTemp = controllerTemp,
-        soc = soc,
-        estimatedRangeKm = estimatedRangeKm,
-        rpm = rpm,
-        efficiencyWhKm = efficiencyWhKm,
-        avgEfficiencyWhKm = avgEfficiencyWhKm,
-        avgNetEfficiencyWhKm = avgNetEfficiencyWhKm,
-        avgTractionEfficiencyWhKm = avgTractionEfficiencyWhKm,
-        distanceMeters = distanceMeters,
-        totalEnergyWh = totalEnergyWh,
-        tractionEnergyWh = tractionEnergyWh,
-        regenEnergyWh = regenEnergyWh,
-        recoveredEnergyWh = recoveredEnergyWh,
-        maxControllerTemp = maxControllerTemp,
-        gradePercent = gradePercent,
-        altitudeMeters = altitudeMeters,
-        latitude = latitude,
-        longitude = longitude
-    )
+    private fun com.shawnrain.sdash.data.sync.SyncRideMetricSample.toRideMetricSample() =
+        RideMetricSample.fromSyncSnapshot(this)
 
     private fun com.shawnrain.sdash.data.sync.SyncSpeedTestTrackPoint.toSpeedTestTrackPoint() = SpeedTestTrackPoint(
         latitude = latitude,
@@ -924,8 +899,34 @@ class SettingsRepository(private val context: Context) {
         if (local == null) return resolved
         return resolved.copy(
             trackPoints = if (resolved.trackPoints.isNotEmpty()) resolved.trackPoints else local.trackPoints,
-            samples = if (resolved.samples.isNotEmpty()) resolved.samples else local.samples
+            samples = mergeRideMetricSamples(local.samples, resolved.samples)
         )
+    }
+
+    private fun mergeRideMetricSamples(
+        local: List<RideMetricSample>,
+        remote: List<RideMetricSample>
+    ): List<RideMetricSample> {
+        if (remote.isEmpty()) return local
+        if (local.isEmpty()) return remote
+        if (local.size != remote.size) {
+            return if (rideMetricSamplesCoverageScore(remote) >= rideMetricSamplesCoverageScore(local)) remote else local
+        }
+
+        return local.indices.map { index ->
+            val localSample = local[index]
+            val remoteSample = remote[index]
+            if (remoteSample.timestampMs == localSample.timestampMs &&
+                remoteSample.elapsedMs == localSample.elapsedMs &&
+                RideMetricSampleSchema.populatedFieldCount(remoteSample) >= RideMetricSampleSchema.populatedFieldCount(localSample)
+            ) {
+                remoteSample
+            } else if (RideMetricSampleSchema.populatedFieldCount(remoteSample) > RideMetricSampleSchema.populatedFieldCount(localSample)) {
+                remoteSample
+            } else {
+                localSample
+            }
+        }
     }
 
     private fun mergeSyncedSpeedTestRecords(
@@ -1290,6 +1291,8 @@ class SettingsRepository(private val context: Context) {
         return when {
             remoteScore > localScore -> remote
             remoteScore < localScore -> local
+            rideMetricSamplesCoverageScore(remote.samples) > rideMetricSamplesCoverageScore(local.samples) -> remote
+            rideMetricSamplesCoverageScore(remote.samples) < rideMetricSamplesCoverageScore(local.samples) -> local
             remote.endedAtMs > local.endedAtMs -> remote
             remote.startedAtMs > local.startedAtMs -> remote
             else -> local
@@ -1302,6 +1305,9 @@ class SettingsRepository(private val context: Context) {
             record.durationMs +
             record.distanceMeters.toLong()
     }
+
+    private fun rideMetricSamplesCoverageScore(samples: List<RideMetricSample>): Long =
+        samples.sumOf { RideMetricSampleSchema.populatedFieldCount(it).toLong() }
 
     private fun mergeSpeedTestHistoryJson(localJson: String?, remoteJson: String?): String {
         val merged = linkedMapOf<String, SpeedTestRecord>()

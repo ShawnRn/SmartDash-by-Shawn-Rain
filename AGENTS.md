@@ -38,6 +38,19 @@
 - SmartDash 的唯一主编译机固定为这台 `MacBook Pro M1`
   - 设备名：`shawn-rains-macbook-pro`
   - Tailscale IP：`100.103.86.124`
+- 主编译机性能监控固定部署在这台 Pro：
+  - 浏览器地址：`http://100.103.86.124:8765/`
+  - Swift 采样器：`~/smartdash_perf_monitor.swift`
+  - 启动脚本：`~/smartdash_perf_monitor_start.sh`
+  - 页面目录：`~/smartdash-perf-monitor/`
+  - LaunchAgents：
+    - `~/Library/LaunchAgents/com.shawnrain.smartdash-perf-sampler.plist`
+    - `~/Library/LaunchAgents/com.shawnrain.smartdash-perf-http.plist`
+- **AI Agent 强制要求：除非当前机器已经确认就是 `shawn-rains-macbook-pro`，否则禁止直接执行任何 `./gradlew`、Android Studio 本地 Gradle task、或其他绕过 `.agents/scripts/*` 的本地编译/测试命令。**
+- **AI Agent 强制要求：所有 `compile / assemble / test` 必须优先通过 `.agents/scripts/compile-debug-kotlin.sh`、`.agents/scripts/build-*.sh`、`.agents/scripts/test-debug.sh` 等脚本触发，让脚本自行判断并路由到主编译机。**
+- **AI Agent 强制要求：远端执行前必须先把当前本地工作区同步到主编译机，不能假设 iCloud Drive 已经及时同步完成。**
+- **AI Agent 强制要求：若本地有未提交修改，远端构建脚本必须先把这些最新文件推送到 `shawn-rains-macbook-pro`，再开始 `compile / assemble / test`，避免“在 Pro 上编译旧代码”。**
+- **AI Agent 强制要求：若输出中没有明确出现 `REMOTE_BUILD_HOST=...`，且当前机器又不是主编译机，必须视为违规执行，立即停止本地任务，不得继续消耗当前机器 CPU。**
 - 所有 `Gradle compile / assemble / test` 任务默认优先在主编译机执行：
   - 若当前就是主编译机，脚本继续本地执行
   - 若当前不是主编译机，脚本通过 Tailscale SSH 自动路由到主编译机执行
@@ -49,6 +62,25 @@
   - 非主编译机到主编译机的 SSH 已免密可用
   - 主编译机已配置 Android SDK、JDK 17、release 签名和仓库工作区
   - 两台机器的仓库路径保持一致，或通过环境变量覆盖远端仓库路径
+  - 主编译机性能监控两个 LaunchAgent 已装载并保持 `RunAtLoad + KeepAlive`
+
+### 主编译机性能监控约束
+
+- 当用户怀疑“没有用 Pro 编译”“本地 CPU 满载”或“Pro 当前负载如何”时，优先打开 `http://100.103.86.124:8765/` 查看实时状态
+- 不要把这套监控改成只在当前终端前台临时运行；默认必须依赖 Pro 上的 LaunchAgent 常驻
+- 除非用户明确要求停掉，否则不要关闭或删除：
+  - `~/smartdash_perf_monitor.swift`
+  - `~/smartdash_perf_monitor_start.sh`
+  - `~/Library/LaunchAgents/com.shawnrain.smartdash-perf-sampler.plist`
+  - `~/Library/LaunchAgents/com.shawnrain.smartdash-perf-http.plist`
+- 需要手动重启时，在 Pro 上执行：`~/smartdash_perf_monitor_start.sh`
+- 需要重装 LaunchAgent 时，在 Pro 上执行：
+  - `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.shawnrain.smartdash-perf-sampler.plist || true`
+  - `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.shawnrain.smartdash-perf-http.plist || true`
+  - `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.shawnrain.smartdash-perf-sampler.plist`
+  - `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.shawnrain.smartdash-perf-http.plist`
+  - `launchctl kickstart -k gui/$(id -u)/com.shawnrain.smartdash-perf-sampler`
+  - `launchctl kickstart -k gui/$(id -u)/com.shawnrain.smartdash-perf-http`
 
 ### 编译速度保障
 
@@ -135,6 +167,9 @@ Release 签名约定：
 > 当用户要求"输出/编译一个 APK 给我测试"或"提供最新安装包"时，**必须**调用 `.agents/scripts/build-release.sh` 生成 Release 签名包！
 > 绝对不要默认通过 `build-debug.sh` 输出给用户，因为用户的物理真机已安装了 Release 签名版本，使用 Debug 签名会导致覆盖安装失败或需要清除数据！
 > 当用户明确要求"装到手机上""安装到手机""adb 安装"或语义等价的真机安装诉求时，**默认直接执行安装流程，不要再次征求确认**；除非用户明确要求"先别装"或"只出包不安装"。
+> 对 `compile / assemble / test` 也有同等级硬约束：**不要直接跑 `./gradlew`。不要在非主编译机本地跑 Gradle。不要绕过 `.agents/scripts/*`。**
+> 若当前不是 `shawn-rains-macbook-pro`，任何直接本地 Gradle 执行都应视为错误操作，必须立刻停止并改走远端路由脚本。
+> 远端路由脚本在执行前必须先同步本地工作区到主编译机；如果不能确认主编译机已经拿到最新代码，就不允许开始远端编译或测试。
 >
 > `devRelease` 仅用于本地高频联调提速：
 > - `.agents/scripts/build-dev-release.sh`
@@ -508,6 +543,7 @@ Release 签名约定：
 - `.agents/workflows/build-dev-release.md`
 - `.agents/workflows/build-fast-dev-release.md`
 - `.agents/workflows/build-performance.md`
+- `.agents/workflows/pro-perf-monitor.md`
 - `.agents/workflows/overlay-dialog.md`
 - `.agents/workflows/predictive-back.md`
 - `.agents/workflows/test-debug.md`
@@ -538,6 +574,7 @@ Release 签名约定：
 2. 跑 `.agents/scripts/preflight.sh`
 3. 确认 `gh auth status`、`adb version`、`JAVA_HOME`
 4. 首次热身建议先执行一次 `.agents/scripts/compile-debug-kotlin.sh`，让主编译机上的 Gradle daemon 与 configuration cache 建立好
+5. **AI Agent / Codex 禁止把 `./gradlew` 当作默认入口；所有编译测试都必须从 `.agents/scripts/*` 进入。**
 
 ### 9.2 本地 Release 构建
 1. 首次执行 `.agents/scripts/setup-release-signing.sh`
@@ -586,6 +623,7 @@ cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vib
 ```
 
 8. 对 Codex / 桌面代理尤其推荐上面这种"尾部输出"模式，能明显减少终端刷屏导致的系统卡顿感
+9. **即使是联调，也不允许 agent 在非主编译机上直接运行 `./gradlew`；必须依赖脚本完成远端路由。**
 
 ### 9.7 本地个人极速迭代
 1. 需要最快的真机覆盖安装时，优先跑 `.agents/scripts/install-fast-dev-release.sh`

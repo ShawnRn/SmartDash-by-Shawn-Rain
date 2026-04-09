@@ -88,6 +88,7 @@ class SyncMetadataRepository(context: Context) {
     suspend fun recordPushSuccess(context: Context, version: Long) = withContext(Dispatchers.IO) {
         updateEntity(context) {
             it.copy(
+                localStateVersion = maxOf(it.localStateVersion, version),
                 lastPushedLocalVersion = version,
                 lastPushSuccessAt = System.currentTimeMillis(),
                 lastSyncError = null
@@ -117,6 +118,12 @@ class SyncMetadataRepository(context: Context) {
 
     suspend fun recordSyncError(context: Context, error: String) = withContext(Dispatchers.IO) {
         updateEntity(context) { it.copy(lastSyncError = error) }
+    }
+
+    suspend fun updateMigrationVersion(context: Context, migrationVersion: Int) = withContext(Dispatchers.IO) {
+        updateEntity(context) {
+            if (it.migrationVersion >= migrationVersion) it else it.copy(migrationVersion = migrationVersion)
+        }
     }
 
     private suspend fun updateEntity(context: Context, transform: (SyncMetadata) -> SyncMetadata) {

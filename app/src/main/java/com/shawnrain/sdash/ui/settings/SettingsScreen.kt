@@ -30,10 +30,15 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.FlowRow
@@ -78,6 +83,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
@@ -129,7 +135,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     viewModel: MainViewModel, 
@@ -138,6 +144,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val speedSource by viewModel.speedSource.collectAsState()
     val battDataSource by viewModel.battDataSource.collectAsState()
     val logLevel by viewModel.logLevel.collectAsState()
@@ -174,6 +181,7 @@ fun SettingsScreen(
     var showLanQrDialog by remember { mutableStateOf(false) }
     var showLanScannerDialog by remember { mutableStateOf(false) }
     var showDriveSignOutConfirm by remember { mutableStateOf(false) }
+    var showForceDriveUploadConfirm by remember { mutableStateOf(false) }
     var showDriveHistory by remember { mutableStateOf(false) }
     var showAppUpdateSheet by remember { mutableStateOf(false) }
     var showAboutSmartDashSheet by remember { mutableStateOf(false) }
@@ -963,12 +971,33 @@ fun SettingsScreen(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Button(
-                                            onClick = { viewModel.syncDriveNow() },
+                                        val syncInteractionSource = remember { MutableInteractionSource() }
+                                        Surface(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .combinedClickable(
+                                                    interactionSource = syncInteractionSource,
+                                                    indication = null,
+                                                    onClick = { viewModel.syncDriveNow() },
+                                                    onLongClick = {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        showForceDriveUploadConfirm = true
+                                                    }
+                                                ),
                                             shape = bezierPillShape(),
-                                            modifier = Modifier.weight(1f)
+                                            color = MaterialTheme.colorScheme.primary,
+                                            contentColor = MaterialTheme.colorScheme.onPrimary
                                         ) {
-                                            Text("同步")
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 10.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                ProvideTextStyle(MaterialTheme.typography.labelLarge) {
+                                                    Text("同步")
+                                                }
+                                            }
                                         }
                                         Button(
                                             onClick = { showDriveSignOutConfirm = true },
@@ -1204,6 +1233,30 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDriveSignOutConfirm = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+    if (showForceDriveUploadConfirm) {
+        BlurredAlertDialog(
+            onDismissRequest = { showForceDriveUploadConfirm = false },
+            title = { Text("强制上传当前设备数据") },
+            text = {
+                Text("是否将当前设备数据完整上传到 Google Drive？这会用当前设备上的完整资料重新触发一次云端上传。")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showForceDriveUploadConfirm = false
+                        viewModel.forceUploadCurrentDeviceData()
+                    }
+                ) {
+                    Text("确认上传")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showForceDriveUploadConfirm = false }) {
                     Text("取消")
                 }
             }

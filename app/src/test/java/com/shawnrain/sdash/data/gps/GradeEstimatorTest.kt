@@ -85,6 +85,46 @@ class GradeEstimatorTest {
         assertEquals(0f, result.currentGradePercent, 0.001f)
     }
 
+    @Test
+    fun badVerticalAccuracyDoesNotStretchOldAltitudeAcrossGradeWindow() {
+        val estimator = GradeEstimator()
+
+        estimator.update(sample(timestampMs = 0L, altitudeMeters = 100.0, speedKmh = 12f))
+        estimator.update(sample(timestampMs = 1_500L, latitude = 30.00012, altitudeMeters = 101.0, speedKmh = 12f))
+        val baseline = estimator.update(sample(timestampMs = 3_000L, latitude = 30.00024, altitudeMeters = 102.0, speedKmh = 12f))
+
+        val badAccuracy = estimator.update(
+            sample(
+                timestampMs = 4_500L,
+                latitude = 30.00036,
+                altitudeMeters = 110.0,
+                speedKmh = 12f,
+                verticalAccuracyMeters = 20f
+            )
+        )
+        val recovered = estimator.update(sample(timestampMs = 6_000L, latitude = 30.00048, altitudeMeters = 103.0, speedKmh = 12f))
+
+        assertEquals(baseline.currentAltitudeMeters ?: 0.0, badAccuracy.currentAltitudeMeters ?: 0.0, 0.001)
+        assertTrue(recovered.currentGradePercent > 0.5f)
+    }
+
+    @Test
+    fun lowSpeedFreezeDoesNotStretchFrozenAltitudeAcrossWindow() {
+        val estimator = GradeEstimator()
+
+        estimator.update(sample(timestampMs = 0L, altitudeMeters = 100.0, speedKmh = 12f))
+        estimator.update(sample(timestampMs = 1_500L, latitude = 30.00012, altitudeMeters = 101.0, speedKmh = 12f))
+        estimator.update(sample(timestampMs = 3_000L, latitude = 30.00024, altitudeMeters = 102.0, speedKmh = 12f))
+        val moving = estimator.update(sample(timestampMs = 4_500L, latitude = 30.00036, altitudeMeters = 103.0, speedKmh = 12f))
+
+        val lowSpeed = estimator.update(sample(timestampMs = 6_000L, latitude = 30.00046, altitudeMeters = 106.0, speedKmh = 0.5f))
+        val recovered = estimator.update(sample(timestampMs = 7_500L, latitude = 30.00058, altitudeMeters = 104.0, speedKmh = 12f))
+
+        assertTrue(lowSpeed.currentGradePercent in 0f..moving.currentGradePercent)
+        assertEquals(moving.currentAltitudeMeters ?: 0.0, lowSpeed.currentAltitudeMeters ?: 0.0, 0.001)
+        assertTrue(recovered.currentGradePercent > 0.5f)
+    }
+
     private fun sample(
         timestampMs: Long,
         latitude: Double = 30.0,

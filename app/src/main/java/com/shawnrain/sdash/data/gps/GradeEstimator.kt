@@ -101,11 +101,13 @@ class GradeEstimator {
             cumulativeDistanceMeters += distanceFromPrevious
         }
 
-        maybeUpdateFilteredAltitude(
+        val altitudeAccepted = maybeUpdateFilteredAltitude(
             input = input,
             distanceFromPreviousMeters = distanceFromPrevious
         )
-        maybeAppendWindowSample(input.timestampMs)
+        if (altitudeAccepted) {
+            maybeAppendWindowSample(input.timestampMs)
+        }
         updateGrade(input)
 
         lastInput = input
@@ -118,13 +120,13 @@ class GradeEstimator {
     private fun maybeUpdateFilteredAltitude(
         input: GradeEstimatorInput,
         distanceFromPreviousMeters: Double
-    ) {
-        val rawAltitude = input.altitudeMeters?.takeIf { it.isFinite() } ?: return
+    ): Boolean {
+        val rawAltitude = input.altitudeMeters?.takeIf { it.isFinite() } ?: return false
         input.verticalAccuracyMeters?.let {
-            if (it > MAX_VERTICAL_ACCURACY_METERS) return
+            if (it > MAX_VERTICAL_ACCURACY_METERS) return false
         }
         if ((input.speedKmh.takeIf { it.isFinite() } ?: 0f) < MIN_ALTITUDE_UPDATE_SPEED_KMH) {
-            return
+            return false
         }
 
         val previousFilteredAltitude = filteredAltitudeMeters
@@ -132,7 +134,7 @@ class GradeEstimator {
             distanceFromPreviousMeters in 0.0..MAX_SHORT_HOP_DISTANCE_METERS &&
             abs(rawAltitude - previousFilteredAltitude) > MAX_SHORT_HOP_ALTITUDE_JUMP_METERS
         if (shouldRejectShortHopJump) {
-            return
+            return false
         }
 
         val nextFilteredAltitude = if (previousFilteredAltitude == null) {
@@ -143,6 +145,7 @@ class GradeEstimator {
 
         filteredAltitudeMeters = nextFilteredAltitude
         _currentAltitudeMeters.value = nextFilteredAltitude
+        return true
     }
 
     private fun maybeAppendWindowSample(timestampMs: Long) {
@@ -220,6 +223,10 @@ class GradeEstimator {
         return if (abs(next) < MIN_NON_ZERO_GRADE_PERCENT) 0f else next
     }
 
+    /**
+     * Only resets grade-window state and the live grade output.
+     * Keep altitude filtering state so short GPS interruptions do not create altitude jumps.
+     */
     private fun resetGradeWindow() {
         gradeWindow.clear()
         cumulativeDistanceMeters = 0.0

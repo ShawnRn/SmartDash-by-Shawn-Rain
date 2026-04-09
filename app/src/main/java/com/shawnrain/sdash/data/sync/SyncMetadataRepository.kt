@@ -106,6 +106,15 @@ class SyncMetadataRepository(context: Context) {
         }
     }
 
+    suspend fun recordRemoteDiscovered(context: Context, remoteVersion: Long) = withContext(Dispatchers.IO) {
+        updateEntity(context) {
+            it.copy(
+                lastKnownRemoteVersion = maxOf(it.lastKnownRemoteVersion, remoteVersion),
+                lastSyncError = null
+            )
+        }
+    }
+
     suspend fun recordSyncError(context: Context, error: String) = withContext(Dispatchers.IO) {
         updateEntity(context) { it.copy(lastSyncError = error) }
     }

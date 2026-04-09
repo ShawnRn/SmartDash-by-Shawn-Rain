@@ -320,6 +320,16 @@ class DriveSyncCoordinator(
                 return@withContext Result.success(Unit) // Already initialized
             }
 
+            val remoteManifest = manifestRepository.fetchRemoteManifest()
+            if (remoteManifest != null && remoteManifest.schemaVersion >= SYNC_ENGINE_VERSION) {
+                metadataRepository.recordRemoteDiscovered(context, remoteManifest.stateVersion)
+                AppLogger.i(
+                    TAG,
+                    "V2 sync already exists remotely, skip local bootstrap and pull remote stateVersion=${remoteManifest.stateVersion}"
+                )
+                return@withContext Result.success(Unit)
+            }
+
             // Build and upload initial state
             val newStateVersion = 1L
             val currentState = stateSerializer.buildCurrentState(

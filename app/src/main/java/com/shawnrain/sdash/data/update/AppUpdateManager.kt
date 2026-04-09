@@ -55,63 +55,82 @@ class AppUpdateManager(
      */
     suspend fun checkForUpdate(honorIgnoredTag: Boolean = true): Result<AppUpdatePackage?> = withContext(Dispatchers.IO) {
         runCatching {
-            reconcileInstalledUpdate(getInstalledVersion())
+            val installedVersion = getInstalledVersion()
+            reconcileInstalledUpdate(installedVersion)
             val cachedEtag = prefs.etag.first()
-            val request = Request.Builder()
-                .url(RELEASES_LATEST_URL)
-                .header("Accept", "application/vnd.github+json")
-                .header("X-GitHub-Api-Version", "2022-11-28")
-                .header("User-Agent", "${context.packageName}/android")
-                .apply {
-                    if (!cachedEtag.isNullOrBlank()) {
-                        header("If-None-Match", cachedEtag)
-                    }
-                }
-                .build()
+            val checkedAt = System.currentTimeMillis()
+            val ignoredTag = prefs.ignoredTag.first()
+            val conditionalResult = fetchLatestReleasePackage(cachedEtag)
 
-            client.newCall(request).execute().use { response ->
-                val checkedAt = System.currentTimeMillis()
-                val responseEtag = response.header("ETag")
-                if (response.code == 304) {
-                    prefs.saveLastChecked(
-                        atMs = checkedAt,
-                        tag = prefs.lastSeenTag.first(),
-                        etag = responseEtag ?: cachedEtag
-                    )
+            if (conditionalResult.notModified) {
+                val lastSeenTag = prefs.lastSeenTag.first()
+                prefs.saveLastChecked(
+                    atMs = checkedAt,
+                    tag = lastSeenTag,
+                    etag = conditionalResult.etag ?: cachedEtag
+                )
+                val shouldBypass304 = !lastSeenTag.isNullOrBlank() &&
+                    compareSemanticVersion(normalizeTag(lastSeenTag), installedVersion.versionName) > 0 &&
+                    (!honorIgnoredTag || ignoredTag != lastSeenTag)
+                if (!shouldBypass304) {
                     return@runCatching null
-                }
-                if (!response.isSuccessful) {
-                    error("检查更新失败：HTTP ${response.code}")
-                }
-                val body = response.body?.string().orEmpty()
-                val githubRelease = json.decodeFromString<GithubReleaseResponse>(body)
-                
-                // Try to find release-manifest.json
-                val manifestAsset = githubRelease.assets.firstOrNull {
-                    it.name.equals("release-manifest.json", ignoreCase = true) ||
-                        it.name.endsWith("-manifest.json", ignoreCase = true)
-                }
-                
-                val pkg = if (manifestAsset != null) {
-                    fetchManifest(manifestAsset.downloadUrl, githubRelease.assets)
-                } else {
-                    parseReleaseFromAssets(githubRelease)
-                }
-
-                prefs.saveLastChecked(checkedAt, pkg?.tag, responseEtag)
-
-                val ignoredTag = prefs.ignoredTag.first()
-                if (honorIgnoredTag && pkg != null && ignoredTag == pkg.tag) {
-                    AppLogger.i(TAG, "Skip ignored release tag=${pkg.tag}")
-                    return@runCatching null
-                }
-
-                if (pkg != null && isNewerThanInstalled(pkg, getInstalledVersion())) {
-                    pkg
-                } else {
-                    null
                 }
             }
+
+            val pkg = if (conditionalResult.notModified) {
+                fetchLatestReleasePackage(etag = null).pkg
+            } else {
+                conditionalResult.pkg
+            }
+
+            prefs.saveLastChecked(checkedAt, pkg?.tag, conditionalResult.etag ?: cachedEtag)
+
+            if (honorIgnoredTag && pkg != null && ignoredTag == pkg.tag) {
+                AppLogger.i(TAG, "Skip ignored release tag=${pkg.tag}")
+                return@runCatching null
+            }
+
+            if (pkg != null && isNewerThanInstalled(pkg, installedVersion)) pkg else null
+        }
+    }
+
+    private suspend fun fetchLatestReleasePackage(etag: String?): LatestReleaseFetchResult {
+        val request = Request.Builder()
+            .url(RELEASES_LATEST_URL)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "${context.packageName}/android")
+            .apply {
+                if (!etag.isNullOrBlank()) {
+                    header("If-None-Match", etag)
+                }
+            }
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            val responseEtag = response.header("ETag")
+            if (response.code == 304) {
+                return LatestReleaseFetchResult(
+                    pkg = null,
+                    etag = responseEtag ?: etag,
+                    notModified = true
+                )
+            }
+            if (!response.isSuccessful) {
+                error("检查更新失败：HTTP ${response.code}")
+            }
+            val body = response.body?.string().orEmpty()
+            val githubRelease = json.decodeFromString<GithubReleaseResponse>(body)
+            val manifestAsset = githubRelease.assets.firstOrNull {
+                it.name.equals("release-manifest.json", ignoreCase = true) ||
+                    it.name.endsWith("-manifest.json", ignoreCase = true)
+            }
+            val pkg = if (manifestAsset != null) {
+                fetchManifest(manifestAsset.downloadUrl, githubRelease.assets)
+            } else {
+                parseReleaseFromAssets(githubRelease)
+            }
+            return LatestReleaseFetchResult(pkg = pkg, etag = responseEtag, notModified = false)
         }
     }
 
@@ -321,6 +340,12 @@ class AppUpdateManager(
     }
 
     private fun normalizeTag(tagName: String): String = tagName.removePrefix("v").trim()
+
+    private data class LatestReleaseFetchResult(
+        val pkg: AppUpdatePackage?,
+        val etag: String?,
+        val notModified: Boolean
+    )
 
     private fun selectBestApkAsset(release: GithubReleaseResponse): GithubReleaseAsset? {
         val channel = ReleaseChannel.fromTag(release.tagName)

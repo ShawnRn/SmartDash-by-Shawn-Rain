@@ -22,9 +22,9 @@ class RideRecordNormalizer {
         if (samples.isEmpty()) return record
 
         val rebuiltSamples = normalizeSampleDistance(samples)
+        val summaryStats = computeRideSummaryStats(record.copy(samples = rebuiltSamples))
         val lastSample = rebuiltSamples.last()
-        val sampleMaxSpeedKmh = rebuiltSamples.maxOfOrNull { it.speedKmH } ?: 0f
-        val calculatedMaxSpeedKmh = maxOf(record.maxSpeedKmh, sampleMaxSpeedKmh)
+        val calculatedMaxSpeedKmh = summaryStats.maxSpeedKmh
 
         val sampleMaxDistance = lastSample.distanceMeters.coerceAtLeast(0f)
         val calculatedDistanceMeters = when {

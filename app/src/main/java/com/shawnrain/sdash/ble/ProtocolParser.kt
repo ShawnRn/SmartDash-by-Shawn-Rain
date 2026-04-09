@@ -40,6 +40,8 @@ data class VehicleMetrics(
     val recoveredEnergyWh: EnergyWh = 0.0f,
     val peakRegenPowerKw: Float = 0.0f,
     val maxControllerTemp: Float = 0.0f,
+    val gradePercent: Float = 0.0f,
+    val altitudeMeters: Float = 0.0f,
     val faultCode: Int = 0,
     val isBraking: Boolean = false,
     val isCruise: Boolean = false,

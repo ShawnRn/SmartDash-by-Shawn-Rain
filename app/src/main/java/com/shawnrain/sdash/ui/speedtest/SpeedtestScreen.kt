@@ -117,6 +117,7 @@ import com.shawnrain.sdash.data.MetricType
 import com.shawnrain.sdash.data.history.RideHistoryRecord
 import com.shawnrain.sdash.data.history.RideMetricSample
 import com.shawnrain.sdash.data.history.RideTrackPoint
+import com.shawnrain.sdash.data.history.computeRideSummaryStats
 import com.shawnrain.sdash.data.speedtest.SpeedTestRecord
 import com.shawnrain.sdash.data.sync.SyncState
 import com.shawnrain.sdash.data.telemetry.EnergyWh
@@ -174,6 +175,8 @@ private enum class SpeedPageTab(val title: String) {
 
 private enum class RideChartMetric(val title: String, val unit: String, val color: Color) {
     SPEED("速度", "km/h", Color(0xFF8DB4FF)),
+    GRADE("坡度", "%", Color(0xFFFFB86C)),
+    ALTITUDE("海拔高度", "m", Color(0xFFA7F3D0)),
     POWER("功率", "kW", Color(0xFFB7A1FF)),
     VOLTAGE("电压", "V", Color(0xFF8DE0B5)),
     VOLTAGE_SAG("压降", "V", Color(0xFFFFD166)),
@@ -963,18 +966,15 @@ private fun RideHistoryCard(
     var isRemoving by remember(record.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
-    val displayDistanceMeters = record.distanceMeters
-    val displayAvgSpeedKmh = remember(record.avgSpeedKmh, displayDistanceMeters, record.durationMs) {
-        if (record.durationMs > 0L && displayDistanceMeters > 1.0f) {
-            ((displayDistanceMeters / 1000.0f) / (record.durationMs.toFloat() / 3_600_000.0f)).coerceAtLeast(0.0f)
-        } else {
-            record.avgSpeedKmh
-        }
-    }
+    val summaryStats = remember(record) { computeRideSummaryStats(record) }
+    val displayDistanceMeters = summaryStats.distanceMeters
+    val displayAvgSpeedKmh = summaryStats.avgSpeedKmh
     val summaryMetrics = listOf(
         "里程" to metricOf(displayDistanceMeters / 1000f, "km"),
-        "最高速度" to metricOf(record.maxSpeedKmh, "km/h"),
+        "最高速度" to metricOf(summaryStats.maxSpeedKmh, "km/h"),
         "平均速度" to metricOf(displayAvgSpeedKmh, "km/h"),
+        "最大坡度" to metricOf(dominantSignedGrade(summaryStats), "%"),
+        "最高海拔" to metricOf(summaryStats.maxAltitudeMeters, "m"),
         "峰值功率" to metricOf(record.peakPowerKw, "kW"),
         "能耗" to metricOf(record.avgNetEfficiencyWhKm, "Wh/km"),
         "采样点" to metricOfLabel(record.samples.size.toString())
@@ -3190,6 +3190,7 @@ private fun percentile(values: List<Float>, p: Float): Float {
 private fun rideMetricSummaryLabel(metric: RideChartMetric): String {
     return when (metric) {
         RideChartMetric.AVG_EFFICIENCY -> "整段"
+        RideChartMetric.GRADE -> "峰值"
         RideChartMetric.SOC, RideChartMetric.RANGE -> "终点"
         RideChartMetric.DISTANCE, RideChartMetric.TOTAL_ENERGY, RideChartMetric.RECOVERED_ENERGY -> "累计"
         RideChartMetric.MAX_CONTROLLER_TEMP -> "最高"
@@ -3218,6 +3219,10 @@ private fun rideMetricSummaryValue(
         RideChartMetric.TOTAL_ENERGY -> last.totalEnergyWh.coerceAtLeast(0.0f)
         RideChartMetric.RECOVERED_ENERGY -> last.recoveredEnergyWh.coerceAtLeast(0.0f)
         RideChartMetric.MAX_CONTROLLER_TEMP -> maxOf(last.maxControllerTemp, last.controllerTemp)
+        RideChartMetric.GRADE -> dominantSignedGrade(samples)
+        RideChartMetric.ALTITUDE -> samples.lastOrNull {
+            it.altitudeMeters?.toFloat()?.isFinite() == true
+        }?.altitudeMeters?.toFloat() ?: fallbackAverage
         else -> fallbackAverage
     }
 }
@@ -3281,6 +3286,14 @@ private fun robustRideMetricAverage(
     val activePairs = samples.zip(values).filter { (sample, _) -> isMeaningfulAverageSample(sample) }
     val candidateValues = when (metric) {
         RideChartMetric.EFFICIENCY -> reliableEfficiencyValues(samples)
+        RideChartMetric.ALTITUDE -> {
+            val filtered = samples.mapNotNull { it.altitudeMeters?.toFloat() }.filter { it.isFinite() }
+            filtered.ifEmpty { values.filter { it.isFinite() && it > 0f } }
+        }
+        RideChartMetric.GRADE -> {
+            val filtered = activePairs.map { it.second }.filter { it.isFinite() && it in -35f..35f }
+            filtered.ifEmpty { values.filter { it.isFinite() && it in -35f..35f } }
+        }
         RideChartMetric.REGEN_POWER -> {
             val filtered = activePairs.map { it.second }.filter { it.isFinite() && it >= 5.0f }
             filtered.ifEmpty { values.filter { it.isFinite() && it >= 0.0f } }
@@ -3456,6 +3469,7 @@ private fun buildRideOverviewCards(
     orderedTypes: List<MetricType>
 ): List<RideOverviewCard> {
     if (samples.isEmpty()) return buildRideOverviewFallbackCards(record, orderedTypes)
+    val summaryStats = computeRideSummaryStats(record)
     val first = samples.first()
     val last = samples.last()
     val averageSamples = rideAverageSamples(samples)
@@ -3463,7 +3477,7 @@ private fun buildRideOverviewCards(
     val startRangeKm = samples.firstOrNull { it.estimatedRangeKm > 0.1 }?.estimatedRangeKm
         ?: first.estimatedRangeKm.takeIf { it > 0.01 }
         ?: last.estimatedRangeKm
-    val finalDistanceKm = ((last.distanceMeters.takeIf { it > 1.0f } ?: record.distanceMeters) / 1000.0f).coerceAtLeast(0.0f)
+    val finalDistanceKm = (summaryStats.distanceMeters / 1000.0f).coerceAtLeast(0.0f)
     val avgPowerKw = robustAverage(averageSamples.map { it.powerKw })
     val peakPowerKw = samples.maxOf { it.powerKw }
     val peakRegenPowerKw = samples.maxOf { (-it.powerKw).coerceAtLeast(0.0f) }
@@ -3477,9 +3491,9 @@ private fun buildRideOverviewCards(
     val peakPhaseCurrent = samples.maxOf { kotlin.math.abs(it.phaseCurrent) }
     val avgControllerTemp = robustAverage(averageSamples.map { it.controllerTemp })
     val peakControllerTemp = samples.maxOf { it.controllerTemp }
-    val avgSpeedKmh = record.avgSpeedKmh.takeIf { it > 0.01f }
+    val avgSpeedKmh = summaryStats.avgSpeedKmh.takeIf { it > 0.01f }
         ?: robustAverage(averageSamples.map { it.speedKmH })
-    val peakSpeedKmh = maxOf(record.maxSpeedKmh, samples.maxOf { it.speedKmH })
+    val peakSpeedKmh = summaryStats.maxSpeedKmh
     val avgRpm = robustAverage(averageSamples.map { it.rpm })
     val peakRpm = samples.maxOf { it.rpm }
     val avgInstantEfficiency = robustAverage(reliableEfficiencyValues(samples))
@@ -3494,6 +3508,20 @@ private fun buildRideOverviewCards(
             value = metricOf(peakSpeedKmh, "km/h"),
             supporting = "平均 ${formatFloat(avgSpeedKmh)} km/h",
             metric = RideChartMetric.SPEED
+        ),
+        MetricType.GRADE to RideOverviewCard(
+            type = MetricType.GRADE,
+            title = "坡度",
+            value = metricOf(summaryStats.maxUphillGradePercent, "%"),
+            supporting = "最大下坡 ${formatSignedFloat(summaryStats.maxDownhillGradePercent)} %",
+            metric = RideChartMetric.GRADE
+        ),
+        MetricType.ALTITUDE to RideOverviewCard(
+            type = MetricType.ALTITUDE,
+            title = "海拔高度",
+            value = metricOf(summaryStats.maxAltitudeMeters, "m"),
+            supporting = "最低 ${formatFloat(summaryStats.minAltitudeMeters)} m",
+            metric = RideChartMetric.ALTITUDE
         ),
         MetricType.POWER to RideOverviewCard(
             type = MetricType.POWER,
@@ -3581,7 +3609,7 @@ private fun buildRideOverviewCards(
             type = MetricType.TRIP_DISTANCE,
             title = "里程",
             value = metricOf(finalDistanceKm, "km"),
-            supporting = "平均 ${formatFloat(record.avgSpeedKmh)} km/h",
+            supporting = "平均 ${formatFloat(summaryStats.avgSpeedKmh)} km/h",
             metric = RideChartMetric.DISTANCE
         ),
         MetricType.TOTAL_ENERGY to RideOverviewCard(
@@ -3616,15 +3644,30 @@ private fun buildRideOverviewFallbackCards(
     record: RideHistoryRecord,
     orderedTypes: List<MetricType>
 ): List<RideOverviewCard> {
+    val summaryStats = computeRideSummaryStats(record)
     val durationMinutes = (record.durationMs / 60000.0f).coerceAtLeast(0.0f)
     val recoveredEnergyWh = record.regenEnergyWh.coerceAtLeast(0.0f)
     val cardsByType = linkedMapOf<MetricType, RideOverviewCard>(
         MetricType.SPEED to RideOverviewCard(
             type = MetricType.SPEED,
             title = "速度",
-            value = metricOf(record.maxSpeedKmh, "km/h"),
-            supporting = "平均 ${formatFloat(record.avgSpeedKmh)} km/h",
+            value = metricOf(summaryStats.maxSpeedKmh, "km/h"),
+            supporting = "平均 ${formatFloat(summaryStats.avgSpeedKmh)} km/h",
             metric = RideChartMetric.SPEED
+        ),
+        MetricType.GRADE to RideOverviewCard(
+            type = MetricType.GRADE,
+            title = "坡度",
+            value = metricOf(summaryStats.maxUphillGradePercent, "%"),
+            supporting = "最大下坡 ${formatSignedFloat(summaryStats.maxDownhillGradePercent)} %",
+            metric = RideChartMetric.GRADE
+        ),
+        MetricType.ALTITUDE to RideOverviewCard(
+            type = MetricType.ALTITUDE,
+            title = "海拔高度",
+            value = metricOf(summaryStats.maxAltitudeMeters, "m"),
+            supporting = "最低 ${formatFloat(summaryStats.minAltitudeMeters)} m",
+            metric = RideChartMetric.ALTITUDE
         ),
         MetricType.POWER to RideOverviewCard(
             type = MetricType.POWER,
@@ -4100,6 +4143,8 @@ private fun EmptyCard(title: String, subtitle: String) {
 private fun RideMetricSample.metricValue(metric: RideChartMetric): Float {
     return when (metric) {
         RideChartMetric.SPEED -> speedKmH
+        RideChartMetric.GRADE -> gradePercent
+        RideChartMetric.ALTITUDE -> altitudeMeters?.toFloat() ?: 0.0f
         RideChartMetric.POWER -> powerKw
         RideChartMetric.REGEN_POWER -> (-powerKw * 1000.0f).coerceAtLeast(0.0f)
         RideChartMetric.VOLTAGE -> voltage
@@ -4118,6 +4163,20 @@ private fun RideMetricSample.metricValue(metric: RideChartMetric): Float {
         RideChartMetric.DISTANCE -> distanceMeters / 1000.0f
         else -> 0.0f
     }
+}
+
+private fun dominantSignedGrade(summaryStats: com.shawnrain.sdash.data.history.RideSummaryStats): Float {
+    return if (kotlin.math.abs(summaryStats.maxDownhillGradePercent) > kotlin.math.abs(summaryStats.maxUphillGradePercent)) {
+        summaryStats.maxDownhillGradePercent
+    } else {
+        summaryStats.maxUphillGradePercent
+    }
+}
+
+private fun dominantSignedGrade(samples: List<RideMetricSample>): Float {
+    val uphill = samples.map { it.gradePercent }.filter { it.isFinite() && it > 0f }.maxOrNull() ?: 0f
+    val downhill = samples.map { it.gradePercent }.filter { it.isFinite() && it < 0f }.minOrNull() ?: 0f
+    return if (kotlin.math.abs(downhill) > kotlin.math.abs(uphill)) downhill else uphill
 }
 
 private fun metricOf(value: Number, unit: String): DisplayMetric =

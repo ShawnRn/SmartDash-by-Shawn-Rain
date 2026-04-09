@@ -19,8 +19,8 @@ android {
         applicationId = "com.shawnrain.sdash"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2026040905
-        versionName = "1.1.3"
+        versionCode = 2026040906
+        versionName = "1.1.4"
         
         vectorDrawables {
             useSupportLibrary = true
@@ -123,4 +123,5 @@ dependencies {
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
+    testImplementation("junit:junit:4.13.2")
 }

@@ -154,6 +154,8 @@ data class SyncRideMetricSample(
     val regenEnergyWh: Float = 0.0f,
     val recoveredEnergyWh: Float = 0.0f,
     val maxControllerTemp: Float = 0.0f,
+    val gradePercent: Float = 0.0f,
+    val altitudeMeters: Double? = null,
     val latitude: Double? = null,
     val longitude: Double? = null
 )

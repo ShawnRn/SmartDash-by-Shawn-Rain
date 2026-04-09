@@ -208,6 +208,8 @@ private fun RideMetricSample.toSyncSnapshot() = SyncRideMetricSample(
     regenEnergyWh = regenEnergyWh,
     recoveredEnergyWh = recoveredEnergyWh,
     maxControllerTemp = maxControllerTemp,
+    gradePercent = gradePercent,
+    altitudeMeters = altitudeMeters,
     latitude = latitude,
     longitude = longitude
 )

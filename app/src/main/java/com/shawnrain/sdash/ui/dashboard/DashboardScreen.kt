@@ -96,6 +96,8 @@ private fun shouldSwapWithTarget(
 fun formatMetricValue(type: MetricType, metrics: VehicleMetrics): String {
     return when (type) {
         MetricType.SPEED -> String.format("%.1f", metrics.speedKmH)
+        MetricType.GRADE -> String.format("%+.1f", metrics.gradePercent)
+        MetricType.ALTITUDE -> String.format("%.0f", metrics.altitudeMeters)
         MetricType.VOLTAGE -> String.format("%.1f", metrics.voltage)
         MetricType.VOLTAGE_SAG -> String.format("%.1f", metrics.voltageSag)
         MetricType.BUS_CURRENT -> String.format("%.1f", metrics.busCurrent)
@@ -1101,6 +1103,8 @@ fun ImmersiveDrivingView(
             MetricType.BUS_CURRENT,
             MetricType.PHASE_CURRENT,
             MetricType.TEMP,
+            MetricType.GRADE,
+            MetricType.ALTITUDE,
             MetricType.TRIP_DISTANCE,
             MetricType.SOC,
             MetricType.RANGE,

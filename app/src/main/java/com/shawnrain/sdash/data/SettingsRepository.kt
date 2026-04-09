@@ -45,6 +45,8 @@ val Context.dataStore by preferencesDataStore(name = "habe_settings")
 
 enum class MetricType(val title: String, val unit: String) {
     SPEED("速度", "km/h"),
+    GRADE("坡度", "%"),
+    ALTITUDE("海拔高度", "m"),
     VOLTAGE("电压", "V"),
     VOLTAGE_SAG("压降", "V"),
     BUS_CURRENT("母线电流", "A"),
@@ -883,6 +885,8 @@ class SettingsRepository(private val context: Context) {
         regenEnergyWh = regenEnergyWh,
         recoveredEnergyWh = recoveredEnergyWh,
         maxControllerTemp = maxControllerTemp,
+        gradePercent = gradePercent,
+        altitudeMeters = altitudeMeters,
         latitude = latitude,
         longitude = longitude
     )

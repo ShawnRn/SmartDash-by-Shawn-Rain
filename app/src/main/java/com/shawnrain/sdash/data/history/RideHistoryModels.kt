@@ -46,6 +46,8 @@ data class RideMetricSample(
     val regenEnergyWh: EnergyWh = 0.0f,
     val recoveredEnergyWh: EnergyWh = 0.0f,
     val maxControllerTemp: Float = 0.0f,
+    val gradePercent: Float = 0.0f,
+    val altitudeMeters: Double? = null,
     val latitude: Double? = null,
     val longitude: Double? = null
 ) {
@@ -72,6 +74,8 @@ data class RideMetricSample(
         .put("regenEnergyWh", regenEnergyWh.toDouble())
         .put("recoveredEnergyWh", recoveredEnergyWh.toDouble())
         .put("maxControllerTemp", maxControllerTemp.toDouble())
+        .put("gradePercent", gradePercent.toDouble())
+        .put("altitudeMeters", altitudeMeters)
         .put("latitude", latitude)
         .put("longitude", longitude)
 
@@ -100,6 +104,8 @@ data class RideMetricSample(
                 regenEnergyWh = json.optDouble("regenEnergyWh", json.optDouble("recoveredEnergyWh", 0.0)).toFloat(),
                 recoveredEnergyWh = json.optDouble("recoveredEnergyWh", 0.0).toFloat(),
                 maxControllerTemp = json.optDouble("maxControllerTemp", 0.0).toFloat(),
+                gradePercent = json.optDouble("gradePercent", 0.0).toFloat(),
+                altitudeMeters = json.opt("altitudeMeters")?.toString()?.toDoubleOrNull(),
                 latitude = json.opt("latitude")?.toString()?.toDoubleOrNull(),
                 longitude = json.opt("longitude")?.toString()?.toDoubleOrNull()
             )

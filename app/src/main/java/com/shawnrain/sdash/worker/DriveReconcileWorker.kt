@@ -29,6 +29,28 @@ class DriveReconcileWorker(
         private const val TAG = "DriveReconcileWorker"
         const val KEY_REASON = "reason"
         const val WORK_NAME = "drive_reconcile_worker"
+
+        /**
+         * Schedule a one-time reconcile work.
+         */
+        fun scheduleReconcile(context: Context, reason: SyncTriggerReason) {
+            val workRequest = OneTimeWorkRequestBuilder<DriveReconcileWorker>()
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build()
+                )
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .setInputData(workDataOf(KEY_REASON to reason.name))
+                .build()
+
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                WORK_NAME,
+                ExistingWorkPolicy.REPLACE,
+                workRequest
+            )
+            AppLogger.i(TAG, "Reconcile scheduled: reason=$reason")
+        }
     }
 
     private val driveSyncManager by lazy { com.shawnrain.sdash.data.sync.GoogleDriveSyncManager(applicationContext) }
@@ -85,25 +107,4 @@ class DriveReconcileWorker(
         }
     }
 
-    /**
-     * Schedule a one-time reconcile work.
-     */
-    fun scheduleReconcile(context: Context, reason: SyncTriggerReason) {
-        val workRequest = OneTimeWorkRequestBuilder<DriveReconcileWorker>()
-            .setConstraints(
-                Constraints.Builder()
-                    .setRequiredNetworkType(NetworkType.CONNECTED)
-                    .build()
-            )
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-            .setInputData(workDataOf(KEY_REASON to reason.name))
-            .build()
-
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            WORK_NAME,
-            ExistingWorkPolicy.REPLACE,
-            workRequest
-        )
-        AppLogger.i(TAG, "Reconcile scheduled: reason=$reason")
-    }
 }

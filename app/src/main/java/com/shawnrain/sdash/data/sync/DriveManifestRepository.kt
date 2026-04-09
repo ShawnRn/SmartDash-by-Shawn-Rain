@@ -30,34 +30,18 @@ class DriveManifestRepository(
 
     /**
      * Fetch the remote manifest from Google Drive.
-     * Falls back to parsing the latest backup file if manifest doesn't exist yet.
+     * Only V2 manifests are considered valid here. Legacy V1 backup files remain
+     * accessible from the backup history UI, but they are not treated as a V2
+     * bidirectional sync state.
      */
     suspend fun fetchRemoteManifest(): DriveChangeManifest? = withContext(Dispatchers.IO) {
         try {
-            val backups = driveSyncManager.listBackups().getOrNull() ?: return@withContext null
-            if (backups.isEmpty()) return@withContext null
-
-            // Check if there's an existing manifest file
-            val manifestFile = backups.find { it.fileName.contains("manifest") }
-            if (manifestFile != null) {
-                val manifestJsonStr = driveSyncManager.downloadTextFile(manifestFile.fileId).getOrNull()
-                if (manifestJsonStr != null) {
-                    return@withContext manifestJson.decodeFromString<DriveChangeManifest>(manifestJsonStr)
-                }
+            val manifestJsonStr = driveSyncManager.downloadTextFileByName(MANIFEST_FILE_NAME).getOrNull()
+            if (manifestJsonStr != null) {
+                return@withContext manifestJson.decodeFromString<DriveChangeManifest>(manifestJsonStr)
             }
-
-            // Fallback: derive manifest from latest backup metadata
-            val latest = backups.first()
-            DriveChangeManifest(
-                schemaVersion = 1,  // Old format
-                stateVersion = latest.createdAt,
-                updatedAt = latest.createdAt,
-                updatedByDeviceId = "unknown",
-                updatedByDeviceName = latest.deviceName,
-                latestRideId = null,
-                latestRideEndedAt = null,
-                entityCounters = EntityCounters()
-            )
+            AppLogger.i(TAG, "No V2 manifest found in Drive appDataFolder")
+            null
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to fetch remote manifest", e)
             null
@@ -104,12 +88,7 @@ class DriveManifestRepository(
                 AppLogger.i(TAG, "Current state downloaded: ${stateBytes.size} bytes")
                 Result.success(stateBytes)
             } else {
-                // Fallback: try to get from latest backup
-                val backups = driveSyncManager.listBackups().getOrNull() ?: return@withContext Result.failure(Exception("No backups found"))
-                if (backups.isEmpty()) return@withContext Result.failure(Exception("No backups found"))
-                val latest = backups.first()
-                val backupContent = driveSyncManager.downloadBackup(latest.fileId)
-                backupContent.map { it.toByteArray(Charsets.UTF_8) }
+                Result.failure(Exception("No V2 current state found"))
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to download current state", e)

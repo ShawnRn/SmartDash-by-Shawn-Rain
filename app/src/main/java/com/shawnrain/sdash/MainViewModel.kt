@@ -56,7 +56,14 @@ import com.shawnrain.sdash.data.sync.GoogleDriveSyncManager
 import com.shawnrain.sdash.data.sync.BackupMetadata
 import com.shawnrain.sdash.data.sync.BackupPreview
 import com.shawnrain.sdash.data.sync.BackupRetentionPolicy
+import com.shawnrain.sdash.data.sync.DriveManifestRepository
+import com.shawnrain.sdash.data.sync.DriveStateMerger
+import com.shawnrain.sdash.data.sync.DriveStateSerializer
+import com.shawnrain.sdash.data.sync.DriveSyncCoordinator
+import com.shawnrain.sdash.data.sync.PendingMutationRepository
 import com.shawnrain.sdash.data.sync.SyncState
+import com.shawnrain.sdash.data.sync.SyncMetadataRepository
+import com.shawnrain.sdash.data.sync.SyncTriggerReason
 import com.shawnrain.sdash.data.update.AppUpdateManager
 import com.shawnrain.sdash.data.update.AppUpdatePackage
 import com.shawnrain.sdash.data.update.AppUpdatePreferences
@@ -224,6 +231,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val lanBackupTransfer = LanBackupTransfer()
     private val driveSyncManager = GoogleDriveSyncManager(application)
     private val syncScheduler = com.shawnrain.sdash.data.sync.SyncScheduler(application, settingsRepository)
+    private val syncMetadataRepository = SyncMetadataRepository(application)
+    private val pendingMutationRepository = PendingMutationRepository(application)
+    private val driveStateSerializer = DriveStateSerializer(application, settingsRepository)
+    private val driveStateMerger = DriveStateMerger(application, settingsRepository)
+    private val driveManifestRepository = DriveManifestRepository(application, driveSyncManager)
+    private val driveSyncCoordinator = DriveSyncCoordinator(
+        context = application,
+        driveSyncManager = driveSyncManager,
+        settingsRepository = settingsRepository,
+        stateSerializer = driveStateSerializer,
+        stateMerger = driveStateMerger,
+        manifestRepository = driveManifestRepository,
+        metadataRepository = syncMetadataRepository,
+        mutationRepository = pendingMutationRepository
+    )
     private val appUpdateManager = AppUpdateManager(application)
     private val updatePreferences = AppUpdatePreferences(application)
     private val rideRecordNormalizer = RideRecordNormalizer()
@@ -864,6 +886,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     email = account?.email ?: "Unknown"
                 )
                 loadDriveBackups()
+                syncScheduler.onAuthSuccess()
                 maybeStartAutoDriveSync(force = true)
             } catch (e: Exception) {
                 _driveSyncState.value = SyncState.Error(e.message ?: "登录失败")
@@ -874,6 +897,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun signOutOfDrive() {
         viewModelScope.launch {
             driveSyncManager.signOut()
+            syncScheduler.onSignOut()
             autoSyncJob?.cancel()
             hasAutoSyncedThisSession = false
             _driveSyncState.value = SyncState.SignedOut
@@ -881,7 +905,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun syncDriveNow(): kotlinx.coroutines.Job = viewModelScope.launch {
-        runDriveSmartSync(showState = true, showMessage = true)
+        if (!driveSyncCoordinator.isV2Initialized()) {
+            driveSyncCoordinator.initializeV2Sync().onFailure { error ->
+                _driveSyncState.value = SyncState.Error(error.message ?: "初始化 Google Drive 同步失败")
+                _driveSyncMessage.value = "初始化失败：${error.message ?: "未知错误"}"
+                return@launch
+            }
+        }
+        runDriveV2SyncNow(
+            reason = SyncTriggerReason.MANUAL_SYNC,
+            showState = true,
+            showMessage = true
+        )
     }
 
     fun uploadToDrive(): kotlinx.coroutines.Job = viewModelScope.launch {
@@ -1042,26 +1077,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return driveSyncManager.pruneBackups(policy).getOrElse { throw it }
     }
 
-    private suspend fun mergeRemoteAndUploadLocal(): Triple<Int, Int, List<BackupMetadata>> {
-        val backups = driveSyncManager.listBackups().getOrElse { throw it }
-        var mergedCount = 0
-        val latestRemote = backups.firstOrNull()
-        if (latestRemote != null) {
-            val remoteJson = driveSyncManager.downloadBackup(latestRemote.fileId).getOrElse { throw it }
-            mergedCount = settingsRepository.mergeBackupJson(remoteJson)
-            if (latestRemote.createdAt > lastKnownRemoteTimestamp) {
-                lastKnownRemoteTimestamp = latestRemote.createdAt
+    private fun maybeStartAutoDriveSync(force: Boolean = false) {
+        if (!driveSyncManager.isSignedIn()) return
+        if (!force && hasAutoSyncedThisSession) return
+        if (autoSyncJob?.isActive == true) return
+        autoSyncJob = viewModelScope.launch {
+            if (!driveSyncCoordinator.isV2Initialized()) {
+                driveSyncCoordinator.initializeV2Sync()
             }
+            runDriveV2SyncNow(
+                reason = SyncTriggerReason.APP_FOREGROUND,
+                showState = false,
+                showMessage = false
+            )
         }
-
-        val localBackupJson = settingsRepository.exportBackupJson()
-        driveSyncManager.uploadBackup(localBackupJson).getOrElse { throw it }
-        val deletedCount = pruneExpiredDriveBackups()
-        val refreshedBackups = driveSyncManager.listBackups().getOrElse { backups }
-        return Triple(mergedCount, deletedCount, refreshedBackups)
     }
 
-    private suspend fun runDriveSmartSync(showState: Boolean, showMessage: Boolean) {
+    private suspend fun runDriveV2SyncNow(
+        reason: SyncTriggerReason,
+        showState: Boolean,
+        showMessage: Boolean
+    ) {
         if (!driveSyncManager.isSignedIn()) {
             _driveSyncState.value = SyncState.SignedOut
             if (showMessage) {
@@ -1075,82 +1111,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _driveSyncState.value = SyncState.Syncing
         }
 
-        try {
-            val (mergedCount, deletedCount, backups) = mergeRemoteAndUploadLocal()
-            hasAutoSyncedThisSession = true
-            val now = System.currentTimeMillis()
-            _driveSyncState.value = SyncState.SignedIn(
-                email = email,
-                lastSyncTime = now,
-                availableBackups = backups,
-                hasRemoteUpdate = false,
-                remoteDeviceName = backups.firstOrNull()?.deviceName
-            )
-            if (showMessage) {
-                _driveSyncMessage.value = if (mergedCount > 0) {
-                    if (deletedCount > 0) {
-                        "同步完成：已合并 $mergedCount 项，并清理 $deletedCount 个过期版本"
-                    } else {
-                        "同步完成：已合并 $mergedCount 项并更新云端"
-                    }
-                } else {
-                    if (deletedCount > 0) {
-                        "同步完成：云端与本地已对齐，并清理 $deletedCount 个过期版本"
-                    } else {
-                        "同步完成：云端与本地已对齐"
-                    }
+        when (val result = driveSyncCoordinator.runReconcileNow(reason)) {
+            is com.shawnrain.sdash.data.sync.SyncRunResult.Success -> {
+                hasAutoSyncedThisSession = true
+                loadDriveBackups()
+                val backups = (driveSyncState.value as? SyncState.SignedIn)?.availableBackups.orEmpty()
+                _driveSyncState.value = SyncState.SignedIn(
+                    email = email,
+                    lastSyncTime = System.currentTimeMillis(),
+                    availableBackups = backups,
+                    hasRemoteUpdate = false,
+                    remoteDeviceName = backups.firstOrNull()?.deviceName
+                )
+                if (showMessage) {
+                    _driveSyncMessage.value = result.notes.joinToString("；").ifBlank { "Google Drive 双向同步已完成" }
                 }
             }
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Drive smart sync failed: ${e.message}")
-            _driveSyncState.value = SyncState.SignedIn(
-                email = email
-            )
-            loadDriveBackups()
-            if (showState || showMessage) {
-                _driveSyncState.value = SyncState.Error(e.message ?: "同步失败")
-                _driveSyncMessage.value = "同步失败：${e.message}"
-            }
-        }
-    }
-
-    private fun maybeStartAutoDriveSync(force: Boolean = false) {
-        if (!driveSyncManager.isSignedIn()) return
-        if (!force && hasAutoSyncedThisSession) return
-        if (autoSyncJob?.isActive == true) return
-        autoSyncJob = viewModelScope.launch {
-            runDriveSmartSync(showState = false, showMessage = false)
-        }
-    }
-
-    /**
-     * Trigger a silent auto-sync to Google Drive after a ride is saved.
-     * This ensures ride history is backed up without user intervention.
-     */
-    private suspend fun triggerAutoSyncAfterRideSave() {
-        if (!driveSyncManager.isSignedIn()) return
-        if (autoSyncJob?.isActive == true) return
-
-        try {
-            val backupJson = settingsRepository.exportBackupJson()
-            val result = driveSyncManager.uploadBackup(backupJson)
-            result.fold(
-                onSuccess = {
-                    val currentState = _driveSyncState.value
-                    if (currentState is SyncState.SignedIn) {
-                        _driveSyncState.value = currentState.copy(
-                            lastSyncTime = System.currentTimeMillis()
-                        )
-                    }
-                    hasAutoSyncedThisSession = true
-                    AppLogger.i(TAG, "行程保存后自动同步到 Google Drive 成功")
-                },
-                onFailure = { error ->
-                    AppLogger.w(TAG, "行程保存后自动同步到 Google Drive 失败: ${error.message}")
+            is com.shawnrain.sdash.data.sync.SyncRunResult.Skipped -> {
+                loadDriveBackups()
+                val currentState = _driveSyncState.value as? SyncState.SignedIn
+                _driveSyncState.value = SyncState.SignedIn(
+                    email = email,
+                    lastSyncTime = currentState?.lastSyncTime,
+                    availableBackups = currentState?.availableBackups.orEmpty(),
+                    hasRemoteUpdate = false,
+                    remoteDeviceName = currentState?.remoteDeviceName
+                )
+                if (showMessage) {
+                    _driveSyncMessage.value = result.reason
                 }
-            )
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "行程保存后自动同步到 Google Drive 异常: ${e.message}")
+            }
+            is com.shawnrain.sdash.data.sync.SyncRunResult.Failure -> {
+                _driveSyncState.value = SyncState.Error(result.error.message ?: "Google Drive 同步失败")
+                if (showMessage) {
+                    _driveSyncMessage.value = "同步失败：${result.error.message}"
+                }
+            }
+            else -> Unit
         }
     }
 
@@ -1161,28 +1158,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun checkForRemoteUpdates() {
         viewModelScope.launch {
             try {
-                val result = driveSyncManager.listBackups()
-                result.fold(
-                    onSuccess = { backups ->
-                        if (backups.isNotEmpty()) {
-                            val latest = backups.first()
-                            val hasNewUpdate = latest.createdAt > lastKnownRemoteTimestamp
-                            lastKnownRemoteTimestamp = latest.createdAt
-
-                            if (hasNewUpdate && backups.size > 1) {
-                                val currentState = _driveSyncState.value
-                                if (currentState is SyncState.SignedIn) {
-                                    _driveSyncState.value = currentState.copy(
-                                        hasRemoteUpdate = true,
-                                        remoteDeviceName = latest.deviceName,
-                                        availableBackups = backups
-                                    )
-                                }
-                            }
-                        }
-                    },
-                    onFailure = { /* silently fail */ }
-                )
+                val manifest = driveManifestRepository.fetchRemoteManifest() ?: return@launch
+                val metadata = syncMetadataRepository.getMetadata(getApplication())
+                val hasNewUpdate = manifest.stateVersion > metadata.lastAppliedRemoteVersion
+                lastKnownRemoteTimestamp = maxOf(lastKnownRemoteTimestamp, manifest.updatedAt)
+                if (hasNewUpdate) {
+                    val currentState = _driveSyncState.value
+                    if (currentState is SyncState.SignedIn) {
+                        _driveSyncState.value = currentState.copy(
+                            hasRemoteUpdate = true,
+                            remoteDeviceName = manifest.updatedByDeviceName
+                        )
+                    }
+                }
             } catch (e: Exception) {
                 // Ignore background sync errors
             }
@@ -1233,6 +1221,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun saveDriveBackupRetentionPolicy(policy: BackupRetentionPolicy) {
         viewModelScope.launch {
             settingsRepository.saveDriveBackupRetentionPolicy(policy)
+            syncScheduler.onSettingsChanged()
             if (driveSyncManager.isSignedIn()) {
                 runCatching { pruneExpiredDriveBackups() }
                     .onSuccess { deletedCount ->
@@ -1382,6 +1371,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _posterSettings.value = settings
         viewModelScope.launch {
             settingsRepository.savePosterSettings(settings)
+            syncScheduler.onSettingsChanged()
         }
     }
 
@@ -2913,6 +2903,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _speedTestHistory.value = _speedTestHistory.value.filterNot { it.id == id }
         viewModelScope.launch {
             settingsRepository.saveSpeedTestHistory(_speedTestHistory.value)
+            syncScheduler.onSpeedTestHistoryChanged()
         }
     }
 
@@ -2920,8 +2911,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _rideHistory.value = _rideHistory.value.filterNot { it.id == id }
         viewModelScope.launch {
             settingsRepository.saveRideHistory(_rideHistory.value)
-            // Auto-sync to Google Drive after deleting ride
-            triggerAutoSyncAfterRideSave()
+            syncScheduler.onRideHistoryChanged()
         }
     }
 
@@ -3034,8 +3024,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _rideHistory.value = updated.take(HISTORY_LIMIT)
         viewModelScope.launch {
             settingsRepository.saveRideHistory(_rideHistory.value)
-            // Auto-sync to Google Drive after merging rides
-            triggerAutoSyncAfterRideSave()
+            syncScheduler.onRideHistoryChanged(mergedRecord.id)
         }
         _calibrationMessage.value = "已合并 ${selected.size} 条行程记录"
         return mergedRecord
@@ -3300,7 +3289,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val current = _dashboardItems.value.toMutableList()
         current.add(type)
         _dashboardItems.value = current
-        viewModelScope.launch { settingsRepository.saveDashboardItems(current) }
+        viewModelScope.launch {
+            settingsRepository.saveDashboardItems(current)
+            syncScheduler.onSettingsChanged()
+        }
     }
 
     fun removeDashboardItem(index: Int) {
@@ -3308,7 +3300,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (index in current.indices) {
             current.removeAt(index)
             _dashboardItems.value = current
-            viewModelScope.launch { settingsRepository.saveDashboardItems(current) }
+            viewModelScope.launch {
+                settingsRepository.saveDashboardItems(current)
+                syncScheduler.onSettingsChanged()
+            }
         }
     }
 
@@ -3322,6 +3317,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Persist in background
             viewModelScope.launch {
                 settingsRepository.saveDashboardItems(current)
+                syncScheduler.onSettingsChanged()
             }
         }
     }
@@ -3331,7 +3327,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (type in current) return
         current.add(type)
         _rideOverviewItems.value = current
-        viewModelScope.launch { settingsRepository.saveRideOverviewItems(current) }
+        viewModelScope.launch {
+            settingsRepository.saveRideOverviewItems(current)
+            syncScheduler.onSettingsChanged()
+        }
     }
 
     fun removeRideOverviewItem(type: com.shawnrain.sdash.data.MetricType) {
@@ -3339,7 +3338,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (current.size <= 1) return
         if (current.remove(type)) {
             _rideOverviewItems.value = current
-            viewModelScope.launch { settingsRepository.saveRideOverviewItems(current) }
+            viewModelScope.launch {
+                settingsRepository.saveRideOverviewItems(current)
+                syncScheduler.onSettingsChanged()
+            }
         }
     }
 
@@ -3349,27 +3351,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val item = current.removeAt(from)
             current.add(to, item)
             _rideOverviewItems.value = current
-            viewModelScope.launch { settingsRepository.saveRideOverviewItems(current) }
+            viewModelScope.launch {
+                settingsRepository.saveRideOverviewItems(current)
+                syncScheduler.onSettingsChanged()
+            }
         }
     }
 
-    fun saveWheelCircumference(value: Float): kotlinx.coroutines.Job = viewModelScope.launch { settingsRepository.saveWheelCircumference(value) }
-    fun savePolePairs(value: Int): kotlinx.coroutines.Job = viewModelScope.launch { settingsRepository.savePolePairs(value) }
+    fun saveWheelCircumference(value: Float): kotlinx.coroutines.Job = viewModelScope.launch {
+        settingsRepository.saveWheelCircumference(value)
+        syncScheduler.onSettingsChanged()
+    }
+    fun savePolePairs(value: Int): kotlinx.coroutines.Job = viewModelScope.launch {
+        settingsRepository.savePolePairs(value)
+        syncScheduler.onSettingsChanged()
+    }
     fun saveCurrentVehicleWheelArchive(rimSize: String? = null, tireSpecLabel: String? = null): kotlinx.coroutines.Job = viewModelScope.launch {
         settingsRepository.saveCurrentVehicleWheelArchive(rimSize = rimSize, tireSpecLabel = tireSpecLabel)
+        syncScheduler.onSettingsChanged()
     }
-    fun saveControllerBrand(value: String): kotlinx.coroutines.Job = viewModelScope.launch { settingsRepository.saveControllerBrand(value) }
-    fun saveSpeedSource(source: SpeedSource): kotlinx.coroutines.Job = viewModelScope.launch { settingsRepository.saveSpeedSource(source) }
-    fun saveBattDataSource(source: DataSource): kotlinx.coroutines.Job = viewModelScope.launch { settingsRepository.saveBattDataSource(source) }
+    fun saveControllerBrand(value: String): kotlinx.coroutines.Job = viewModelScope.launch {
+        settingsRepository.saveControllerBrand(value)
+        syncScheduler.onSettingsChanged()
+    }
+    fun saveSpeedSource(source: SpeedSource): kotlinx.coroutines.Job = viewModelScope.launch {
+        settingsRepository.saveSpeedSource(source)
+        syncScheduler.onSettingsChanged()
+    }
+    fun saveBattDataSource(source: DataSource): kotlinx.coroutines.Job = viewModelScope.launch {
+        settingsRepository.saveBattDataSource(source)
+        syncScheduler.onSettingsChanged()
+    }
     fun selectVehicle(id: String): kotlinx.coroutines.Job = viewModelScope.launch {
         autoReconnectAttemptedAddress = null
         settingsRepository.saveCurrentVehicleId(id)
+        syncScheduler.onSettingsChanged()
         val vehicle = vehicleProfiles.value.firstOrNull { it.id == id } ?: return@launch
         _calibrationMessage.value = "已切换到 ${vehicle.name}"
     }
     fun saveVehicleProfile(profile: VehicleProfile): kotlinx.coroutines.Job = viewModelScope.launch {
         val existing = vehicleProfiles.value.any { it.id == profile.id }
         settingsRepository.upsertVehicleProfile(profile)
+        syncScheduler.onVehicleProfileChanged(profile.id)
         _calibrationMessage.value = if (existing) {
             "已更新车辆档案：${profile.name}"
         } else {
@@ -3380,6 +3403,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val target = vehicleProfiles.value.firstOrNull { it.id == id } ?: return@launch
         autoReconnectAttemptedAddress = null
         settingsRepository.deleteVehicleProfile(id)
+        syncScheduler.onVehicleProfileChanged(id)
         _calibrationMessage.value = "已删除车辆档案：${target.name}"
     }
     fun saveLogLevel(level: AppLogLevel): kotlinx.coroutines.Job = viewModelScope.launch {
@@ -3388,6 +3412,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun saveOverlayEnabled(enabled: Boolean): kotlinx.coroutines.Job = viewModelScope.launch {
         settingsRepository.saveOverlayEnabled(enabled)
+        syncScheduler.onSettingsChanged()
         _calibrationMessage.value = if (enabled) {
             "后台画中画仪表已开启"
         } else {

@@ -282,11 +282,16 @@ class PosterRendererV2(
         shortSide: Float,
         compact: Boolean
     ) {
-        val metrics = spec.metrics.sortedByDescending { it.priority }.take(if (compact) 6 else 8)
-        if (metrics.isEmpty() || rect.height() <= 0f) return
+        if (rect.height() <= 0f) return
+        val candidateMetrics = spec.metrics.sortedByDescending { it.priority }.take(if (compact) 6 else 8)
+        if (candidateMetrics.isEmpty()) return
 
         val columns = 2
         val gap = shortSide * 0.015f
+        val minCardHeight = max(shortSide * 0.12f, 96f)
+        val maxRowsByHeight = ((rect.height() + gap) / (minCardHeight + gap)).toInt().coerceAtLeast(1)
+        val maxVisibleMetrics = (maxRowsByHeight * columns).coerceAtLeast(columns)
+        val metrics = candidateMetrics.take(maxVisibleMetrics)
         val rows = ((metrics.size + columns - 1) / columns).coerceAtLeast(1)
         val cardWidth = (rect.width() - gap * (columns - 1)) / columns
         val cardHeight = (rect.height() - gap * (rows - 1)) / rows
@@ -392,16 +397,20 @@ class PosterRendererV2(
             paint = titlePaint,
             maxLines = 1
         )
-        val subtitleHeight = drawParagraph(
-            canvas = canvas,
-            text = track.subtitle,
-            left = rect.left + inset,
-            top = titleTop + titleHeight + rect.height() * 0.02f,
-            width = rect.width() - inset * 2f,
-            paint = subtitlePaint,
-            maxLines = 2,
-            lineSpacingExtra = rect.height() * 0.004f
-        )
+        val subtitleHeight = if (rect.height() >= shortSide * 0.2f) {
+            drawParagraph(
+                canvas = canvas,
+                text = track.subtitle,
+                left = rect.left + inset,
+                top = titleTop + titleHeight + rect.height() * 0.02f,
+                width = rect.width() - inset * 2f,
+                paint = subtitlePaint,
+                maxLines = 2,
+                lineSpacingExtra = rect.height() * 0.004f
+            )
+        } else {
+            0f
+        }
 
         val routeTop = titleTop + titleHeight + subtitleHeight + rect.height() * 0.05f
         val routeRect = RectF(
@@ -514,7 +523,13 @@ class PosterRendererV2(
     private fun drawFooter(canvas: Canvas, spec: PosterSpec, rect: RectF, width: Float) {
         val footerPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = spec.theme.textSecondary
-            textSize = width * 0.018f
+            textSize = fitSingleLineTextSize(
+                text = listOfNotNull(spec.footer.line, spec.footer.watermark.takeIf { spec.options.showWatermark }).joinToString("  •  "),
+                maxWidth = rect.width(),
+                initialSize = width * 0.018f,
+                minSize = width * 0.012f,
+                isBold = false
+            )
             textAlign = Paint.Align.CENTER
         }
         val watermark = spec.footer.watermark.takeIf { spec.options.showWatermark }

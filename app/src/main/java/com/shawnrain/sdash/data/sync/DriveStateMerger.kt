@@ -71,7 +71,7 @@ class DriveStateMerger(
         val changedRemotely = remoteState.stateVersion > localMetadata.lastAppliedRemoteVersion
 
         if (notes.isEmpty()) {
-            notes.add("No changes needed")
+            notes.add("云端和本地都没有新的资料变更")
         }
 
         AppLogger.i(TAG, "Merge complete: ${notes.joinToString("; ")}")
@@ -95,7 +95,7 @@ class DriveStateMerger(
     ): SyncSettingsSnapshot {
         // Simple LWW: use whichever has a later updatedAt
         return if (remote.updatedAt > local.updatedAt) {
-            notes.add("Settings updated from remote (newer)")
+            notes.add("已从云端更新设置")
             remote
         } else {
             local
@@ -116,18 +116,18 @@ class DriveStateMerger(
                 // New profile from remote
                 if (!remoteProfile.isDeleted) {
                     mergedMap[remoteProfile.id] = remoteProfile
-                    notes.add("Added vehicle profile: ${remoteProfile.name}")
+                    notes.add("已新增车辆档案：${remoteProfile.name}")
                 }
             } else {
                 // Both exist - LWW
                 if (remoteProfile.updatedAt > localProfile.updatedAt) {
                     if (remoteProfile.isDeleted) {
                         mergedMap.remove(remoteProfile.id)
-                        notes.add("Deleted vehicle profile: ${remoteProfile.name}")
+                        notes.add("已删除车辆档案：${remoteProfile.name}")
                     } else {
                         mergedMap[remoteProfile.id] = remoteProfile
                         conflicts++
-                        notes.add("Updated vehicle profile: ${remoteProfile.name}")
+                        notes.add("已更新车辆档案：${remoteProfile.name}")
                     }
                 }
             }
@@ -152,7 +152,7 @@ class DriveStateMerger(
                 if (!remoteRide.isDeleted) {
                     mergedMap[remoteRide.id] = remoteRide
                     ridesAdded++
-                    notes.add("Added ride: ${remoteRide.title}")
+                    notes.add("已新增行程：${remoteRide.title}")
                 }
             } else {
                 // Both exist - use completeness-aware merge
@@ -161,6 +161,8 @@ class DriveStateMerger(
                     localRide.isDeleted -> remoteRide  // Remote wins if local is deleted
                     remoteRide.summaryRevision > localRide.summaryRevision -> remoteRide.also { conflicts++ }
                     localRide.summaryRevision > remoteRide.summaryRevision -> localRide
+                    rideDetailScore(remoteRide) > rideDetailScore(localRide) -> remoteRide.also { conflicts++ }
+                    rideDetailScore(localRide) > rideDetailScore(remoteRide) -> localRide
                     remoteRide.completenessScore > localRide.completenessScore -> remoteRide.also { conflicts++ }
                     localRide.completenessScore > remoteRide.completenessScore -> localRide
                     remoteRide.updatedAt > localRide.updatedAt -> remoteRide.also { conflicts++ }
@@ -188,19 +190,38 @@ class DriveStateMerger(
             if (localTest == null) {
                 if (!remoteTest.isDeleted) {
                     mergedMap[remoteTest.id] = remoteTest
-                    notes.add("Added speed test: ${remoteTest.label}")
+                    notes.add("已新增测速记录：${remoteTest.label}")
                 }
-            } else if (remoteTest.updatedAt > localTest.updatedAt) {
-                if (remoteTest.isDeleted) {
+            } else {
+                val winner = when {
+                    remoteTest.isDeleted -> null
+                    speedTestDetailScore(remoteTest) > speedTestDetailScore(localTest) -> remoteTest
+                    speedTestDetailScore(localTest) > speedTestDetailScore(remoteTest) -> localTest
+                    remoteTest.updatedAt > localTest.updatedAt -> remoteTest
+                    else -> localTest
+                }
+                if (winner == null) {
                     mergedMap.remove(remoteTest.id)
                 } else {
-                    mergedMap[remoteTest.id] = remoteTest
-                    notes.add("Updated speed test: ${remoteTest.label}")
+                    mergedMap[remoteTest.id] = winner
+                    if (winner === remoteTest) {
+                        notes.add("已更新测速记录：${remoteTest.label}")
+                    }
                 }
             }
         }
 
         return Pair(mergedMap.values.sortedByDescending { it.startedAtMs }, notes)
+    }
+
+    private fun rideDetailScore(snapshot: SyncRideSnapshot): Long {
+        return (snapshot.samples.size.toLong() * 1_000_000L) +
+            (snapshot.trackPoints.size.toLong() * 10_000L) +
+            snapshot.sampleCount.toLong()
+    }
+
+    private fun speedTestDetailScore(snapshot: SyncSpeedTestSnapshot): Int {
+        return snapshot.trackPoints.size
     }
 }
 

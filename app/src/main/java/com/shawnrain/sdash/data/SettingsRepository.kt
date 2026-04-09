@@ -13,11 +13,19 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStore
 import com.shawnrain.sdash.data.history.RideHistoryRecord
+import com.shawnrain.sdash.data.history.RideMetricSample
+import com.shawnrain.sdash.data.history.RideTrackPoint
 import com.shawnrain.sdash.data.speedtest.SpeedTestRecord
+import com.shawnrain.sdash.data.speedtest.SpeedTestTrackPoint
 import com.shawnrain.sdash.data.sync.BackupPreview
 import com.shawnrain.sdash.data.sync.BackupPreviewRide
 import com.shawnrain.sdash.data.sync.BackupPreviewVehicle
 import com.shawnrain.sdash.data.sync.BackupRetentionPolicy
+import com.shawnrain.sdash.data.sync.DriveCurrentState
+import com.shawnrain.sdash.data.sync.SyncRideSnapshot
+import com.shawnrain.sdash.data.sync.SyncSettingsSnapshot
+import com.shawnrain.sdash.data.sync.SyncSpeedTestSnapshot
+import com.shawnrain.sdash.data.sync.SyncVehicleProfileSnapshot
 import com.shawnrain.sdash.debug.AppLogLevel
 import com.shawnrain.sdash.debug.AppLogger
 import com.shawnrain.sdash.ui.poster.PosterSettings
@@ -500,6 +508,20 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
+    suspend fun saveRideHistoryForVehicle(vehicleId: String, records: List<RideHistoryRecord>) {
+        context.dataStore.edit {
+            it[vKey(vehicleId, K_RIDE_HISTORY)] = RideHistoryRecord.listToJson(records)
+            markSyncedAt(it, "v_${vehicleId}_$K_RIDE_HISTORY")
+        }
+    }
+
+    suspend fun saveSpeedTestHistoryForVehicle(vehicleId: String, records: List<SpeedTestRecord>) {
+        context.dataStore.edit {
+            it[vKey(vehicleId, K_SPEEDTEST_HISTORY)] = SpeedTestRecord.listToJson(records)
+            markSyncedAt(it, "v_${vehicleId}_$K_SPEEDTEST_HISTORY")
+        }
+    }
+
     suspend fun saveLogLevel(level: AppLogLevel) {
         context.dataStore.edit {
             it[LOG_LEVEL] = level.name
@@ -533,6 +555,53 @@ class SettingsRepository(private val context: Context) {
                 K_POSTER_SHOW_TRACK,
                 K_POSTER_SHOW_WATERMARK
             )
+        }
+    }
+
+    suspend fun applyDriveSyncState(state: DriveCurrentState) {
+        val sanitizedProfiles = state.vehicleProfiles
+            .map { it.toVehicleProfile() }
+            .distinctBy { it.id }
+            .ifEmpty { listOf(VehicleProfile.default()) }
+        val ridesByVehicle = state.rides.groupBy { it.vehicleProfileId.ifBlank { state.activeVehicleProfileId } }
+        val speedTestsByVehicle = state.speedTests.groupBy { it.vehicleProfileId.ifBlank { state.activeVehicleProfileId } }
+        val resolvedCurrentVehicleId = state.activeVehicleProfileId
+            .takeIf { candidate -> sanitizedProfiles.any { it.id == candidate } }
+            ?: sanitizedProfiles.first().id
+
+        context.dataStore.edit { pref ->
+            pref[VEHICLE_LIST] = VehicleProfile.listToJson(sanitizedProfiles)
+            pref[CURRENT_VEHICLE_ID] = resolvedCurrentVehicleId
+            markSyncedAt(pref, VEHICLE_LIST.name, CURRENT_VEHICLE_ID.name)
+
+            applySyncSettingsLocked(pref, resolvedCurrentVehicleId, state.settings)
+
+            sanitizedProfiles.forEach { profile ->
+                val vehicleId = profile.id
+                val localRideRecords = RideHistoryRecord.listFromJson(pref.safeGet(vKey(vehicleId, K_RIDE_HISTORY)))
+                val rideRecords = mergeSyncedRideHistoryRecords(
+                    local = localRideRecords,
+                    remote = ridesByVehicle[vehicleId]
+                    .orEmpty()
+                    .map { it.toRideHistoryRecord() }
+                )
+                    .sortedByDescending { it.startedAtMs }
+                pref[vKey(vehicleId, K_RIDE_HISTORY)] = RideHistoryRecord.listToJson(rideRecords)
+                markSyncedAt(pref, "v_${vehicleId}_$K_RIDE_HISTORY")
+
+                val localSpeedRecords = SpeedTestRecord.listFromJson(pref.safeGet(vKey(vehicleId, K_SPEEDTEST_HISTORY)))
+                val speedRecords = mergeSyncedSpeedTestRecords(
+                    local = localSpeedRecords,
+                    remote = speedTestsByVehicle[vehicleId]
+                    .orEmpty()
+                    .map { it.toSpeedTestRecord() }
+                )
+                    .sortedByDescending { it.timestampMs }
+                pref[vKey(vehicleId, K_SPEEDTEST_HISTORY)] = SpeedTestRecord.listToJson(speedRecords)
+                markSyncedAt(pref, "v_${vehicleId}_$K_SPEEDTEST_HISTORY")
+            }
+
+            ensureVehiclePreferences(pref)
         }
     }
 
@@ -614,6 +683,194 @@ class SettingsRepository(private val context: Context) {
         )
         pref[VEHICLE_LIST] = VehicleProfile.listToJson(profiles)
         markSyncedAt(pref, VEHICLE_LIST.name)
+    }
+
+    private fun applySyncSettingsLocked(
+        pref: androidx.datastore.preferences.core.MutablePreferences,
+        vehicleId: String,
+        snapshot: SyncSettingsSnapshot
+    ) {
+        pref[vKey(vehicleId, K_SPEED_SRC)] = snapshot.speedSource
+        pref[vKey(vehicleId, K_BATT_SRC)] = snapshot.battDataSource
+        pref[vKeyF(vehicleId, K_WHEEL)] = snapshot.wheelCircumferenceMm
+        pref[vKeyI(vehicleId, K_POLE)] = snapshot.polePairs
+        pref[vKey(vehicleId, K_BRAND)] = snapshot.controllerBrand
+        pref[vKey(vehicleId, K_DASH_ITEMS)] = snapshot.dashboardItems.joinToString(",")
+        pref[vKey(vehicleId, K_RIDE_OVERVIEW_ITEMS)] = snapshot.rideOverviewItems.joinToString(",")
+        pref[OVERLAY_ENABLED] = snapshot.overlayEnabled
+        pref[DRIVE_BACKUP_RETENTION] = snapshot.driveBackupRetention
+        pref[stringPreferencesKey(K_POSTER_TEMPLATE)] = PosterTemplates.byId(snapshot.posterTemplateId).id
+        pref[stringPreferencesKey(K_POSTER_ASPECT_RATIO)] =
+            runCatching { PosterAspectRatio.valueOf(snapshot.posterAspectRatio) }.getOrNull()?.name
+                ?: PosterSettings().defaultAspectRatio.name
+        pref[booleanPreferencesKey(K_POSTER_SHOW_TRACK)] = snapshot.posterShowTrack
+        pref[booleanPreferencesKey(K_POSTER_SHOW_WATERMARK)] = snapshot.posterShowWatermark
+        markSyncedAt(
+            pref,
+            "v_${vehicleId}_$K_SPEED_SRC",
+            "v_${vehicleId}_$K_BATT_SRC",
+            "v_${vehicleId}_$K_WHEEL",
+            "v_${vehicleId}_$K_POLE",
+            "v_${vehicleId}_$K_BRAND",
+            "v_${vehicleId}_$K_DASH_ITEMS",
+            "v_${vehicleId}_$K_RIDE_OVERVIEW_ITEMS",
+            OVERLAY_ENABLED.name,
+            DRIVE_BACKUP_RETENTION.name,
+            K_POSTER_TEMPLATE,
+            K_POSTER_ASPECT_RATIO,
+            K_POSTER_SHOW_TRACK,
+            K_POSTER_SHOW_WATERMARK
+        )
+    }
+
+    private fun SyncVehicleProfileSnapshot.toVehicleProfile(): VehicleProfile = normalizedProfile(
+        VehicleProfile(
+            id = id,
+            name = name,
+            batterySeries = batterySeries,
+            batteryCapacityAh = batteryCapacityAh,
+            wheelCircumferenceMm = wheelCircumferenceMm,
+            polePairs = polePairs,
+            learnedEfficiencyWhKm = learnedEfficiencyWhKm,
+            learnedUsableEnergyRatio = learnedUsableEnergyRatio,
+            learnedInternalResistanceOhm = learnedInternalResistanceOhm,
+            lastModified = updatedAt
+        ),
+        updatedAt = updatedAt
+    )
+
+    private fun SyncRideSnapshot.toRideHistoryRecord(): RideHistoryRecord = RideHistoryRecord(
+        id = id,
+        title = title,
+        startedAtMs = startedAtMs,
+        endedAtMs = endedAtMs,
+        durationMs = durationMs,
+        distanceMeters = distanceMeters,
+        maxSpeedKmh = maxSpeedKmh,
+        avgSpeedKmh = avgSpeedKmh,
+        peakPowerKw = peakPowerKw,
+        totalEnergyWh = totalEnergyWh,
+        tractionEnergyWh = tractionEnergyWh,
+        regenEnergyWh = regenEnergyWh,
+        avgEfficiencyWhKm = avgEfficiencyWhKm,
+        avgNetEfficiencyWhKm = avgNetEfficiencyWhKm,
+        avgTractionEfficiencyWhKm = avgTractionEfficiencyWhKm,
+        trackPoints = trackPoints.map { it.toRideTrackPoint() },
+        samples = samples.map { it.toRideMetricSample() }
+    )
+
+    private fun SyncSpeedTestSnapshot.toSpeedTestRecord(): SpeedTestRecord = SpeedTestRecord(
+        id = id,
+        label = label,
+        targetSpeedKmh = targetSpeedKmh,
+        timeMs = timeToTargetMs,
+        timestampMs = startedAtMs,
+        maxSpeedKmh = achievedSpeedKmh,
+        peakPowerKw = peakPowerKw,
+        peakBusCurrentA = peakBusCurrentA,
+        minVoltage = minVoltageV,
+        distanceMeters = distanceMeters,
+        trackPoints = trackPoints.map { it.toSpeedTestTrackPoint() }
+    )
+
+    private fun com.shawnrain.sdash.data.sync.SyncRideTrackPoint.toRideTrackPoint() = RideTrackPoint(
+        latitude = latitude,
+        longitude = longitude
+    )
+
+    private fun com.shawnrain.sdash.data.sync.SyncRideMetricSample.toRideMetricSample() = RideMetricSample(
+        elapsedMs = elapsedMs,
+        timestampMs = timestampMs,
+        speedKmH = speedKmH,
+        powerKw = powerKw,
+        voltage = voltage,
+        voltageSag = voltageSag,
+        busCurrent = busCurrent,
+        phaseCurrent = phaseCurrent,
+        controllerTemp = controllerTemp,
+        soc = soc,
+        estimatedRangeKm = estimatedRangeKm,
+        rpm = rpm,
+        efficiencyWhKm = efficiencyWhKm,
+        avgEfficiencyWhKm = avgEfficiencyWhKm,
+        avgNetEfficiencyWhKm = avgNetEfficiencyWhKm,
+        avgTractionEfficiencyWhKm = avgTractionEfficiencyWhKm,
+        distanceMeters = distanceMeters,
+        totalEnergyWh = totalEnergyWh,
+        tractionEnergyWh = tractionEnergyWh,
+        regenEnergyWh = regenEnergyWh,
+        recoveredEnergyWh = recoveredEnergyWh,
+        maxControllerTemp = maxControllerTemp,
+        latitude = latitude,
+        longitude = longitude
+    )
+
+    private fun com.shawnrain.sdash.data.sync.SyncSpeedTestTrackPoint.toSpeedTestTrackPoint() = SpeedTestTrackPoint(
+        latitude = latitude,
+        longitude = longitude
+    )
+
+    private fun mergeSyncedRideHistoryRecords(
+        local: List<RideHistoryRecord>,
+        remote: List<RideHistoryRecord>
+    ): List<RideHistoryRecord> {
+        val merged = linkedMapOf<String, RideHistoryRecord>()
+        local.forEach { record ->
+            merged[rideHistoryMergeKey(record)] = record
+        }
+        remote.forEach { remoteRecord ->
+            val key = rideHistoryMergeKey(remoteRecord)
+            val localRecord = merged[key]
+            val preferred = if (localRecord == null) {
+                remoteRecord
+            } else {
+                preferRideHistoryRecord(localRecord, remoteRecord)
+            }
+            merged[key] = preserveRideHistoryDetail(localRecord, preferred)
+        }
+        return merged.values.toList()
+    }
+
+    private fun preserveRideHistoryDetail(
+        local: RideHistoryRecord?,
+        resolved: RideHistoryRecord
+    ): RideHistoryRecord {
+        if (local == null) return resolved
+        return resolved.copy(
+            trackPoints = if (resolved.trackPoints.isNotEmpty()) resolved.trackPoints else local.trackPoints,
+            samples = if (resolved.samples.isNotEmpty()) resolved.samples else local.samples
+        )
+    }
+
+    private fun mergeSyncedSpeedTestRecords(
+        local: List<SpeedTestRecord>,
+        remote: List<SpeedTestRecord>
+    ): List<SpeedTestRecord> {
+        val merged = linkedMapOf<String, SpeedTestRecord>()
+        local.forEach { record ->
+            merged[speedTestMergeKey(record)] = record
+        }
+        remote.forEach { remoteRecord ->
+            val key = speedTestMergeKey(remoteRecord)
+            val localRecord = merged[key]
+            val preferred = if (localRecord == null) {
+                remoteRecord
+            } else {
+                preferSpeedTestRecord(localRecord, remoteRecord)
+            }
+            merged[key] = preserveSpeedTestTrack(localRecord, preferred)
+        }
+        return merged.values.toList()
+    }
+
+    private fun preserveSpeedTestTrack(
+        local: SpeedTestRecord?,
+        resolved: SpeedTestRecord
+    ): SpeedTestRecord {
+        if (local == null) return resolved
+        return resolved.copy(
+            trackPoints = if (resolved.trackPoints.isNotEmpty()) resolved.trackPoints else local.trackPoints
+        )
     }
 
     suspend fun exportBackupJson(): String {

@@ -1,0 +1,817 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<issues format="6" by="lint 8.5.0" type="baseline" client="gradle" dependencies="false" name="AGP (8.5.0)" variant="all" version="8.5.0">
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                    InfoCard(title = &quot;总电压&quot;, value = String.format(&quot;%.2f V&quot;, bmsMetrics.totalVoltage), modifier = Modifier.weight(1f))"
+        errorLine2="                                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/bms/BmsScreen.kt"
+            line="41"
+            column="53"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                    InfoCard(title = &quot;剩余电量&quot;, value = String.format(&quot;%.1f %%&quot;, bmsMetrics.soc), modifier = Modifier.weight(1f))"
+        errorLine2="                                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/bms/BmsScreen.kt"
+            line="42"
+            column="54"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                    InfoCard(title = &quot;电流&quot;, value = String.format(&quot;%.2f A&quot;, bmsMetrics.current), modifier = Modifier.weight(1f))"
+        errorLine2="                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/bms/BmsScreen.kt"
+            line="46"
+            column="52"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                    InfoCard(title = &quot;功率&quot;, value = String.format(&quot;%.2f kW&quot;, (bmsMetrics.totalVoltage * bmsMetrics.current) / 1000f), modifier = Modifier.weight(1f))"
+        errorLine2="                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/bms/BmsScreen.kt"
+            line="47"
+            column="52"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="            Text(text = String.format(&quot;%.3f&quot;, voltage), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)"
+        errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/bms/BmsScreen.kt"
+            line="90"
+            column="25"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.SPEED -> String.format(&quot;%.1f&quot;, metrics.speedKmH)"
+        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="98"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.VOLTAGE -> String.format(&quot;%.1f&quot;, metrics.voltage)"
+        errorLine2="                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="99"
+            column="31"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.VOLTAGE_SAG -> String.format(&quot;%.1f&quot;, metrics.voltageSag)"
+        errorLine2="                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="100"
+            column="35"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.BUS_CURRENT -> String.format(&quot;%.1f&quot;, metrics.busCurrent)"
+        errorLine2="                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="101"
+            column="35"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.PHASE_CURRENT -> String.format(&quot;%.1f&quot;, metrics.phaseCurrent)"
+        errorLine2="                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="102"
+            column="37"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.POWER -> String.format(&quot;%.1f&quot;, metrics.totalPowerW / 1000)"
+        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="103"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.TEMP -> String.format(&quot;%.1f&quot;, metrics.controllerTemp)"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="104"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.MAX_CONTROLLER_TEMP -> String.format(&quot;%.1f&quot;, metrics.maxControllerTemp)"
+        errorLine2="                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="105"
+            column="43"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.SOC -> String.format(&quot;%.0f&quot;, metrics.soc)"
+        errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="106"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.RANGE -> String.format(&quot;%.1f&quot;, metrics.estimatedRangeKm)"
+        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="107"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.RPM -> String.format(&quot;%.0f&quot;, metrics.rpm)"
+        errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="108"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.EFFICIENCY -> String.format(&quot;%.1f&quot;, metrics.avgEfficiencyWhKm)"
+        errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="109"
+            column="34"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.TRIP_DISTANCE -> String.format(&quot;%.2f&quot;, metrics.tripDistance)"
+        errorLine2="                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="110"
+            column="37"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.TOTAL_ENERGY -> String.format(&quot;%.1f&quot;, metrics.totalEnergyWh)"
+        errorLine2="                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="111"
+            column="36"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.PEAK_REGEN_POWER -> String.format(&quot;%.0f&quot;, metrics.peakRegenPowerKw * 1000f)"
+        errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="112"
+            column="40"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.RECOVERED_ENERGY -> String.format(&quot;%.1f&quot;, metrics.recoveredEnergyWh)"
+        errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="113"
+            column="40"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                value = String.format(&quot;%.0f%%&quot;, metrics.soc)"
+        errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="711"
+            column="25"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                    String.format(&quot;%.1f km&quot;, metrics.estimatedRangeKm)"
+        errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="725"
+            column="21"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                    text = String.format(&quot;%.2f&quot;, metrics.totalPowerW / 1000f),"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="761"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                    value = String.format(&quot;%.0f&quot;, metrics.speedKmH),"
+        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="779"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                    text = String.format(&quot;%.1f&quot;, metrics.avgEfficiencyWhKm),"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="800"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                value = String.format(&quot;%.2f&quot;, metrics.totalPowerW / 1000f),"
+        errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="993"
+            column="25"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                    value = String.format(&quot;%.0f&quot;, metrics.speedKmH),"
+        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="1003"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                value = String.format(&quot;%.1f&quot;, metrics.avgEfficiencyWhKm),"
+        errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="1019"
+            column="25"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                    value = String.format(&quot;%.0f&quot;, metrics.speedKmH),"
+        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="1139"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                        value = String.format(&quot;%.2f&quot;, metrics.totalPowerW / 1000f),"
+        errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="1161"
+            column="33"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                        value = String.format(&quot;%.1f&quot;, metrics.avgEfficiencyWhKm),"
+        errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="1167"
+            column="33"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                        value = String.format(&quot;%.2f&quot;, metrics.totalPowerW / 1000f),"
+        errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/MainActivity.kt"
+            line="932"
+            column="33"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                        value = String.format(&quot;%.1f&quot;, metrics.avgEfficiencyWhKm),"
+        errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/MainActivity.kt"
+            line="942"
+            column="33"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        String.format(&quot;%.1f&quot;, value)"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/settings/SettingsScreen.kt"
+            line="3249"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 30 (current min is 28): `android.view.WindowManager.LayoutParams#LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS`"
+        errorLine1="                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/navigation/DialogWindowEffects.kt"
+            line="119"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 30 (current min is 28): `android.view.WindowManager.LayoutParams#LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS`"
+        errorLine1="                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/navigation/DialogWindowEffects.kt"
+            line="119"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 36 (current min is 33): `android.window.OnBackInvokedDispatcher#PRIORITY_SYSTEM_NAVIGATION_OBSERVER`"
+        errorLine1="                OnBackInvokedDispatcher.PRIORITY_SYSTEM_NAVIGATION_OBSERVER,"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/MainActivity.kt"
+            line="164"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 29 (current min is 26): `android.Manifest.permission#ACCESS_BACKGROUND_LOCATION`"
+        errorLine1="            backgroundPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)"
+        errorLine2="                                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/MainActivity.kt"
+            line="359"
+            column="49"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 29 (current min is 26): `android.Manifest.permission#ACCESS_BACKGROUND_LOCATION`"
+        errorLine1="                    onClick = { backgroundPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION) },"
+        errorLine2="                                                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/MainActivity.kt"
+            line="501"
+            column="69"/>
+    </issue>
+
+    <issue
+        id="UnusedAttribute"
+        message="Attribute `enableOnBackInvokedCallback` is only used in API level 33 and higher (current min is 26)"
+        errorLine1="        android:enableOnBackInvokedCallback=&quot;true&quot;"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="21"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UnusedAttribute"
+        message="Attribute `enableOnBackInvokedCallback` is only used in API level 33 and higher (current min is 26)"
+        errorLine1="            android:enableOnBackInvokedCallback=&quot;true&quot;"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="29"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.core:core-ktx than 1.15.0 is available: 1.18.0"
+        errorLine1="    implementation(&quot;androidx.core:core-ktx:1.15.0&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="91"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.lifecycle:lifecycle-runtime-ktx than 2.8.7 is available: 2.10.0"
+        errorLine1="    implementation(&quot;androidx.lifecycle:lifecycle-runtime-ktx:2.8.7&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="92"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.lifecycle:lifecycle-process than 2.8.7 is available: 2.10.0"
+        errorLine1="    implementation(&quot;androidx.lifecycle:lifecycle-process:2.8.7&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="93"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.lifecycle:lifecycle-runtime-compose than 2.8.7 is available: 2.10.0"
+        errorLine1="    implementation(&quot;androidx.lifecycle:lifecycle-runtime-compose:2.8.7&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="94"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.activity:activity-compose than 1.9.3 is available: 1.13.0"
+        errorLine1="    implementation(&quot;androidx.activity:activity-compose:1.9.3&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="95"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.compose:compose-bom than 2024.11.00 is available: 2026.03.01"
+        errorLine1="    implementation(platform(&quot;androidx.compose:compose-bom:2024.11.00&quot;))"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="96"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.navigation:navigation-compose than 2.8.4 is available: 2.9.7"
+        errorLine1="    implementation(&quot;androidx.navigation:navigation-compose:2.8.4&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="102"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.camera:camera-core than 1.3.4 is available: 1.6.0"
+        errorLine1="    implementation(&quot;androidx.camera:camera-core:1.3.4&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="105"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.camera:camera-camera2 than 1.3.4 is available: 1.6.0"
+        errorLine1="    implementation(&quot;androidx.camera:camera-camera2:1.3.4&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="106"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.camera:camera-lifecycle than 1.3.4 is available: 1.6.0"
+        errorLine1="    implementation(&quot;androidx.camera:camera-lifecycle:1.3.4&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="107"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.camera:camera-view than 1.3.4 is available: 1.6.0"
+        errorLine1="    implementation(&quot;androidx.camera:camera-view:1.3.4&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="108"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of com.google.mlkit:barcode-scanning than 17.2.0 is available: 17.3.0"
+        errorLine1="    implementation(&quot;com.google.mlkit:barcode-scanning:17.2.0&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="109"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.datastore:datastore-preferences than 1.1.1 is available: 1.2.1"
+        errorLine1="    implementation(&quot;androidx.datastore:datastore-preferences:1.1.1&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="110"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of com.google.android.gms:play-services-auth than 21.2.0 is available: 21.5.1"
+        errorLine1="    implementation(&quot;com.google.android.gms:play-services-auth:21.2.0&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="115"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of org.jetbrains.kotlinx:kotlinx-serialization-json than 1.6.2 is available: 1.6.3"
+        errorLine1="    implementation(&quot;org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="117"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.work:work-runtime-ktx than 2.9.1 is available: 2.11.2"
+        errorLine1="    implementation(&quot;androidx.work:work-runtime-ktx:2.9.1&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="120"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.room:room-runtime than 2.6.1 is available: 2.8.4"
+        errorLine1="    implementation(&quot;androidx.room:room-runtime:2.6.1&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="123"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.room:room-ktx than 2.6.1 is available: 2.8.4"
+        errorLine1="    implementation(&quot;androidx.room:room-ktx:2.6.1&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="124"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.room:room-compiler than 2.6.1 is available: 2.8.4"
+        errorLine1="    ksp(&quot;androidx.room:room-compiler:2.6.1&quot;)"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="125"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="ModifierParameter"
+        message="Modifier parameter should be the first optional parameter"
+        errorLine1="    modifier: Modifier = Modifier"
+        errorLine2="    ~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/navigation/P2PageHeader.kt"
+            line="27"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="ModifierParameter"
+        message="Modifier parameter should be the first optional parameter"
+        errorLine1="    modifier: Modifier = Modifier"
+        errorLine2="    ~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/poster/PosterPreviewScreen.kt"
+            line="44"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="ModifierParameter"
+        message="Modifier parameter should be the first optional parameter"
+        errorLine1="    modifier: Modifier = Modifier"
+        errorLine2="    ~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/speedtest/SpeedtestScreen.kt"
+            line="3274"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="HardwareIds"
+        message="Using `getString` to get device identifiers is not recommended"
+        errorLine1="            val newDeviceId = Settings.Secure.getString("
+        errorLine2="                              ^">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/sync/SyncMetadataRepository.kt"
+            line="26"
+            column="31"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; SDK_INT is never &lt; 26"
+        errorLine1="        return Build.VERSION.SDK_INT &lt; Build.VERSION_CODES.O ||"
+        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/update/AppUpdateManager.kt"
+            line="246"
+            column="16"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; SDK_INT is always >= 26"
+        errorLine1="                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {"
+        errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ble/BleManager.kt"
+            line="525"
+            column="21"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; SDK_INT is never &lt; 26"
+        errorLine1="        if (!pipEnabled || Build.VERSION.SDK_INT &lt; Build.VERSION_CODES.O || isInPictureInPictureMode) {"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/MainActivity.kt"
+            line="256"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; SDK_INT is never &lt; 26"
+        errorLine1="        if (Build.VERSION.SDK_INT &lt; Build.VERSION_CODES.O || isInPictureInPictureMode) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/MainActivity.kt"
+            line="274"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="This folder configuration (`v26`) is unnecessary; `minSdkVersion` is 26. Merge all the resources in this folder into `mipmap-anydpi`.">
+        <location
+            file="src/main/res/mipmap-anydpi-v26"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.drawable.ic_launcher_foreground` appears to be unused"
+        errorLine1="&lt;vector xmlns:android=&quot;http://schemas.android.com/apk/res/android&quot;"
+        errorLine2="^">
+        <location
+            file="src/main/res/drawable/ic_launcher_foreground.xml"
+            line="1"
+            column="1"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.drawable.ic_launcher_foreground_emoji` appears to be unused">
+        <location
+            file="src/main/res/drawable-nodpi/ic_launcher_foreground_emoji.png"/>
+    </issue>
+
+    <issue
+        id="IconLauncherShape"
+        message="Launcher icons should not fill every pixel of their square region; see the design guide for details">
+        <location
+            file="src/main/res/drawable-nodpi/ic_launcher_foreground_bitmap.png"/>
+    </issue>
+
+    <issue
+        id="MonochromeLauncherIcon"
+        message="The application adaptive icon is missing a monochrome tag"
+        errorLine1="&lt;adaptive-icon xmlns:android=&quot;http://schemas.android.com/apk/res/android&quot;>"
+        errorLine2="^">
+        <location
+            file="src/main/res/mipmap-anydpi-v26/ic_launcher.xml"
+            line="2"
+            column="1"/>
+    </issue>
+
+    <issue
+        id="MonochromeLauncherIcon"
+        message="The application adaptive roundIcon is missing a monochrome tag"
+        errorLine1="&lt;adaptive-icon xmlns:android=&quot;http://schemas.android.com/apk/res/android&quot;>"
+        errorLine2="^">
+        <location
+            file="src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml"
+            line="2"
+            column="1"/>
+    </issue>
+
+</issues>

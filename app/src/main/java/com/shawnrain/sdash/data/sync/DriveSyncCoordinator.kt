@@ -61,7 +61,13 @@ class DriveSyncCoordinator(
      * Run a full reconcile cycle.
      */
     suspend fun runReconcileNow(reason: SyncTriggerReason): SyncRunResult {
-        return runPullNow(reason)
+        val pullResult = runPullNow(reason)
+        if (pullResult is SyncRunResult.Failure) return pullResult
+        return if (mutationRepository.hasPendingMutations()) {
+            runPushNow(reason)
+        } else {
+            pullResult
+        }
     }
 
     /**
@@ -78,7 +84,7 @@ class DriveSyncCoordinator(
     suspend fun runPushNow(reason: SyncTriggerReason): SyncRunResult = withContext(Dispatchers.IO) {
         try {
             if (!driveSyncManager.isSignedIn()) {
-                return@withContext SyncRunResult.Skipped("Not signed in to Google Drive")
+                return@withContext SyncRunResult.Skipped("尚未登录 Google Drive")
             }
 
             _syncState.value = SyncStateV2.Pushing(reason)
@@ -92,7 +98,7 @@ class DriveSyncCoordinator(
                 if (remoteManifest != null && remoteManifest.stateVersion > metadata.lastPushedLocalVersion) {
                     // Remote is ahead, skip push - let pull handle it
                     return@withContext SyncRunResult.Skipped(
-                        reason = "Remote is ahead (remote=${remoteManifest.stateVersion}, local=${metadata.lastPushedLocalVersion})"
+                        reason = "检测到云端有较新的资料，已优先同步云端内容"
                     )
                 }
             }
@@ -147,7 +153,7 @@ class DriveSyncCoordinator(
             AppLogger.i(TAG, "Push complete: stateVersion=$newStateVersion, mutations=${pendingMutations.size}")
             SyncRunResult.Success(
                 reason = reason,
-                notes = listOf("Pushed $newStateVersion, ${pendingMutations.size} mutations synced")
+                notes = listOf("本地变更已上传到云端")
             )
         } catch (e: Exception) {
             AppLogger.e(TAG, "Push failed", e)
@@ -172,7 +178,7 @@ class DriveSyncCoordinator(
     suspend fun runPullNow(reason: SyncTriggerReason): SyncRunResult = withContext(Dispatchers.IO) {
         try {
             if (!driveSyncManager.isSignedIn()) {
-                return@withContext SyncRunResult.Skipped("Not signed in to Google Drive")
+                return@withContext SyncRunResult.Skipped("尚未登录 Google Drive")
             }
 
             _syncState.value = SyncStateV2.Pulling(reason)
@@ -181,18 +187,26 @@ class DriveSyncCoordinator(
 
             // Fetch remote manifest
             val remoteManifest = manifestRepository.fetchRemoteManifest()
-                ?: return@withContext SyncRunResult.Skipped("No remote manifest found")
+                ?: return@withContext SyncRunResult.Skipped("云端尚未初始化同步状态")
+
+            if (remoteManifest.schemaVersion < SYNC_ENGINE_VERSION) {
+                _syncState.value = SyncStateV2.Idle
+                return@withContext SyncRunResult.Skipped("检测到旧版云端备份，但双向同步状态尚未初始化")
+            }
 
             // Check if remote is newer than what we've applied
             if (remoteManifest.stateVersion <= metadata.lastAppliedRemoteVersion) {
                 _syncState.value = SyncStateV2.Idle
                 return@withContext SyncRunResult.Skipped(
-                    "Remote not newer (remote=${remoteManifest.stateVersion}, applied=${metadata.lastAppliedRemoteVersion})"
+                    "云端没有新内容，本地也没有待上传的变更"
                 )
             }
 
             // Download current state
-            val encryptedStateBytes = manifestRepository.downloadCurrentState().getOrElse { throw it }
+            val encryptedStateBytes = manifestRepository.downloadCurrentState().getOrElse {
+                _syncState.value = SyncStateV2.Idle
+                return@withContext SyncRunResult.Skipped(it.message ?: "云端缺少当前同步状态文件")
+            }
 
             // Decrypt
             val password = deriveEncryptionPassword()
@@ -233,9 +247,21 @@ class DriveSyncCoordinator(
                 metadataRepository.recordPullSuccess(context, remoteManifest.stateVersion)
             }
 
+            if (mutationRepository.hasPendingMutations()) {
+                AppLogger.i(TAG, "Local pending mutations remain after pull, scheduling follow-up push")
+                runPushNow(SyncTriggerReason.NETWORK_RESTORED)
+            }
+
             _syncState.value = SyncStateV2.Synced(System.currentTimeMillis(), reason)
 
-            val notes = mergeResult.notes + listOf("Pulled version ${remoteManifest.stateVersion}")
+            val notes = if (
+                mergeResult.notes.size == 1 &&
+                mergeResult.notes.first() == "云端和本地都没有新的资料变更"
+            ) {
+                listOf("云端和本地都没有新的资料变更")
+            } else {
+                mergeResult.notes + listOf("已同步到最新云端数据")
+            }
             AppLogger.i(TAG, "Pull complete: ${notes.joinToString("; ")}")
             SyncRunResult.Success(reason = reason, notes = notes)
         } catch (e: Exception) {
@@ -250,25 +276,10 @@ class DriveSyncCoordinator(
      * Apply the merged state to local data stores.
      */
     private suspend fun applyMergedState(mergeResult: MergeResult) {
-        val merged = mergeResult.mergedState
-
-        // Apply settings
-        if (mergeResult.settingsUpdated) {
-            // TODO: Apply settings from merged.settings to SettingsRepository
-            AppLogger.i(TAG, "Settings merged from remote")
-        }
-
-        // Apply vehicle profiles
-        if (mergeResult.profilesMerged > 0) {
-            // TODO: Apply vehicle profiles to SettingsRepository
-            AppLogger.i(TAG, "${mergeResult.profilesMerged} vehicle profiles merged")
-        }
-
-        // Apply rides
-        if (mergeResult.ridesMerged > 0) {
-            // TODO: Apply rides to SettingsRepository
-            AppLogger.i(TAG, "${mergeResult.ridesMerged} rides merged")
-        }
+        settingsRepository.applyDriveSyncState(mergeResult.mergedState)
+        if (mergeResult.settingsUpdated) AppLogger.i(TAG, "Settings merged from remote")
+        if (mergeResult.profilesMerged > 0) AppLogger.i(TAG, "${mergeResult.profilesMerged} vehicle profiles merged")
+        if (mergeResult.ridesMerged > 0) AppLogger.i(TAG, "${mergeResult.ridesMerged} rides merged")
     }
 
     /**
@@ -290,7 +301,8 @@ class DriveSyncCoordinator(
     suspend fun isV2Initialized(): Boolean {
         return try {
             val metadata = metadataRepository.getMetadata(context)
-            metadata.migrationVersion >= SYNC_ENGINE_VERSION
+            metadata.migrationVersion >= SYNC_ENGINE_VERSION &&
+                (metadata.lastPushedLocalVersion > 0L || metadata.lastKnownRemoteVersion > 0L)
         } catch (e: Exception) {
             false
         }
@@ -302,12 +314,11 @@ class DriveSyncCoordinator(
     suspend fun initializeV2Sync(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val metadata = metadataRepository.getMetadata(context)
-            if (metadata.migrationVersion >= SYNC_ENGINE_VERSION) {
+            if (metadata.migrationVersion >= SYNC_ENGINE_VERSION &&
+                (metadata.lastPushedLocalVersion > 0L || metadata.lastKnownRemoteVersion > 0L)
+            ) {
                 return@withContext Result.success(Unit) // Already initialized
             }
-
-            // Update migration version
-            metadataRepository.incrementLocalStateVersion(context)
 
             // Build and upload initial state
             val newStateVersion = 1L

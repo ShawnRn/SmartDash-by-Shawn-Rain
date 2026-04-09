@@ -10,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -39,6 +41,7 @@ class DriveSyncCoordinator(
 
     private val _syncState = MutableStateFlow<SyncStateV2>(SyncStateV2.Idle)
     val syncState: StateFlow<SyncStateV2> = _syncState.asStateFlow()
+    private val pushMutex = Mutex()
 
     private data class PreparedStateUpload(
         val stateVersion: Long,
@@ -90,67 +93,68 @@ class DriveSyncCoordinator(
      * 6. Mark mutations as synced
      */
     suspend fun runPushNow(reason: SyncTriggerReason): SyncRunResult = withContext(Dispatchers.IO) {
-        try {
-            if (!driveSyncManager.isSignedIn()) {
-                return@withContext SyncRunResult.Skipped("尚未登录 Google Drive")
-            }
-
-            _syncState.value = SyncStateV2.Pushing(reason)
-
-            val metadata = metadataRepository.getMetadata(context)
-            val pendingMutations = mutationRepository.getCoalescedPending()
-
-            if (pendingMutations.isEmpty()) {
-                // Nothing to push, but still update current state if remote is behind
-                val remoteManifest = manifestRepository.fetchRemoteManifest()
-                if (remoteManifest != null && remoteManifest.stateVersion > metadata.lastPushedLocalVersion) {
-                    // Remote is ahead, skip push - let pull handle it
-                    return@withContext SyncRunResult.Skipped(
-                        reason = "检测到云端有较新的资料，已优先同步云端内容"
-                    )
+        pushMutex.withLock {
+            try {
+                if (!driveSyncManager.isSignedIn()) {
+                    return@withContext SyncRunResult.Skipped("尚未登录 Google Drive")
                 }
-            }
 
-            val preparedUpload = prepareStateUpload(metadata)
-            manifestRepository.uploadCurrentState(
-                preparedUpload.stateFileName,
-                preparedUpload.encryptedPayload
-            ).getOrElse { throw it }
+                _syncState.value = SyncStateV2.Pushing(reason)
 
-            // Build and upload manifest
-            val manifest = buildManifest(preparedUpload, metadata)
-            manifestRepository.uploadRemoteManifest(manifest).getOrElse { throw it }
+                val metadata = metadataRepository.getMetadata(context)
+                val pendingMutations = mutationRepository.getCoalescedPending()
 
-            // Mark mutations as synced
-            if (pendingMutations.isNotEmpty()) {
-                mutationRepository.markSynced(pendingMutations.map { it.id })
-            }
-
-            // Update metadata
-            metadataRepository.recordPushSuccess(context, preparedUpload.stateVersion)
-            metadataRepository.incrementLocalStateVersion(context)
-
-            _syncState.value = SyncStateV2.Synced(System.currentTimeMillis(), reason)
-
-            AppLogger.i(
-                TAG,
-                "Push complete: stateVersion=${preparedUpload.stateVersion}, mutations=${pendingMutations.size}"
-            )
-            SyncRunResult.Success(
-                reason = reason,
-                notes = listOf(
-                    if (pendingMutations.isEmpty()) {
-                        "已将本地完整资料补传到云端"
-                    } else {
-                        "本地变更已上传到云端"
+                if (pendingMutations.isEmpty()) {
+                    // Nothing to push, but still update current state if remote is behind
+                    val remoteManifest = manifestRepository.fetchRemoteManifest()
+                    if (remoteManifest != null && remoteManifest.stateVersion > metadata.lastPushedLocalVersion) {
+                        // Remote is ahead, skip push - let pull handle it
+                        return@withContext SyncRunResult.Skipped(
+                            reason = "检测到云端有较新的资料，已优先同步云端内容"
+                        )
                     }
+                }
+
+                val preparedUpload = prepareStateUpload(metadata)
+                manifestRepository.uploadCurrentState(
+                    preparedUpload.stateFileName,
+                    preparedUpload.encryptedPayload
+                ).getOrElse { throw it }
+
+                // Build and upload manifest
+                val manifest = buildManifest(preparedUpload, metadata)
+                manifestRepository.uploadRemoteManifest(manifest).getOrElse { throw it }
+
+                // Mark mutations as synced
+                if (pendingMutations.isNotEmpty()) {
+                    mutationRepository.markSynced(pendingMutations.map { it.id })
+                }
+
+                // Update metadata
+                metadataRepository.recordPushSuccess(context, preparedUpload.stateVersion)
+
+                _syncState.value = SyncStateV2.Synced(System.currentTimeMillis(), reason)
+
+                AppLogger.i(
+                    TAG,
+                    "Push complete: stateVersion=${preparedUpload.stateVersion}, mutations=${pendingMutations.size}"
                 )
-            )
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Push failed", e)
-            metadataRepository.recordSyncError(context, e.message ?: "Unknown error")
-            _syncState.value = SyncStateV2.Error(e.message ?: "Push failed", reason)
-            SyncRunResult.Failure(reason, e)
+                SyncRunResult.Success(
+                    reason = reason,
+                    notes = listOf(
+                        if (pendingMutations.isEmpty()) {
+                            "已将本地完整资料补传到云端"
+                        } else {
+                            "本地变更已上传到云端"
+                        }
+                    )
+                )
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Push failed", e)
+                metadataRepository.recordSyncError(context, e.message ?: "Unknown error")
+                _syncState.value = SyncStateV2.Error(e.message ?: "Push failed", reason)
+                SyncRunResult.Failure(reason, e)
+            }
         }
     }
 
@@ -245,7 +249,7 @@ class DriveSyncCoordinator(
     }
 
     private suspend fun prepareStateUpload(metadata: SyncMetadata): PreparedStateUpload {
-        val stateVersion = metadata.localStateVersion + 1
+        val stateVersion = maxOf(metadata.localStateVersion, metadata.lastPushedLocalVersion) + 1
         val currentState = stateSerializer.buildCurrentState(
             stateVersion = stateVersion,
             deviceId = metadata.deviceId,

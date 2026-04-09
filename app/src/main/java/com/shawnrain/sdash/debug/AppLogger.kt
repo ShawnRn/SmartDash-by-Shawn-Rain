@@ -36,6 +36,7 @@ object AppLogger {
     private const val MAX_ENTRIES = 4000
     private const val AUTHORITY_SUFFIX = ".fileprovider"
     private val timeFormatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+    private val exportFileNameFormatter = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US)
     private val logBuffer = ArrayDeque<AppLogEntry>(MAX_ENTRIES)
 
     @Volatile
@@ -71,7 +72,7 @@ object AppLogger {
             context.getExternalFilesDir("exports")
                 ?: File(context.filesDir, "exports")
             ).apply { mkdirs() }
-        val file = File(exportDir, "habe-debug-${exportTime}.log")
+        val file = File(exportDir, "smartdash-debug-${exportFileNameFormatter.format(Date(exportTime))}.log")
         file.writeText(buildLogDump(exportTime))
         return FileProvider.getUriForFile(
             context,

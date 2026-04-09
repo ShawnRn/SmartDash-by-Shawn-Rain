@@ -283,14 +283,15 @@ class GoogleDriveSyncManager(private val context: Context) {
         client: OkHttpClient,
         fileName: String,
         content: ByteArray,
-        description: String
+        description: String,
+        mimeType: String = BACKUP_MIME_TYPE
     ): String? {
         // Build JSON metadata
         val metadataJson = """
             {
                 "name": "$fileName",
                 "description": "$description",
-                "mimeType": "$BACKUP_MIME_TYPE",
+                "mimeType": "$mimeType",
                 "parents": ["appDataFolder"]
             }
         """.trimIndent()
@@ -302,7 +303,7 @@ class GoogleDriveSyncManager(private val context: Context) {
 
         val filePart = MultipartBody.Part.createFormData(
             "file", fileName,
-            content.toRequestBody(BACKUP_MIME_TYPE.toMediaType())
+            content.toRequestBody(mimeType.toMediaType())
         )
 
         val body = MultipartBody.Builder()
@@ -326,6 +327,52 @@ class GoogleDriveSyncManager(private val context: Context) {
         val responseBody = response.body?.string() ?: return null
         val jsonElement = kotlinx.serialization.json.Json.parseToJsonElement(responseBody)
         return jsonElement.jsonObject["id"]?.jsonPrimitive?.content
+    }
+
+    private data class DriveNamedFile(
+        val id: String,
+        val name: String
+    )
+
+    private suspend fun findFilesByName(
+        client: OkHttpClient,
+        fileName: String
+    ): List<DriveNamedFile> = withContext(Dispatchers.IO) {
+        val query = "name = '$fileName' and trashed = false"
+        val fields = "files(id,name,createdTime)"
+        val url = "$DRIVE_API_BASE/drive/v3/files" +
+            "?q=$query&orderBy=createdTime desc&spaces=appDataFolder&fields=$fields"
+
+        val response = client.newCall(
+            okhttp3.Request.Builder().url(url).get().build()
+        ).execute()
+
+        if (!response.isSuccessful) {
+            throw IllegalStateException("Query failed: ${response.code}")
+        }
+
+        val body = response.body?.string() ?: return@withContext emptyList()
+        val root = kotlinx.serialization.json.Json.parseToJsonElement(body)
+        val files = root.jsonObject["files"]?.jsonArray ?: return@withContext emptyList()
+        files.mapNotNull { file ->
+            val fileObject = file.jsonObject
+            val id = fileObject["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
+            val name = fileObject["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
+            DriveNamedFile(id = id, name = name)
+        }
+    }
+
+    private suspend fun deleteFileById(
+        client: OkHttpClient,
+        fileId: String
+    ) = withContext(Dispatchers.IO) {
+        val url = "$DRIVE_API_BASE/drive/v3/files/$fileId"
+        val response = client.newCall(
+            okhttp3.Request.Builder().url(url).delete().build()
+        ).execute()
+        if (!response.isSuccessful) {
+            throw IllegalStateException("Delete failed: ${response.code}")
+        }
     }
 
     private fun parseFileList(responseJson: String): List<BackupMetadata> {
@@ -392,11 +439,19 @@ class GoogleDriveSyncManager(private val context: Context) {
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             val client = createAuthenticatedClient()
+            val existingFiles = findFilesByName(client, fileName)
+            existingFiles.forEach { existing ->
+                deleteFileById(client, existing.id)
+            }
+            if (existingFiles.isNotEmpty()) {
+                AppLogger.i(TAG, "Removed ${existingFiles.size} stale Drive file(s) before upload: $fileName")
+            }
             val fileId = uploadFile(
                 client = client,
                 fileName = fileName,
                 content = content,
-                description = "SmartDash V2 Sync - $fileName"
+                description = "SmartDash V2 Sync - $fileName",
+                mimeType = mimeType
             )
             if (fileId != null) {
                 Result.success(fileId)
@@ -425,25 +480,10 @@ class GoogleDriveSyncManager(private val context: Context) {
     suspend fun downloadRawFile(fileName: String): Result<ByteArray> = withContext(Dispatchers.IO) {
         try {
             val client = createAuthenticatedClient()
-            val query = "name = '$fileName' and trashed = false"
-            val fields = "files(id,name,createdTime)"
-            val url = "$DRIVE_API_BASE/drive/v3/files" +
-                    "?q=$query&orderBy=createdTime desc&spaces=appDataFolder&fields=$fields"
-
-            val response = client.newCall(
-                okhttp3.Request.Builder().url(url).get().build()
-            ).execute()
-
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(Exception("Query failed: ${response.code}"))
-            }
-
-            val body = response.body?.string() ?: ""
-            val root = kotlinx.serialization.json.Json.parseToJsonElement(body)
-            val files = root.jsonObject["files"]?.jsonArray ?: return@withContext Result.failure(Exception("No files found"))
-            val file = files.firstOrNull() ?: return@withContext Result.failure(Exception("File not found: $fileName"))
-            val fileId = file.jsonObject["id"]?.jsonPrimitive?.content
-                ?: return@withContext Result.failure(Exception("No file ID"))
+            val files = findFilesByName(client, fileName)
+            val file = files.firstOrNull()
+                ?: return@withContext Result.failure(Exception("File not found: $fileName"))
+            val fileId = file.id
 
             // Download the file content
             val downloadUrl = "$DRIVE_API_BASE/drive/v3/files/$fileId?alt=media"

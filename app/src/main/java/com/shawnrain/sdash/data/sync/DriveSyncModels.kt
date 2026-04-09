@@ -97,6 +97,8 @@ data class SyncRideSnapshot(
     val updatedAt: Long,
     val updatedByDeviceId: String,
     val summaryRevision: Int = 1,
+    val detailSchemaRevision: Int = 1,
+    val detailFingerprint: String = "",
     val completenessScore: Float = 1f,
     val sampleCount: Int = 0,
     val trackPoints: List<SyncRideTrackPoint> = emptyList(),

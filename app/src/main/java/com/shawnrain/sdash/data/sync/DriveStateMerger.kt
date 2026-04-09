@@ -3,6 +3,7 @@ package com.shawnrain.sdash.data.sync
 import android.content.Context
 import com.shawnrain.sdash.data.SettingsRepository
 import com.shawnrain.sdash.data.VehicleProfile
+import com.shawnrain.sdash.data.history.RideMetricSampleSchema
 import com.shawnrain.sdash.data.history.RideHistoryRecord
 import com.shawnrain.sdash.data.speedtest.SpeedTestRecord
 import com.shawnrain.sdash.debug.AppLogger
@@ -17,6 +18,67 @@ class DriveStateMerger(
 ) {
     companion object {
         private const val TAG = "DriveStateMerger"
+
+        internal fun selectRideWinner(
+            localRide: SyncRideSnapshot,
+            remoteRide: SyncRideSnapshot
+        ): SyncRideSnapshot = when {
+            remoteRide.isDeleted && !localRide.isDeleted -> localRide
+            localRide.isDeleted -> remoteRide
+            remoteRide.summaryRevision > localRide.summaryRevision -> remoteRide
+            localRide.summaryRevision > remoteRide.summaryRevision -> localRide
+            shouldPreferCandidateByRideDetail(remoteRide, localRide) -> remoteRide
+            shouldPreferCandidateByRideDetail(localRide, remoteRide) -> localRide
+            rideDetailScore(remoteRide) > rideDetailScore(localRide) -> remoteRide
+            rideDetailScore(localRide) > rideDetailScore(remoteRide) -> localRide
+            remoteRide.completenessScore > localRide.completenessScore -> remoteRide
+            localRide.completenessScore > remoteRide.completenessScore -> localRide
+            remoteRide.updatedAt > localRide.updatedAt -> remoteRide
+            else -> localRide
+        }
+
+        private fun shouldPreferCandidateByRideDetail(
+            candidate: SyncRideSnapshot,
+            other: SyncRideSnapshot
+        ): Boolean {
+            if (!rideDetailMetadataChanged(candidate, other)) return false
+
+            val candidateCoverage = rideParameterCoverageScore(candidate)
+            val otherCoverage = rideParameterCoverageScore(other)
+            return when {
+                candidateCoverage > otherCoverage -> true
+                candidateCoverage < otherCoverage -> false
+                candidate.detailSchemaRevision > other.detailSchemaRevision -> true
+                candidate.detailSchemaRevision < other.detailSchemaRevision -> false
+                candidate.updatedAt > other.updatedAt -> true
+                else -> false
+            }
+        }
+
+        private fun rideDetailMetadataChanged(
+            first: SyncRideSnapshot,
+            second: SyncRideSnapshot
+        ): Boolean {
+            if (first.detailSchemaRevision != second.detailSchemaRevision) return true
+            val firstFingerprint = first.detailFingerprint.takeIf { it.isNotBlank() }
+            val secondFingerprint = second.detailFingerprint.takeIf { it.isNotBlank() }
+            return firstFingerprint != null && secondFingerprint != null && firstFingerprint != secondFingerprint
+        }
+
+        private fun rideParameterCoverageScore(snapshot: SyncRideSnapshot): Long {
+            val sampleCoverage = snapshot.samples.sumOf { RideMetricSampleSchema.populatedFieldCount(it).toLong() }
+            return (sampleCoverage * 1_000L) + snapshot.trackPoints.size.toLong()
+        }
+
+        private fun rideDetailScore(snapshot: SyncRideSnapshot): Long {
+            return (snapshot.samples.size.toLong() * 1_000_000L) +
+                (snapshot.trackPoints.size.toLong() * 10_000L) +
+                snapshot.sampleCount.toLong()
+        }
+
+        private fun speedTestDetailScore(snapshot: SyncSpeedTestSnapshot): Int {
+            return snapshot.trackPoints.size
+        }
     }
 
     /**
@@ -189,17 +251,9 @@ class DriveStateMerger(
                 }
             } else {
                 // Both exist - use completeness-aware merge
-                val winner = when {
-                    remoteRide.isDeleted && !localRide.isDeleted -> localRide  // Don't delete locally-existing rides
-                    localRide.isDeleted -> remoteRide  // Remote wins if local is deleted
-                    remoteRide.summaryRevision > localRide.summaryRevision -> remoteRide.also { conflicts++ }
-                    localRide.summaryRevision > remoteRide.summaryRevision -> localRide
-                    rideDetailScore(remoteRide) > rideDetailScore(localRide) -> remoteRide.also { conflicts++ }
-                    rideDetailScore(localRide) > rideDetailScore(remoteRide) -> localRide
-                    remoteRide.completenessScore > localRide.completenessScore -> remoteRide.also { conflicts++ }
-                    localRide.completenessScore > remoteRide.completenessScore -> localRide
-                    remoteRide.updatedAt > localRide.updatedAt -> remoteRide.also { conflicts++ }
-                    else -> localRide
+                val winner = selectRideWinner(localRide, remoteRide)
+                if (winner === remoteRide && winner != localRide) {
+                    conflicts++
                 }
                 mergedMap[remoteRide.id] = winner
             }
@@ -245,16 +299,6 @@ class DriveStateMerger(
         }
 
         return Pair(mergedMap.values.sortedByDescending { it.startedAtMs }, notes)
-    }
-
-    private fun rideDetailScore(snapshot: SyncRideSnapshot): Long {
-        return (snapshot.samples.size.toLong() * 1_000_000L) +
-            (snapshot.trackPoints.size.toLong() * 10_000L) +
-            snapshot.sampleCount.toLong()
-    }
-
-    private fun speedTestDetailScore(snapshot: SyncSpeedTestSnapshot): Int {
-        return snapshot.trackPoints.size
     }
 }
 

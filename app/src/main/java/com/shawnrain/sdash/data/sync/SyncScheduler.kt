@@ -34,6 +34,7 @@ class SyncScheduler(
     companion object {
         private const val TAG = "SyncScheduler"
         private const val FOREGROUND_PULL_COOLDOWN_MS = 10 * 60 * 1000L
+        private const val SYNC_PAYLOAD_REVISION = 3
 
         @Volatile
         private var settingsDebounceJob: Job? = null
@@ -143,6 +144,9 @@ class SyncScheduler(
      */
     fun onAppForeground() {
         val now = System.currentTimeMillis()
+        schedulerScope.launch {
+            ensurePayloadRefreshScheduledIfNeeded(SyncTriggerReason.APP_FOREGROUND)
+        }
         if (now - lastForegroundPullAtMs < FOREGROUND_PULL_COOLDOWN_MS) {
             AppLogger.d(TAG, "Skip foreground pull: still in cooldown")
             return
@@ -184,6 +188,7 @@ class SyncScheduler(
 
                 // Start periodic sync
                 PeriodicDriveSyncWorker.enqueuePeriodicSync(context)
+                ensurePayloadRefreshScheduledIfNeeded(SyncTriggerReason.AUTH_SUCCESS)
 
                 // Also do an immediate pull
                 DrivePullWorker.enqueuePull(context, SyncTriggerReason.AUTH_SUCCESS)
@@ -222,6 +227,27 @@ class SyncScheduler(
         }
     }
 
+    fun forceUploadCurrentDeviceData() {
+        schedulerScope.launch {
+            try {
+                val signedIn = runCatching { GoogleDriveSyncManager(context).isSignedIn() }.getOrDefault(false)
+                if (!signedIn) {
+                    AppLogger.w(TAG, "Skip forced upload: Drive not signed in")
+                    return@launch
+                }
+                val metadata = metadataRepository.getMetadata(context)
+                val newVersion = metadata.localStateVersion + 1
+                mutationRepository.enqueueForSettings(newVersion, metadata.deviceId)
+                metadataRepository.incrementLocalStateVersion(context)
+                metadataRepository.updateMigrationVersion(context, SYNC_PAYLOAD_REVISION)
+                DrivePushWorker.enqueuePush(context, SyncTriggerReason.MANUAL_SYNC)
+                AppLogger.i(TAG, "Forced upload scheduled for current device data")
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Failed to schedule forced upload: ${e.message}")
+            }
+        }
+    }
+
     private suspend fun enqueueSettingsMutation(pushImmediately: Boolean) = withContext(Dispatchers.IO) {
         val metadata = metadataRepository.getMetadata(context)
         val newVersion = metadata.localStateVersion + 1
@@ -239,5 +265,24 @@ class SyncScheduler(
      */
     suspend fun hasPendingMutations(): Boolean {
         return mutationRepository.hasPendingMutations()
+    }
+
+    private suspend fun ensurePayloadRefreshScheduledIfNeeded(reason: SyncTriggerReason) = withContext(Dispatchers.IO) {
+        val signedIn = runCatching { GoogleDriveSyncManager(context).isSignedIn() }.getOrDefault(false)
+        if (!signedIn) return@withContext
+
+        val metadata = metadataRepository.getMetadata(context)
+        if (metadata.migrationVersion >= SYNC_PAYLOAD_REVISION) return@withContext
+
+        val newVersion = metadata.localStateVersion + 1
+        mutationRepository.enqueueForSettings(newVersion, metadata.deviceId)
+        metadataRepository.incrementLocalStateVersion(context)
+        metadataRepository.updateMigrationVersion(context, SYNC_PAYLOAD_REVISION)
+
+        DrivePushWorker.enqueuePush(context, reason)
+        AppLogger.i(
+            TAG,
+            "Sync payload refresh scheduled: revision=$SYNC_PAYLOAD_REVISION reason=$reason"
+        )
     }
 }

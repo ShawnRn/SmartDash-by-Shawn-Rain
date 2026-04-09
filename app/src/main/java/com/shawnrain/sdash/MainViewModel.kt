@@ -72,6 +72,7 @@ import com.shawnrain.sdash.data.update.AppUpdateState
 import com.shawnrain.sdash.data.update.InstalledAppVersion
 import com.shawnrain.sdash.data.history.RideHistoryRecord
 import com.shawnrain.sdash.data.history.RideRecordNormalizer
+import com.shawnrain.sdash.data.history.RideMetricSampleSchema
 import com.shawnrain.sdash.data.history.RideMetricSample
 import com.shawnrain.sdash.data.history.RideTrackPoint
 import com.shawnrain.sdash.data.history.computeRideSummaryStats
@@ -868,9 +869,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (driveSyncManager.isSignedIn()) {
             val account = driveSyncManager.getCurrentAccount()
             val previous = _driveSyncState.value as? SyncState.SignedIn
+            val lastSyncTime = resolveLastDriveSyncTime(previous?.lastSyncTime)
             _driveSyncState.value = SyncState.SignedIn(
                 email = account?.email ?: "Unknown",
-                lastSyncTime = previous?.lastSyncTime,
+                lastSyncTime = lastSyncTime,
                 availableBackups = previous?.availableBackups.orEmpty(),
                 hasRemoteUpdate = false,
                 remoteDeviceName = previous?.remoteDeviceName
@@ -926,6 +928,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             showState = true,
             showMessage = true
         )
+    }
+
+    fun forceUploadCurrentDeviceData(): kotlinx.coroutines.Job = viewModelScope.launch {
+        if (!driveSyncCoordinator.isV2Initialized()) {
+            driveSyncCoordinator.initializeV2Sync().onFailure { error ->
+                _driveSyncState.value = SyncState.Error(error.message ?: "初始化 Google Drive 同步失败")
+                _driveSyncMessage.value = "初始化失败：${error.message ?: "未知错误"}"
+                return@launch
+            }
+        }
+        _driveSyncState.value = SyncState.Syncing
+        _driveSyncMessage.value = "正在强制上传当前设备数据…"
+        syncScheduler.forceUploadCurrentDeviceData()
     }
 
     fun uploadToDrive(): kotlinx.coroutines.Job = viewModelScope.launch {
@@ -991,6 +1006,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val currentState = _driveSyncState.value
                     if (currentState is SyncState.SignedIn) {
                         _driveSyncState.value = currentState.copy(
+                            lastSyncTime = resolveLastDriveSyncTime(currentState.lastSyncTime),
                             availableBackups = backups,
                             remoteDeviceName = backups.firstOrNull()?.deviceName
                         )
@@ -1081,6 +1097,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return driveSyncManager.getCurrentAccount()?.email ?: "Unknown"
     }
 
+    private suspend fun resolveLastDriveSyncTime(fallback: Long? = null): Long? {
+        val metadata = runCatching { syncMetadataRepository.getMetadata(getApplication()) }.getOrNull()
+        val metadataTime = metadata
+            ?.let { maxOf(it.lastPushSuccessAt, it.lastPullSuccessAt) }
+            ?.takeIf { it > 0L }
+        return metadataTime ?: fallback
+    }
+
     private suspend fun pruneExpiredDriveBackups(): Int {
         val policy = driveBackupRetentionPolicy.value
         return driveSyncManager.pruneBackups(policy).getOrElse { throw it }
@@ -1127,7 +1151,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val backups = (driveSyncState.value as? SyncState.SignedIn)?.availableBackups.orEmpty()
                 _driveSyncState.value = SyncState.SignedIn(
                     email = email,
-                    lastSyncTime = System.currentTimeMillis(),
+                    lastSyncTime = resolveLastDriveSyncTime(System.currentTimeMillis()),
                     availableBackups = backups,
                     hasRemoteUpdate = false,
                     remoteDeviceName = backups.firstOrNull()?.deviceName
@@ -1141,7 +1165,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val currentState = _driveSyncState.value as? SyncState.SignedIn
                 _driveSyncState.value = SyncState.SignedIn(
                     email = email,
-                    lastSyncTime = currentState?.lastSyncTime,
+                    lastSyncTime = resolveLastDriveSyncTime(currentState?.lastSyncTime),
                     availableBackups = currentState?.availableBackups.orEmpty(),
                     hasRemoteUpdate = false,
                     remoteDeviceName = currentState?.remoteDeviceName
@@ -3180,8 +3204,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun createRideCsvShareIntent(record: RideHistoryRecord): Intent {
         val presentedRecord = presentRideHistoryRecord(record)
-        val csvUri = exportText(buildRideCsv(presentedRecord), "ride-${record.id}.csv")
-        AppLogger.i(TAG, "导出行程 CSV file=ride-${record.id}.csv samples=${presentedRecord.samples.size}")
+        val fileName = buildRideCsvFileName(presentedRecord)
+        val csvUri = exportText(buildRideCsv(presentedRecord), fileName)
+        AppLogger.i(TAG, "导出行程 CSV file=$fileName samples=${presentedRecord.samples.size}")
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "text/csv"
             putExtra(Intent.EXTRA_STREAM, csvUri)
@@ -3281,67 +3306,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun buildRideCsv(record: RideHistoryRecord): String {
-        val normalized = normalizeRideEnergySamples(record)
-        val header = listOf(
-            "elapsed_ms",
-            "timestamp_ms",
-            "speed_kmh",
-            "power_kw",
-            "voltage_v",
-            "voltage_sag_v",
-            "bus_current_a",
-            "phase_current_a",
-            "controller_temp_c",
-            "soc_percent",
-            "estimated_range_km",
-            "rpm",
-            "efficiency_wh_km",
-            "avg_efficiency_wh_km",
-            "distance_m",
-            "total_energy_wh",
-            "traction_energy_wh",
-            "regen_energy_wh",
-            "recovered_energy_wh",
-            "max_controller_temp_c",
-            "grade_percent",
-            "altitude_m",
-            "latitude",
-            "longitude"
-        ).joinToString(",")
-        val rows = buildList {
-            add(header)
-            normalized.forEach { sample ->
-                add(
-                    listOf(
-                        sample.elapsedMs.toString(),
-                        sample.timestampMs.toString(),
-                        csvNumber(sample.speedKmH),
-                        csvNumber(sample.powerKw),
-                        csvNumber(sample.voltage),
-                        csvNumber(sample.voltageSag),
-                        csvNumber(sample.busCurrent),
-                        csvNumber(sample.phaseCurrent),
-                        csvNumber(sample.controllerTemp),
-                        csvNumber(sample.soc),
-                        csvNumber(sample.estimatedRangeKm),
-                        csvNumber(sample.rpm),
-                        csvNumber(sample.efficiencyWhKm),
-                        csvNumber(sample.avgEfficiencyWhKm),
-                        csvNumber(sample.distanceMeters),
-                        csvNumber(sample.totalEnergyWh),
-                        csvNumber(sample.tractionEnergyWh),
-                        csvNumber(sample.regenEnergyWh),
-                        csvNumber(sample.recoveredEnergyWh),
-                        csvNumber(sample.maxControllerTemp),
-                        csvNumber(sample.gradePercent),
-                        csvNumber(sample.altitudeMeters),
-                        sample.latitude?.toString().orEmpty(),
-                        sample.longitude?.toString().orEmpty()
-                    ).joinToString(",")
-                )
-            }
-        }
-        return rows.joinToString("\n")
+        return RideCsvExporter.build(
+            normalizedSamples = normalizeRideEnergySamples(record),
+            numberFormatter = ::csvNumber
+        )
     }
 
     private fun csvNumber(value: Number?): String {
@@ -3352,6 +3320,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun buildRideTitle(startedAtMs: Long): String {
         val date = Date(startedAtMs)
         return SimpleDateFormat("M月d日 HH:mm", Locale.getDefault()).format(date).withDisplaySpacing()
+    }
+
+    private fun buildRideCsvFileName(record: RideHistoryRecord): String {
+        val datePart = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(record.startedAtMs))
+        val timePart = SimpleDateFormat("HHmm", Locale.US).format(Date(record.startedAtMs))
+        val durationPart = formatFileDuration(record.durationMs)
+        val titlePart = sanitizeExportFileSegment(record.title)
+        return buildString {
+            append("smartdash-ride-")
+            append(datePart)
+            append('-')
+            append(timePart)
+            append('-')
+            append(durationPart)
+            if (titlePart.isNotBlank()) {
+                append('-')
+                append(titlePart)
+            }
+            append(".csv")
+        }
+    }
+
+    private fun formatFileDuration(durationMs: Long): String {
+        val totalSeconds = (durationMs / 1000L).coerceAtLeast(0L)
+        val hours = totalSeconds / 3600L
+        val minutes = (totalSeconds % 3600L) / 60L
+        val seconds = totalSeconds % 60L
+        return if (hours > 0L) {
+            String.format(Locale.US, "%02dh%02dm%02ds", hours, minutes, seconds)
+        } else {
+            String.format(Locale.US, "%02dm%02ds", minutes, seconds)
+        }
+    }
+
+    private fun sanitizeExportFileSegment(raw: String?): String {
+        return raw
+            ?.trim()
+            ?.replace(Regex("[\\\\/:*?\"<>|]+"), "-")
+            ?.replace(Regex("\\s+"), "-")
+            ?.replace(Regex("-+"), "-")
+            ?.trim('-')
+            ?.take(48)
+            .orEmpty()
     }
 
     private fun formatDuration(durationMs: Long): String {
@@ -4035,5 +4046,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     @SuppressLint("MissingPermission")
     private fun safeBluetoothDeviceName(device: BluetoothDevice): String? {
         return runCatching { device.name }.getOrNull()
+    }
+}
+
+internal object RideCsvExporter {
+    fun build(
+        normalizedSamples: List<RideMetricSample>,
+        numberFormatter: (Number?) -> String
+    ): String {
+        val header = RideMetricSampleSchema.csvColumns.joinToString(",") { it.header }
+        val rows = buildList {
+            add(header)
+            normalizedSamples.forEach { sample ->
+                add(
+                    RideMetricSampleSchema.csvColumns.joinToString(",") { column ->
+                        column.value(sample, numberFormatter)
+                    }
+                )
+            }
+        }
+        return rows.joinToString("\n")
     }
 }

@@ -68,6 +68,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.shawnrain.sdash.MainViewModel
+import com.shawnrain.sdash.ble.protocols.ControllerCapabilities
 import com.shawnrain.sdash.ble.protocols.WriteFailurePhase
 import com.shawnrain.sdash.ble.protocols.ZhikeParamDefinition
 import com.shawnrain.sdash.ble.protocols.ZhikeParamGroup
@@ -75,6 +76,7 @@ import com.shawnrain.sdash.ble.protocols.ZhikeParamKind
 import com.shawnrain.sdash.ble.protocols.ZhikeParameterCatalog
 import com.shawnrain.sdash.ble.protocols.ZhikeSettings
 import com.shawnrain.sdash.ble.protocols.ZhikeWriteState
+import com.shawnrain.sdash.ble.protocols.resolveLockState
 import com.shawnrain.sdash.ble.protocols.syncLegacyFieldsFromWords
 import com.shawnrain.sdash.ui.navigation.BlurredAlertDialog
 import com.shawnrain.sdash.ui.navigation.SecondaryScreenTopBar
@@ -98,6 +100,7 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     // Write state observation
     val writeState by viewModel.zhikeWriteState.collectAsState()
     val validationResult by viewModel.zhikeValidationResult.collectAsState()
+    val controllerCapabilities by viewModel.controllerCapabilities.collectAsState()
 
     // Dialogs state
     var showValidationDialog by remember { mutableStateOf(false) }
@@ -431,6 +434,7 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 ZhikeGroupCard(
                     group = group,
                     settings = settings,
+                    controllerCapabilities = controllerCapabilities,
                     onApplyPreset = { presetId ->
                         settings = ZhikeParameterCatalog.applyPreset(settings, presetId)
                         isDirty = true
@@ -852,6 +856,7 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
 private fun ZhikeGroupCard(
     group: ZhikeParamGroup,
     settings: ZhikeSettings,
+    controllerCapabilities: ControllerCapabilities?,
     onApplyPreset: (String) -> Unit,
     onUpdateSetting: (ZhikeSettings) -> Unit
 ) {
@@ -871,7 +876,8 @@ private fun ZhikeGroupCard(
 
             group.parameters.forEach { definition ->
                 val isDangerous = definition.isDangerous
-                val isVersionLocked = definition.isVersionLocked(null) // TODO: get from controller
+                val lockState = definition.resolveLockState(controllerCapabilities)
+                val isVersionLocked = lockState.locked
 
                 when (definition.kind) {
                     ZhikeParamKind.BOOL -> {
@@ -883,7 +889,7 @@ private fun ZhikeGroupCard(
                             options = definition.optionLabels,
                             isDangerous = isDangerous,
                             isVersionLocked = isVersionLocked,
-                            versionHint = definition.versionHint,
+                            versionHint = lockState.reason,
                             onSelect = { selectedIndex ->
                                 if (!isVersionLocked) {
                                     onUpdateSetting(
@@ -904,7 +910,7 @@ private fun ZhikeGroupCard(
                             options = definition.optionLabels,
                             isDangerous = isDangerous,
                             isVersionLocked = isVersionLocked,
-                            versionHint = definition.versionHint,
+                            versionHint = lockState.reason,
                             onSelect = { selectedIndex ->
                                 if (!isVersionLocked) {
                                     onUpdateSetting(
@@ -920,7 +926,7 @@ private fun ZhikeGroupCard(
                             value = ZhikeParameterCatalog.readText(settings, definition),
                             isDangerous = isDangerous,
                             isVersionLocked = isVersionLocked,
-                            versionHint = definition.versionHint
+                            versionHint = lockState.reason
                         )
                     }
                     else -> {
@@ -929,7 +935,7 @@ private fun ZhikeGroupCard(
                             value = ZhikeParameterCatalog.readNumeric(settings, definition),
                             isDangerous = isDangerous,
                             isVersionLocked = isVersionLocked,
-                            versionHint = definition.versionHint,
+                            versionHint = lockState.reason,
                             onCommit = { parsedValue ->
                                 if (!isVersionLocked) {
                                     onUpdateSetting(
@@ -1274,13 +1280,6 @@ private val DANGEROUS_PARAM_KEYS = setOf(
 
 private val ZhikeParamDefinition.isDangerous: Boolean
     get() = key in DANGEROUS_PARAM_KEYS
-
-private fun ZhikeParamDefinition.isVersionLocked(currentFirmwareVersion: Int?): Boolean {
-    return minFirmwareVersion != null && currentFirmwareVersion != null && minFirmwareVersion > currentFirmwareVersion
-}
-
-private val ZhikeParamDefinition.versionHint: String?
-    get() = if (minFirmwareVersion != null) "需要固件版本 >= $minFirmwareVersion" else null
 
 private fun settingsToJson(settings: ZhikeSettings): String {
     val json = JSONObject()

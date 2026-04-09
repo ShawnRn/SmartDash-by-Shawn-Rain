@@ -1301,12 +1301,9 @@ fun SettingsScreen(
                 viewModel.clearDriveBackupPreview()
             },
             blurRadius = 34.dp
-        ) {
+        ) { requestDismiss ->
             PredictiveBackPopupTransform(
-                onBack = {
-                    showDriveHistory = false
-                    viewModel.clearDriveBackupPreview()
-                },
+                onBack = requestDismiss,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 DriveHistoryReviewSheet(
@@ -1322,18 +1319,13 @@ fun SettingsScreen(
                     },
                     onMerge = { metadata ->
                         viewModel.downloadAndMergeFromDrive(metadata.fileId)
-                        showDriveHistory = false
-                        viewModel.clearDriveBackupPreview()
+                        requestDismiss()
                     },
                     onRestoreRide = { metadata, rideId ->
                         viewModel.restoreSingleRideFromDriveBackup(metadata.fileId, rideId)
-                        showDriveHistory = false
-                        viewModel.clearDriveBackupPreview()
+                        requestDismiss()
                     },
-                    onDismiss = {
-                        showDriveHistory = false
-                        viewModel.clearDriveBackupPreview()
-                    }
+                    onDismiss = requestDismiss
                 )
             }
         }
@@ -1347,9 +1339,9 @@ fun SettingsScreen(
         BlurredModalBottomSheet(
             onDismissRequest = { showAppUpdateSheet = false },
             blurRadius = 34.dp
-        ) {
+        ) { requestDismiss ->
             PredictiveBackPopupTransform(
-                onBack = { showAppUpdateSheet = false },
+                onBack = requestDismiss,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 AppUpdateReviewSheet(
@@ -1359,7 +1351,7 @@ fun SettingsScreen(
                     onDownload = { viewModel.downloadAppUpdate() },
                     onIgnore = {
                         viewModel.ignoreCurrentAppUpdate()
-                        showAppUpdateSheet = false
+                        requestDismiss()
                     },
                     onInstall = {
                         val canInstallDownloaded = viewModel.canInstallDownloadedAppUpdate()
@@ -1385,7 +1377,7 @@ fun SettingsScreen(
                             Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
                         )
                     },
-                    onDismiss = { showAppUpdateSheet = false }
+                    onDismiss = requestDismiss
                 )
             }
         }
@@ -2297,13 +2289,6 @@ private fun DriveHistoryReviewSheet(
                         }
                     }
                 }
-                                Text(
-                                    metadata.fileName,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
                             }
                         }
                     }

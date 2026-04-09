@@ -96,7 +96,11 @@ class GoogleDriveSyncManager(private val context: Context) {
 
             // Encrypt the backup with password-derived key
             val plainBytes = backupJson.toByteArray(Charsets.UTF_8)
-            val encrypted = EncryptionService.encryptWithPassword(plainBytes, password)
+            val encrypted = EncryptionService.encryptWithPassword(
+                plainText = plainBytes,
+                password = password,
+                salt = EncryptionService.generateSalt()
+            )
             val encryptedPayload = encrypted.toJson().toByteArray(Charsets.UTF_8)
 
             val client = createAuthenticatedClient()
@@ -192,8 +196,8 @@ class GoogleDriveSyncManager(private val context: Context) {
             val encrypted = EncryptedBackup.fromJson(encryptedJson)
 
             // Decrypt based on version
-            val plainBytes = if (encrypted.version >= 2) {
-                // Version 2 = password-derived key (cross-device compatible)
+            val plainBytes = if (encrypted.version >= EncryptionService.VERSION_PASSWORD_FIXED_SALT_LEGACY) {
+                // Password-derived key (cross-device compatible)
                 EncryptionService.decryptWithPassword(encrypted, password)
             } else {
                 // Version 1 = device-bound key (legacy, only works on same device)

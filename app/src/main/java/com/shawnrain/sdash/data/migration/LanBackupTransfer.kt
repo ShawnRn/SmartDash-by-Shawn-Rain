@@ -1,5 +1,6 @@
 package com.shawnrain.sdash.data.migration
 
+import com.shawnrain.sdash.debug.AppLogger
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.DataInputStream
@@ -14,7 +15,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -28,6 +29,13 @@ data class LanBackupOffer(
 class LanBackupTransfer(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
+    private companion object {
+        private const val TAG = "LanBackupTransfer"
+        private const val MAGIC = "HABE_LAN_BACKUP_V1"
+        private const val ACK_MAGIC = "HABE_LAN_BACKUP_ACK_V1"
+        private const val MAX_BACKUP_BYTES = 24 * 1024 * 1024
+    }
+
     private var serverSocket: ServerSocket? = null
     private var serverLoopJob: Job? = null
 
@@ -42,6 +50,7 @@ class LanBackupTransfer(
         serverSocket = socket
         val host = resolveLocalIpv4Address() ?: "127.0.0.1"
         serverLoopJob = scope.launch(ioDispatcher) {
+            AppLogger.d(TAG, "Server loop started port=${socket.localPort}")
             while (isActive && !socket.isClosed) {
                 val client = runCatching { socket.accept() }.getOrNull() ?: break
                 val shouldStop = client.use { serveClient(it, code, payloadProvider, onRestoreApplied) }
@@ -53,23 +62,32 @@ class LanBackupTransfer(
             if (serverSocket === socket) {
                 serverSocket = null
             }
+            if (serverLoopJob === currentCoroutineContext()[Job]) {
+                serverLoopJob = null
+            }
+            AppLogger.d(TAG, "Server loop exited port=${socket.localPort}")
         }
+        AppLogger.i(TAG, "LAN backup sharing started host=$host port=${socket.localPort}")
         return LanBackupOffer(host = host, port = socket.localPort, code = code)
     }
 
-    suspend fun stop() {
+    fun stop() {
         val socket = serverSocket
         serverSocket = null
-        // Close server socket first to unblock a pending accept() immediately.
-        withContext(ioDispatcher) {
-            runCatching { socket?.close() }
-        }
         val loopJob = serverLoopJob
         serverLoopJob = null
-        if (loopJob != null) {
-            loopJob.cancel()
-            loopJob.join()
+
+        AppLogger.i(TAG, "LAN backup sharing stop requested")
+        runCatching { socket?.close() }
+            .onFailure { AppLogger.w(TAG, "Failed to close LAN backup server socket: ${it.message}") }
+        loopJob?.cancel()
+        if (socket != null || loopJob != null) {
+            AppLogger.d(TAG, "LAN backup sharing resources cancelled")
         }
+    }
+
+    suspend fun awaitStopped() {
+        serverLoopJob?.join()
     }
 
     suspend fun pull(
@@ -174,11 +192,5 @@ class LanBackupTransfer(
             }
         }
         return null
-    }
-
-    companion object {
-        private const val MAGIC = "HABE_LAN_BACKUP_V1"
-        private const val ACK_MAGIC = "HABE_LAN_BACKUP_ACK_V1"
-        private const val MAX_BACKUP_BYTES = 24 * 1024 * 1024
     }
 }

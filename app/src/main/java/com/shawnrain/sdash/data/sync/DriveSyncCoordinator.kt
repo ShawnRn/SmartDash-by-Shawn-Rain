@@ -258,7 +258,11 @@ class DriveSyncCoordinator(
         val stateBytes = stateSerializer.serialize(currentState)
         val checksum = stateSerializer.computeChecksum(stateBytes)
         val password = deriveEncryptionPassword()
-        val encrypted = com.shawnrain.sdash.data.sync.EncryptionService.encryptWithPassword(stateBytes, password)
+        val encrypted = com.shawnrain.sdash.data.sync.EncryptionService.encryptWithPassword(
+            plainText = stateBytes,
+            password = password,
+            salt = com.shawnrain.sdash.data.sync.EncryptionService.generateSalt()
+        )
         return PreparedStateUpload(
             stateVersion = stateVersion,
             checksum = checksum,
@@ -294,7 +298,7 @@ class DriveSyncCoordinator(
     ): ByteArray {
         val encryptedJson = String(encryptedStateBytes, Charsets.UTF_8)
         val encrypted = com.shawnrain.sdash.data.sync.EncryptedBackup.fromJson(encryptedJson)
-        return if (encrypted.version >= 2) {
+        return if (encrypted.version >= com.shawnrain.sdash.data.sync.EncryptionService.VERSION_PASSWORD_FIXED_SALT_LEGACY) {
             com.shawnrain.sdash.data.sync.EncryptionService.decryptWithPassword(encrypted, password)
         } else {
             com.shawnrain.sdash.data.sync.EncryptionService.decrypt(encrypted)
@@ -411,7 +415,11 @@ class DriveSyncCoordinator(
             val checksum = stateSerializer.computeChecksum(stateBytes)
 
             val password = deriveEncryptionPassword()
-            val encrypted = com.shawnrain.sdash.data.sync.EncryptionService.encryptWithPassword(stateBytes, password)
+            val encrypted = com.shawnrain.sdash.data.sync.EncryptionService.encryptWithPassword(
+                plainText = stateBytes,
+                password = password,
+                salt = com.shawnrain.sdash.data.sync.EncryptionService.generateSalt()
+            )
             val encryptedPayload = encrypted.toJson().toByteArray(Charsets.UTF_8)
 
             val stateFileName = "current_state_v${newStateVersion}.json.enc"

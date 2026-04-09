@@ -19,8 +19,8 @@ android {
         applicationId = "com.shawnrain.sdash"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2026040907
-        versionName = "1.1.5"
+        versionCode = 2026041001
+        versionName = "1.1.6"
         
         vectorDrawables {
             useSupportLibrary = true

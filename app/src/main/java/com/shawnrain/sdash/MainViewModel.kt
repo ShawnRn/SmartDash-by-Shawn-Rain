@@ -28,6 +28,7 @@ import com.shawnrain.sdash.ble.ProtocolParser
 import com.shawnrain.sdash.ble.VehicleMetrics
 import com.shawnrain.sdash.ble.bms.BmsParser
 import com.shawnrain.sdash.ble.bms.BmsMetrics
+import com.shawnrain.sdash.ble.protocols.ControllerCapabilities
 import com.shawnrain.sdash.data.gps.HeadingTracker
 import com.shawnrain.sdash.data.gps.DirectionStabilizer
 import com.shawnrain.sdash.data.gps.DirectionInput
@@ -3639,6 +3640,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val connectionState: StateFlow<ConnectionState> = bleManager.connectionState
     val bmsConnectionState: StateFlow<ConnectionState> = bmsBleManager.connectionState
     val activeProtocolId: StateFlow<String?> = ProtocolParser.activeProtocolId
+    val controllerCapabilities: StateFlow<ControllerCapabilities?> = combine(
+        ProtocolParser.activeProtocolId,
+        _latestZhikeSettings
+    ) { protocolId, zhikeSettings ->
+        protocolId?.let { currentProtocolId ->
+            ControllerCapabilities(
+                protocol = currentProtocolId,
+                firmwareVersion = if (currentProtocolId == "zhike") extractZhikeFirmwareVersion(zhikeSettings) else null,
+                hardwareVersion = if (currentProtocolId == "zhike") extractZhikeHardwareVersion(zhikeSettings) else null,
+                featureFlags = buildSet {
+                    if (zhikeSettings?.loadedFromController == true) {
+                        add("zhike_settings_loaded")
+                    }
+                }
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     // Restore filteredDevices
     private val controllerRegex = Regex("^(AI|AUSI|AP|APL|AS|LB|YUANQU|CONTRO|MDS|ZHIKE|ZK|GEKOO|GK|ZX|ZX-D|DT|DATAI|LANSHI|VOTOL|LANDE|LD|B&Q|GRT|GRET)", RegexOption.IGNORE_CASE)
@@ -4027,10 +4045,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Disconnect BLE managers to prevent lingering connections
         bleManager.disconnect()
         bmsBleManager.disconnect()
-        runCatching { kotlinx.coroutines.runBlocking { lanBackupTransfer.stop() } }
+        runCatching { lanBackupTransfer.stop() }
         headingTracker.stop()
         gpsTracker.stopTracking()
         super.onCleared()
+    }
+
+    private fun extractZhikeFirmwareVersion(settings: ZhikeSettings?): Int? {
+        // 当前智科参数帧尚未暴露固件版本字段，先通过 capability 对象显式表示“未知”。
+        return null
+    }
+
+    private fun extractZhikeHardwareVersion(settings: ZhikeSettings?): String? {
+        // 预留硬件版本入口，后续若协议补齐可直接接到 capability 模型。
+        return null
     }
 
     private fun formatHeadingLabel(degrees: Float): String {

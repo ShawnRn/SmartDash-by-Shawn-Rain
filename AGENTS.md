@@ -366,7 +366,7 @@ Release 签名约定：
 
 ### 4.8 Google Drive 云同步
 - 已实现基于 Google Drive REST API 的跨设备数据同步
-- 使用 Google Sign-In OAuth 认证，最小权限 `drive.appdata`（仅访问应用专属文件夹）
+- 认证层已拆分为 `GoogleAccountAuth`（账号登录 / 当前账号）与 `GoogleDriveAuthorization`（`drive.appdata` scope / access token）
 - 加密方案：AES-256-GCM，密码派生密钥（Google 账号 email SHA-256），同账号跨设备可解密
 - 同步策略：润物细无声的 iCloud 式体验
   - App 启动时静默检查一次 Drive 更新（无后台轮询）
@@ -378,6 +378,7 @@ Release 签名约定：
 - 备份版本管理：文件名含时间戳，Drive 列表按时间倒序
 - 降级兼容：v1 设备绑定密钥（旧设备）→ v2 密码派生密钥（新设备）自动识别版本解密
 - OAuth Client ID 已更新为 `com.shawnrain.sdash` 包名：`8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.googleusercontent.com`
+- Android 系统自动备份已关闭（`android:allowBackup="false"`）；卸载重装后的恢复入口只允许走 Google Drive 或 LAN Restore
 
 ### 4.9 BLE 可靠性增强
 - `writeBytes()` 不再静默丢弃：返回 `WriteResult`，特征为 null 时记录警告

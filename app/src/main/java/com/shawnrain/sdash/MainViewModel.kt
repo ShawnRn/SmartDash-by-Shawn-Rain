@@ -889,6 +889,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _driveSyncState.value = SyncState.SigningIn
     }
 
+    fun failDriveSignIn(message: String) {
+        _driveSyncState.value = SyncState.Error(message)
+    }
+
     fun completeDriveSignIn() {
         viewModelScope.launch {
             try {

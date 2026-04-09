@@ -84,18 +84,8 @@ class DriveReconcileWorker(
         AppLogger.i(TAG, "Worker started: reason=$reason")
 
         return try {
-            // Reconcile = pull first, then push if there are pending mutations
-            val pullResult = coordinator.runPullNow(reason)
-            if (pullResult is com.shawnrain.sdash.data.sync.SyncRunResult.Success) {
-                val hasPending = mutationRepository.hasPendingMutations()
-                if (hasPending) {
-                    val pushResult = coordinator.runPushNow(SyncTriggerReason.NETWORK_RESTORED)
-                    AppLogger.i(TAG, "Reconcile complete: pull=${pullResult.notes}, push=${pushResult}")
-                } else {
-                    AppLogger.i(TAG, "Reconcile complete: pull only, no pending mutations")
-                }
-            }
-
+            val result = coordinator.runReconcileNow(reason)
+            AppLogger.i(TAG, "Reconcile finished: $result")
             Result.success()
         } catch (e: Exception) {
             AppLogger.e(TAG, "Worker exception", e)

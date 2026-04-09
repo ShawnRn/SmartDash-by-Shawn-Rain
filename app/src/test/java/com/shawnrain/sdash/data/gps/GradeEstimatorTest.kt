@@ -1,6 +1,7 @@
 package com.shawnrain.sdash.data.gps
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -123,6 +124,53 @@ class GradeEstimatorTest {
         assertTrue(lowSpeed.currentGradePercent in 0f..moving.currentGradePercent)
         assertEquals(moving.currentAltitudeMeters ?: 0.0, lowSpeed.currentAltitudeMeters ?: 0.0, 0.001)
         assertTrue(recovered.currentGradePercent > 0.5f)
+    }
+
+    @Test
+    fun longGapResetsGradeWindowButKeepsAltitudeFilterContinuous() {
+        val estimator = GradeEstimator()
+
+        estimator.update(sample(timestampMs = 0L, altitudeMeters = 100.0, speedKmh = 12f))
+        estimator.update(sample(timestampMs = 1_500L, latitude = 30.00012, altitudeMeters = 101.0, speedKmh = 12f))
+        val beforeGap = estimator.update(sample(timestampMs = 3_000L, latitude = 30.00024, altitudeMeters = 102.0, speedKmh = 12f))
+
+        val afterGap = estimator.update(sample(timestampMs = 20_000L, latitude = 30.00036, altitudeMeters = 106.0, speedKmh = 12f))
+        val resumed = estimator.update(sample(timestampMs = 21_500L, latitude = 30.00048, altitudeMeters = 107.0, speedKmh = 12f))
+
+        assertTrue(beforeGap.currentAltitudeMeters != null)
+        assertTrue(afterGap.currentAltitudeMeters != null)
+        assertTrue((afterGap.currentAltitudeMeters ?: 0.0) > (beforeGap.currentAltitudeMeters ?: 0.0))
+        assertEquals(0f, afterGap.currentGradePercent, 0.001f)
+        assertTrue(resumed.currentGradePercent > 0f)
+    }
+
+    @Test
+    fun gentleSlopeWithSmallAltitudeNoiseStaysStable() {
+        val estimator = GradeEstimator()
+        val grades = mutableListOf<Float>()
+
+        var timestampMs = 0L
+        val altitudes = listOf(100.0, 100.3, 100.7, 100.8, 101.2, 101.5, 101.7, 102.0, 102.3)
+        altitudes.forEachIndexed { index, altitude ->
+            val result = estimator.update(
+                sample(
+                    timestampMs = timestampMs,
+                    latitude = 30.0 + (index * 0.00012),
+                    altitudeMeters = altitude,
+                    speedKmh = 12f
+                )
+            )
+            grades += result.currentGradePercent
+            timestampMs += 1_500L
+        }
+
+        val nonZeroGrades = grades.filter { kotlin.math.abs(it) > 0.05f }
+        assertTrue(nonZeroGrades.isNotEmpty())
+        assertTrue(nonZeroGrades.all { it in 0f..5f })
+
+        val signFlips = nonZeroGrades.zipWithNext().count { (a, b) -> a > 0f && b < 0f || a < 0f && b > 0f }
+        assertEquals(0, signFlips)
+        assertFalse(nonZeroGrades.zipWithNext().any { (a, b) -> kotlin.math.abs(a - b) > 3.0f })
     }
 
     private fun sample(

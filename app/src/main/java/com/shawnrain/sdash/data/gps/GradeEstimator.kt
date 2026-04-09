@@ -160,6 +160,7 @@ class GradeEstimator {
                 )
             )
         } else if (last.timestampMs != timestampMs && abs(altitude - last.altitudeMeters) > 0.01) {
+            // Same distance bucket but a newer accepted altitude arrived; refresh the tail sample in place.
             gradeWindow.removeLast()
             gradeWindow.addLast(
                 last.copy(
@@ -226,6 +227,8 @@ class GradeEstimator {
     /**
      * Only resets grade-window state and the live grade output.
      * Keep altitude filtering state so short GPS interruptions do not create altitude jumps.
+     * This intentionally preserves the last filtered altitude across gaps, so altitude continuity
+     * is favored even though the first few resumed samples may still carry some prior context.
      */
     private fun resetGradeWindow() {
         gradeWindow.clear()

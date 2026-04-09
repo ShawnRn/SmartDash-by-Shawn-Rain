@@ -1,5 +1,6 @@
 package com.shawnrain.sdash.data.update
 
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -54,6 +55,7 @@ class AppUpdateManager(
      */
     suspend fun checkForUpdate(honorIgnoredTag: Boolean = true): Result<AppUpdatePackage?> = withContext(Dispatchers.IO) {
         runCatching {
+            reconcileInstalledUpdate(getInstalledVersion())
             val cachedEtag = prefs.etag.first()
             val request = Request.Builder()
                 .url(RELEASES_LATEST_URL)
@@ -254,16 +256,19 @@ class AppUpdateManager(
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
+    @Suppress("DEPRECATION")
     fun createInstallIntent(apkFile: File): Intent {
         val apkUri = FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
             apkFile
         )
-        return Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(apkUri, "application/vnd.android.package-archive")
+        return Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+            data = apkUri
+            clipData = ClipData.newRawUri(apkFile.name, apkUri)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
         }
     }
 
@@ -281,6 +286,27 @@ class AppUpdateManager(
 
     suspend fun ignoreRelease(tag: String) {
         prefs.setIgnoredTag(tag)
+    }
+
+    suspend fun markInstallLaunched(tag: String) {
+        prefs.markInstallPending(tag)
+    }
+
+    suspend fun reconcileInstalledUpdate(installed: InstalledAppVersion): Boolean = withContext(Dispatchers.IO) {
+        val pendingTag = prefs.installPendingTag.first()
+        val downloadedTag = prefs.downloadedTag.first()
+        val candidateTag = pendingTag ?: downloadedTag ?: return@withContext false
+        val candidateVersion = normalizeTag(candidateTag)
+        val installedOrNewer = compareSemanticVersion(installed.versionName, candidateVersion) >= 0
+        if (!installedOrNewer) {
+            if (pendingTag != null) prefs.clearInstallPending()
+            return@withContext false
+        }
+
+        prefs.clearInstallPending()
+        prefs.clearDownload()
+        AppLogger.i(TAG, "Detected installed app update tag=$candidateTag version=${installed.versionName}")
+        true
     }
 
     private fun isNewerThanInstalled(

@@ -17,6 +17,7 @@ class AppUpdatePreferences(private val context: Context) {
         private val IGNORED_TAG = stringPreferencesKey("ignored_tag")
         private val DOWNLOADED_TAG = stringPreferencesKey("downloaded_tag")
         private val DOWNLOADED_APK_PATH = stringPreferencesKey("downloaded_apk_path")
+        private val INSTALL_PENDING_TAG = stringPreferencesKey("install_pending_tag")
         private val ETAG = stringPreferencesKey("etag")
     }
 
@@ -25,6 +26,7 @@ class AppUpdatePreferences(private val context: Context) {
     val ignoredTag: Flow<String?> = context.updateDataStore.data.map { it[IGNORED_TAG] }
     val downloadedTag: Flow<String?> = context.updateDataStore.data.map { it[DOWNLOADED_TAG] }
     val downloadedApkPath: Flow<String?> = context.updateDataStore.data.map { it[DOWNLOADED_APK_PATH] }
+    val installPendingTag: Flow<String?> = context.updateDataStore.data.map { it[INSTALL_PENDING_TAG] }
     val etag: Flow<String?> = context.updateDataStore.data.map { it[ETAG] }
 
     suspend fun saveLastChecked(atMs: Long, tag: String?, etag: String?) {
@@ -47,6 +49,18 @@ class AppUpdatePreferences(private val context: Context) {
         context.updateDataStore.edit { prefs ->
             prefs[DOWNLOADED_TAG] = tag
             prefs[DOWNLOADED_APK_PATH] = path
+        }
+    }
+
+    suspend fun markInstallPending(tag: String) {
+        context.updateDataStore.edit { prefs ->
+            prefs[INSTALL_PENDING_TAG] = tag
+        }
+    }
+
+    suspend fun clearInstallPending() {
+        context.updateDataStore.edit { prefs ->
+            prefs.remove(INSTALL_PENDING_TAG)
         }
     }
 

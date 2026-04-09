@@ -7,6 +7,9 @@
         name="app_updates"
         path="app-updates/" />
     <files-path
+        name="internal_app_updates"
+        path="app-updates/" />
+    <files-path
         name="internal_exports"
         path="exports/" />
     <external-files-path

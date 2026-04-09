@@ -1369,10 +1369,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             else -> null
         } ?: return null
         val apkFile = File(apkPath).takeIf { it.exists() } ?: return null
-        viewModelScope.launch {
-            appUpdateManager.markInstallLaunched(pkg.tag)
+        return runCatching {
+            viewModelScope.launch {
+                appUpdateManager.markInstallLaunched(pkg.tag)
+            }
+            appUpdateManager.createInstallIntent(apkFile)
+        }.getOrElse { error ->
+            AppLogger.e(TAG, "Failed to create install intent", error)
+            viewModelScope.launch {
+                _appUpdateState.value = AppUpdateState.Error(
+                    currentVersion = appUpdateManager.getInstalledVersion(),
+                    message = "无法打开系统安装器，请重新下载更新",
+                    stage = "install"
+                )
+            }
+            null
         }
-        return appUpdateManager.createInstallIntent(apkFile)
     }
 
     fun createManageUnknownSourcesIntent(): Intent =

@@ -33,6 +33,7 @@ import com.shawnrain.sdash.data.gps.DirectionStabilizer
 import com.shawnrain.sdash.data.gps.DirectionInput
 import com.shawnrain.sdash.data.gps.DirectionSource
 import com.shawnrain.sdash.data.gps.DirectionLabelFormatter
+import com.shawnrain.sdash.data.gps.GradeEstimator
 import com.shawnrain.sdash.data.gps.GpsTracker
 import com.shawnrain.sdash.ble.protocols.WriteFailurePhase
 import com.shawnrain.sdash.ble.protocols.ZhikeParameterCatalog
@@ -73,6 +74,7 @@ import com.shawnrain.sdash.data.history.RideHistoryRecord
 import com.shawnrain.sdash.data.history.RideRecordNormalizer
 import com.shawnrain.sdash.data.history.RideMetricSample
 import com.shawnrain.sdash.data.history.RideTrackPoint
+import com.shawnrain.sdash.data.history.computeRideSummaryStats
 import com.shawnrain.sdash.data.telemetry.BatteryState
 import com.shawnrain.sdash.data.telemetry.BatteryStateEstimator
 import com.shawnrain.sdash.data.telemetry.RangeEstimate
@@ -216,6 +218,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val ENERGY_INTEGRATION_MIN_CURRENT_A = 0.8f
         private const val MAX_SOC_SOURCE_DEVIATION_PERCENT = 28f
         private const val SILENT_APP_UPDATE_THROTTLE_MS = 6 * 60 * 60 * 1000L
+        private const val RIDE_HISTORY_NORMALIZATION_VERSION_CURRENT = 1
     }
 
     private val bleManager = BleManager(application)
@@ -247,6 +250,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val headingTracker = HeadingTracker(application)
     private val directionStabilizer = DirectionStabilizer()
     private val directionLabelFormatter = DirectionLabelFormatter(hysteresisDeg = 12f)
+    private val gradeEstimator = GradeEstimator()
     private val autoConnectManager = AutoConnectManager(
         context = application,
         bleManager = bleManager,
@@ -391,6 +395,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         ProtocolParser.latestMetrics,
         BmsParser.metrics,
         gpsTracker.gpsSpeed,
+        gradeEstimator.currentGradePercent,
+        gradeEstimator.currentAltitudeMeters,
         speedSource,
         battDataSource,
         wheelCircumference,
@@ -403,19 +409,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val bleMetrics = args[0] as VehicleMetrics
         val bmsMetrics = args[1] as BmsMetrics
         val gpsSpeed = args[2] as Float
-        val sSource = args[3] as SpeedSource
-        val bSource = args[4] as DataSource
-        val wheelMm = args[5] as Float
-        val polePairCount = args[6] as Int
-        val rideActive = args[7] as Boolean
-        val activeProtocolId = args[8] as String?
-        val zhikeSettings = args[9] as ZhikeSettings?
-        val sample = args[10] as TelemetrySample?
+        val gradePercent = args[3] as Float
+        val altitudeMeters = args[4] as Double?
+        val sSource = args[5] as SpeedSource
+        val bSource = args[6] as DataSource
+        val wheelMm = args[7] as Float
+        val polePairCount = args[8] as Int
+        val rideActive = args[9] as Boolean
+        val activeProtocolId = args[10] as String?
+        val zhikeSettings = args[11] as ZhikeSettings?
+        val sample = args[12] as TelemetrySample?
 
         calculateVehicleMetrics(
             bleMetrics = bleMetrics,
             bmsMetrics = bmsMetrics,
             gpsSpeed = gpsSpeed,
+            gradePercent = gradePercent,
+            altitudeMeters = altitudeMeters,
             sSource = sSource,
             bSource = bSource,
             wheelCircumferenceMm = wheelMm,
@@ -480,6 +490,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bleMetrics: VehicleMetrics,
         bmsMetrics: BmsMetrics,
         gpsSpeed: Float,
+        gradePercent: Float,
+        altitudeMeters: Double?,
         sSource: SpeedSource,
         bSource: DataSource,
         wheelCircumferenceMm: Float,
@@ -597,7 +609,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             totalEnergyWh = if (rideActive) currentTripEnergyWh else 0.0f,
             recoveredEnergyWh = if (rideActive) accumulatorState.regenEnergyWh else 0.0f,
             peakRegenPowerKw = if (rideActive) accumulatorState.peakRegenPowerKw else 0.0f,
-            maxControllerTemp = if (rideActive) accumulatorState.maxControllerTempC else bleMetrics.controllerTemp
+            maxControllerTemp = if (rideActive) accumulatorState.maxControllerTempC else bleMetrics.controllerTemp,
+            gradePercent = gradePercent,
+            altitudeMeters = altitudeMeters?.toFloat()?.takeIf { it.isFinite() } ?: 0f
         )
     }
 
@@ -1518,7 +1532,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }.launchIn(viewModelScope)
 
         settingsRepository.rideHistory.onEach { history ->
-            _rideHistory.value = history
+            val normalizedHistory = normalizeRideHistoryRecords(history)
+            _rideHistory.value = normalizedHistory
+            if (normalizedHistory != history) {
+                viewModelScope.launch {
+                    settingsRepository.saveRideHistory(normalizedHistory)
+                    settingsRepository.saveRideHistoryNormalizationVersion(
+                        RIDE_HISTORY_NORMALIZATION_VERSION_CURRENT
+                    )
+                }
+            }
         }.launchIn(viewModelScope)
 
         currentVehicle.onEach { profile ->
@@ -1692,6 +1715,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val lastRideSummary: StateFlow<RideSession?> = _lastRideSummary.asStateFlow()
 
     private fun handleLocationUpdate(location: Location) {
+        gradeEstimator.update(location)
+
         if (_isRideActive.value && !isRidePausedForStop()) {
             _lastRideLocation = location
             val point = RideTrackPoint(location.latitude, location.longitude)
@@ -1817,6 +1842,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 regenEnergyWh = accState.regenEnergyWh,
                 recoveredEnergyWh = accState.regenEnergyWh,
                 maxControllerTemp = accState.maxControllerTempC,
+                gradePercent = metrics.gradePercent,
+                altitudeMeters = gradeEstimator.currentAltitudeMeters.value,
                 latitude = _lastRideLocation?.latitude,
                 longitude = _lastRideLocation?.longitude
             )
@@ -2177,10 +2204,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val finalDistanceMeters = energyNormalizedSamples.lastOrNull()?.distanceMeters?.takeIf { it > 1.0f }
             ?: distanceNormalized.distanceMeters
-        val maxSpeedKmh = maxOf(
-            distanceNormalized.maxSpeedKmh,
-            energyNormalizedSamples.maxOfOrNull { it.speedKmH } ?: 0.0f
-        )
+        val summaryStats = computeRideSummaryStats(distanceNormalized.copy(samples = energyNormalizedSamples))
+        val maxSpeedKmh = summaryStats.maxSpeedKmh
         val tractionEnergyWh = maxOf(
             distanceNormalized.tractionEnergyWh.coerceAtLeast(0.0f),
             energyNormalizedSamples.maxOfOrNull { it.tractionEnergyWh } ?: 0.0f
@@ -2204,11 +2229,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             distanceNormalized.avgTractionEfficiencyWhKm
         }
-        val avgSpeedKmh = if (distanceNormalized.durationMs > 0L && finalDistanceMeters > 1.0f) {
-            (finalDistanceMeters / 1000.0f) / (distanceNormalized.durationMs.toFloat() / 3_600_000.0f)
-        } else {
-            distanceNormalized.avgSpeedKmh
-        }
+        val avgSpeedKmh = summaryStats.avgSpeedKmh
         return distanceNormalized.copy(
             distanceMeters = finalDistanceMeters,
             maxSpeedKmh = maxSpeedKmh,
@@ -3282,6 +3303,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "regen_energy_wh",
             "recovered_energy_wh",
             "max_controller_temp_c",
+            "grade_percent",
+            "altitude_m",
             "latitude",
             "longitude"
         ).joinToString(",")
@@ -3310,6 +3333,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         csvNumber(sample.regenEnergyWh),
                         csvNumber(sample.recoveredEnergyWh),
                         csvNumber(sample.maxControllerTemp),
+                        csvNumber(sample.gradePercent),
+                        csvNumber(sample.altitudeMeters),
                         sample.latitude?.toString().orEmpty(),
                         sample.longitude?.toString().orEmpty()
                     ).joinToString(",")

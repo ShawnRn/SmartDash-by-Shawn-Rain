@@ -72,7 +72,7 @@ class DrivePushWorker(
     private val mutationRepository by lazy { PendingMutationRepository(applicationContext) }
     private val stateSerializer by lazy { DriveStateSerializer(applicationContext, settingsRepository) }
     private val stateMerger by lazy { DriveStateMerger(applicationContext, settingsRepository) }
-    private val manifestRepository by lazy { DriveManifestRepository(applicationContext, driveSyncManager) }
+    private val manifestRepository by lazy { DriveManifestRepository(driveSyncManager) }
     private val coordinator by lazy {
         DriveSyncCoordinator(
             context = applicationContext,

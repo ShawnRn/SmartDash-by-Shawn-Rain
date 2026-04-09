@@ -59,7 +59,7 @@ class DriveReconcileWorker(
     private val mutationRepository by lazy { com.shawnrain.sdash.data.sync.PendingMutationRepository(applicationContext) }
     private val stateSerializer by lazy { com.shawnrain.sdash.data.sync.DriveStateSerializer(applicationContext, settingsRepository) }
     private val stateMerger by lazy { com.shawnrain.sdash.data.sync.DriveStateMerger(applicationContext, settingsRepository) }
-    private val manifestRepository by lazy { com.shawnrain.sdash.data.sync.DriveManifestRepository(applicationContext, driveSyncManager) }
+    private val manifestRepository by lazy { com.shawnrain.sdash.data.sync.DriveManifestRepository(driveSyncManager) }
     private val coordinator by lazy {
         com.shawnrain.sdash.data.sync.DriveSyncCoordinator(
             context = applicationContext,

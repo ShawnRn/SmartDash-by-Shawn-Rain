@@ -67,7 +67,7 @@ class PeriodicDriveSyncWorker(
 
     private val driveSyncManager by lazy { GoogleDriveSyncManager(applicationContext) }
     private val metadataRepository by lazy { SyncMetadataRepository(applicationContext) }
-    private val manifestRepository by lazy { DriveManifestRepository(applicationContext, driveSyncManager) }
+    private val manifestRepository by lazy { DriveManifestRepository(driveSyncManager) }
 
     override suspend fun doWork(): Result {
         AppLogger.d(TAG, "Periodic sync check started")

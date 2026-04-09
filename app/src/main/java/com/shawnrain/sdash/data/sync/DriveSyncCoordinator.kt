@@ -40,6 +40,14 @@ class DriveSyncCoordinator(
     private val _syncState = MutableStateFlow<SyncStateV2>(SyncStateV2.Idle)
     val syncState: StateFlow<SyncStateV2> = _syncState.asStateFlow()
 
+    private data class PreparedStateUpload(
+        val stateVersion: Long,
+        val checksum: String,
+        val encryptedPayload: ByteArray,
+        val stateFileName: String,
+        val currentState: DriveCurrentState
+    )
+
     /**
      * Schedule a push (enqueue WorkManager worker or run immediately).
      * For now, runs push directly. In a future iteration, this can delegate to WorkManager.
@@ -103,40 +111,14 @@ class DriveSyncCoordinator(
                 }
             }
 
-            // Build current state
-            val newStateVersion = metadata.localStateVersion + 1
-            val currentState = stateSerializer.buildCurrentState(
-                stateVersion = newStateVersion,
-                deviceId = metadata.deviceId,
-                deviceName = metadata.deviceName
-            )
-
-            // Serialize and encrypt
-            val stateBytes = stateSerializer.serialize(currentState)
-            val checksum = stateSerializer.computeChecksum(stateBytes)
-
-            // Upload current state (already encrypted by driveSyncManager)
-            // For V2, we need to encrypt before uploading raw
-            val password = deriveEncryptionPassword()
-            val encrypted = com.shawnrain.sdash.data.sync.EncryptionService.encryptWithPassword(stateBytes, password)
-            val encryptedPayload = encrypted.toJson().toByteArray(Charsets.UTF_8)
-
-            manifestRepository.uploadCurrentState(encryptedPayload).getOrElse { throw it }
+            val preparedUpload = prepareStateUpload(metadata)
+            manifestRepository.uploadCurrentState(
+                preparedUpload.stateFileName,
+                preparedUpload.encryptedPayload
+            ).getOrElse { throw it }
 
             // Build and upload manifest
-            val manifest = DriveChangeManifest(
-                schemaVersion = SYNC_ENGINE_VERSION,
-                stateVersion = newStateVersion,
-                updatedAt = System.currentTimeMillis(),
-                updatedByDeviceId = metadata.deviceId,
-                updatedByDeviceName = metadata.deviceName,
-                checksum = checksum,
-                entityCounters = EntityCounters(
-                    rideCount = currentState.rides.size,
-                    speedTestCount = currentState.speedTests.size,
-                    vehicleProfileCount = currentState.vehicleProfiles.size
-                )
-            )
+            val manifest = buildManifest(preparedUpload, metadata)
             manifestRepository.uploadRemoteManifest(manifest).getOrElse { throw it }
 
             // Mark mutations as synced
@@ -145,12 +127,15 @@ class DriveSyncCoordinator(
             }
 
             // Update metadata
-            metadataRepository.recordPushSuccess(context, newStateVersion)
+            metadataRepository.recordPushSuccess(context, preparedUpload.stateVersion)
             metadataRepository.incrementLocalStateVersion(context)
 
             _syncState.value = SyncStateV2.Synced(System.currentTimeMillis(), reason)
 
-            AppLogger.i(TAG, "Push complete: stateVersion=$newStateVersion, mutations=${pendingMutations.size}")
+            AppLogger.i(
+                TAG,
+                "Push complete: stateVersion=${preparedUpload.stateVersion}, mutations=${pendingMutations.size}"
+            )
             SyncRunResult.Success(
                 reason = reason,
                 notes = listOf(
@@ -209,72 +194,106 @@ class DriveSyncCoordinator(
             }
 
             // Download current state
-            val encryptedStateBytes = manifestRepository.downloadCurrentState().getOrElse {
+            val encryptedStateBytes = manifestRepository.downloadCurrentState(remoteManifest.currentStateFileName).getOrElse {
                 _syncState.value = SyncStateV2.Idle
                 return@withContext SyncRunResult.Skipped(it.message ?: "云端缺少当前同步状态文件")
             }
 
             // Decrypt
             val password = deriveEncryptionPassword()
-            val encryptedJson = String(encryptedStateBytes, Charsets.UTF_8)
-            val encrypted = com.shawnrain.sdash.data.sync.EncryptedBackup.fromJson(encryptedJson)
-            val stateBytes = if (encrypted.version >= 2) {
-                com.shawnrain.sdash.data.sync.EncryptionService.decryptWithPassword(encrypted, password)
-            } else {
-                com.shawnrain.sdash.data.sync.EncryptionService.decrypt(encrypted)
-            }
-
-            val remoteState = stateSerializer.deserialize(stateBytes)
+            val stateBytes = decryptStateBytes(encryptedStateBytes, password)
 
             // Verify checksum
             val expectedChecksum = remoteManifest.checksum
             if (expectedChecksum.isNotEmpty()) {
                 val actualChecksum = stateSerializer.computeChecksum(stateBytes)
                 if (actualChecksum != expectedChecksum) {
+                    val refreshedManifest = manifestRepository.fetchRemoteManifest()
+                    if (refreshedManifest != null && refreshedManifest.stateVersion >= remoteManifest.stateVersion) {
+                        val retriedBytes = manifestRepository
+                            .downloadCurrentState(refreshedManifest.currentStateFileName)
+                            .getOrElse { throw it }
+                        val retriedStateBytes = decryptStateBytes(retriedBytes, password)
+                        val retriedChecksum = stateSerializer.computeChecksum(retriedStateBytes)
+                        if (retriedChecksum != refreshedManifest.checksum) {
+                            throw IllegalStateException(
+                                "Checksum mismatch: expected=${refreshedManifest.checksum}, actual=$retriedChecksum"
+                            )
+                        }
+                        return@withContext applyPulledState(
+                            remoteManifest = refreshedManifest,
+                            stateBytes = retriedStateBytes,
+                            metadata = metadata,
+                            reason = reason
+                        )
+                    }
                     throw IllegalStateException("Checksum mismatch: expected=$expectedChecksum, actual=$actualChecksum")
                 }
             }
-
-            // Build local state for merging
-            val localState = stateSerializer.buildCurrentState(
-                stateVersion = metadata.localStateVersion,
-                deviceId = metadata.deviceId,
-                deviceName = metadata.deviceName
+            applyPulledState(
+                remoteManifest = remoteManifest,
+                stateBytes = stateBytes,
+                metadata = metadata,
+                reason = reason
             )
-
-            // Merge
-            val mergeResult = stateMerger.merge(localState, remoteState, metadata)
-
-            if (mergeResult.changedRemotely) {
-                // Apply merged state to local
-                applyMergedState(mergeResult)
-
-                // Update metadata
-                metadataRepository.recordPullSuccess(context, remoteManifest.stateVersion)
-            }
-
-            if (mutationRepository.hasPendingMutations()) {
-                AppLogger.i(TAG, "Local pending mutations remain after pull, scheduling follow-up push")
-                runPushNow(SyncTriggerReason.NETWORK_RESTORED)
-            }
-
-            _syncState.value = SyncStateV2.Synced(System.currentTimeMillis(), reason)
-
-            val notes = if (
-                mergeResult.notes.size == 1 &&
-                mergeResult.notes.first() == "云端和本地都没有新的资料变更"
-            ) {
-                listOf("云端和本地都没有新的资料变更")
-            } else {
-                mergeResult.notes + listOf("已同步到最新云端数据")
-            }
-            AppLogger.i(TAG, "Pull complete: ${notes.joinToString("; ")}")
-            SyncRunResult.Success(reason = reason, notes = notes)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Pull failed", e)
             metadataRepository.recordSyncError(context, e.message ?: "Unknown error")
             _syncState.value = SyncStateV2.Error(e.message ?: "Pull failed", reason)
             SyncRunResult.Failure(reason, e)
+        }
+    }
+
+    private suspend fun prepareStateUpload(metadata: SyncMetadata): PreparedStateUpload {
+        val stateVersion = metadata.localStateVersion + 1
+        val currentState = stateSerializer.buildCurrentState(
+            stateVersion = stateVersion,
+            deviceId = metadata.deviceId,
+            deviceName = metadata.deviceName
+        )
+        val stateBytes = stateSerializer.serialize(currentState)
+        val checksum = stateSerializer.computeChecksum(stateBytes)
+        val password = deriveEncryptionPassword()
+        val encrypted = com.shawnrain.sdash.data.sync.EncryptionService.encryptWithPassword(stateBytes, password)
+        return PreparedStateUpload(
+            stateVersion = stateVersion,
+            checksum = checksum,
+            encryptedPayload = encrypted.toJson().toByteArray(Charsets.UTF_8),
+            stateFileName = "current_state_v${stateVersion}.json.enc",
+            currentState = currentState
+        )
+    }
+
+    private fun buildManifest(
+        preparedUpload: PreparedStateUpload,
+        metadata: SyncMetadata
+    ): DriveChangeManifest {
+        return DriveChangeManifest(
+            schemaVersion = SYNC_ENGINE_VERSION,
+            stateVersion = preparedUpload.stateVersion,
+            updatedAt = System.currentTimeMillis(),
+            updatedByDeviceId = metadata.deviceId,
+            updatedByDeviceName = metadata.deviceName,
+            checksum = preparedUpload.checksum,
+            entityCounters = EntityCounters(
+                rideCount = preparedUpload.currentState.rides.size,
+                speedTestCount = preparedUpload.currentState.speedTests.size,
+                vehicleProfileCount = preparedUpload.currentState.vehicleProfiles.size
+            ),
+            currentStateFileName = preparedUpload.stateFileName
+        )
+    }
+
+    private fun decryptStateBytes(
+        encryptedStateBytes: ByteArray,
+        password: String
+    ): ByteArray {
+        val encryptedJson = String(encryptedStateBytes, Charsets.UTF_8)
+        val encrypted = com.shawnrain.sdash.data.sync.EncryptedBackup.fromJson(encryptedJson)
+        return if (encrypted.version >= 2) {
+            com.shawnrain.sdash.data.sync.EncryptionService.decryptWithPassword(encrypted, password)
+        } else {
+            com.shawnrain.sdash.data.sync.EncryptionService.decrypt(encrypted)
         }
     }
 
@@ -286,6 +305,46 @@ class DriveSyncCoordinator(
         if (mergeResult.settingsUpdated) AppLogger.i(TAG, "Settings merged from remote")
         if (mergeResult.profilesMerged > 0) AppLogger.i(TAG, "${mergeResult.profilesMerged} vehicle profiles merged")
         if (mergeResult.ridesMerged > 0) AppLogger.i(TAG, "${mergeResult.ridesMerged} rides merged")
+    }
+
+    private suspend fun applyPulledState(
+        remoteManifest: DriveChangeManifest,
+        stateBytes: ByteArray,
+        metadata: SyncMetadata,
+        reason: SyncTriggerReason
+    ): SyncRunResult {
+        val remoteState = stateSerializer.deserialize(stateBytes)
+
+        val localState = stateSerializer.buildCurrentState(
+            stateVersion = metadata.localStateVersion,
+            deviceId = metadata.deviceId,
+            deviceName = metadata.deviceName
+        )
+
+        val mergeResult = stateMerger.merge(localState, remoteState, metadata)
+
+        if (mergeResult.changedRemotely) {
+            applyMergedState(mergeResult)
+            metadataRepository.recordPullSuccess(context, remoteManifest.stateVersion)
+        }
+
+        if (mutationRepository.hasPendingMutations()) {
+            AppLogger.i(TAG, "Local pending mutations remain after pull, scheduling follow-up push")
+            runPushNow(SyncTriggerReason.NETWORK_RESTORED)
+        }
+
+        _syncState.value = SyncStateV2.Synced(System.currentTimeMillis(), reason)
+
+        val notes = if (
+            mergeResult.notes.size == 1 &&
+            mergeResult.notes.first() == "云端和本地都没有新的资料变更"
+        ) {
+            listOf("云端和本地都没有新的资料变更")
+        } else {
+            mergeResult.notes + listOf("已同步到最新云端数据")
+        }
+        AppLogger.i(TAG, "Pull complete: ${notes.joinToString("; ")}")
+        return SyncRunResult.Success(reason = reason, notes = notes)
     }
 
     /**
@@ -351,7 +410,8 @@ class DriveSyncCoordinator(
             val encrypted = com.shawnrain.sdash.data.sync.EncryptionService.encryptWithPassword(stateBytes, password)
             val encryptedPayload = encrypted.toJson().toByteArray(Charsets.UTF_8)
 
-            manifestRepository.uploadCurrentState(encryptedPayload).getOrElse { throw it }
+            val stateFileName = "current_state_v${newStateVersion}.json.enc"
+            manifestRepository.uploadCurrentState(stateFileName, encryptedPayload).getOrElse { throw it }
 
             val manifest = DriveChangeManifest(
                 schemaVersion = SYNC_ENGINE_VERSION,
@@ -364,7 +424,8 @@ class DriveSyncCoordinator(
                     rideCount = currentState.rides.size,
                     speedTestCount = currentState.speedTests.size,
                     vehicleProfileCount = currentState.vehicleProfiles.size
-                )
+                ),
+                currentStateFileName = stateFileName
             )
             manifestRepository.uploadRemoteManifest(manifest).getOrElse { throw it }
 

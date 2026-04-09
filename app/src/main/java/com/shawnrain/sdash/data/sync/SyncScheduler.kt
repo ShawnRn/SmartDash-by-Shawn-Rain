@@ -168,7 +168,7 @@ class SyncScheduler(
                 val driveSyncManager = GoogleDriveSyncManager(context)
                 val stateSerializer = DriveStateSerializer(context, settingsRepository)
                 val stateMerger = DriveStateMerger(context, settingsRepository)
-                val manifestRepository = DriveManifestRepository(context, driveSyncManager)
+                val manifestRepository = DriveManifestRepository(driveSyncManager)
                 val coordinator = DriveSyncCoordinator(
                     context = context,
                     driveSyncManager = driveSyncManager,

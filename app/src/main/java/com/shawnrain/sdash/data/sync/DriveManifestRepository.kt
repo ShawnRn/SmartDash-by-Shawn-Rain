@@ -1,7 +1,5 @@
 package com.shawnrain.sdash.data.sync
 
-import android.content.Context
-import com.shawnrain.sdash.data.sync.GoogleDriveSyncManager
 import com.shawnrain.sdash.debug.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -13,7 +11,6 @@ import java.security.MessageDigest
  * Manages reading/writing the change manifest on Google Drive.
  */
 class DriveManifestRepository(
-    private val context: Context,
     private val driveSyncManager: GoogleDriveSyncManager
 ) {
     companion object {
@@ -66,12 +63,12 @@ class DriveManifestRepository(
     /**
      * Upload the current state (encrypted) to Google Drive.
      */
-    suspend fun uploadCurrentState(stateBytes: ByteArray): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun uploadCurrentState(fileName: String, stateBytes: ByteArray): Result<String> = withContext(Dispatchers.IO) {
         try {
             // The state is already encrypted by the caller
-            driveSyncManager.uploadRawFile(CURRENT_STATE_FILE_NAME, stateBytes)
-            AppLogger.i(TAG, "Current state uploaded: ${stateBytes.size} bytes")
-            Result.success(CURRENT_STATE_FILE_NAME)
+            driveSyncManager.uploadRawFile(fileName, stateBytes)
+            AppLogger.i(TAG, "Current state uploaded: ${stateBytes.size} bytes -> $fileName")
+            Result.success(fileName)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to upload current state", e)
             Result.failure(e)
@@ -81,11 +78,17 @@ class DriveManifestRepository(
     /**
      * Download the current state (encrypted) from Google Drive.
      */
-    suspend fun downloadCurrentState(): Result<ByteArray> = withContext(Dispatchers.IO) {
+    suspend fun downloadCurrentState(fileName: String): Result<ByteArray> = withContext(Dispatchers.IO) {
         try {
-            val stateBytes = driveSyncManager.downloadRawFile(CURRENT_STATE_FILE_NAME).getOrNull()
+            val resolvedFileName = fileName.ifBlank { CURRENT_STATE_FILE_NAME }
+            val stateBytes = driveSyncManager.downloadRawFile(resolvedFileName).getOrNull()
+                ?: if (resolvedFileName != CURRENT_STATE_FILE_NAME) {
+                    driveSyncManager.downloadRawFile(CURRENT_STATE_FILE_NAME).getOrNull()
+                } else {
+                    null
+                }
             if (stateBytes != null) {
-                AppLogger.i(TAG, "Current state downloaded: ${stateBytes.size} bytes")
+                AppLogger.i(TAG, "Current state downloaded: ${stateBytes.size} bytes <- $resolvedFileName")
                 Result.success(stateBytes)
             } else {
                 Result.failure(Exception("No V2 current state found"))

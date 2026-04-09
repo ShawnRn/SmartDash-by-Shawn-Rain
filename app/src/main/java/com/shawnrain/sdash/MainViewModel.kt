@@ -228,7 +228,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val pendingMutationRepository = PendingMutationRepository(application)
     private val driveStateSerializer = DriveStateSerializer(application, settingsRepository)
     private val driveStateMerger = DriveStateMerger(application, settingsRepository)
-    private val driveManifestRepository = DriveManifestRepository(application, driveSyncManager)
+    private val driveManifestRepository = DriveManifestRepository(driveSyncManager)
     private val driveSyncCoordinator = DriveSyncCoordinator(
         context = application,
         driveSyncManager = driveSyncManager,

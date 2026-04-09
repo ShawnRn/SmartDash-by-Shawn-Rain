@@ -146,13 +146,6 @@ data class DriveBackupPreviewUiState(
     val errorMessage: String? = null
 )
 
-private val EmptyAppUpdateState = AppUpdateState.Idle(
-    currentVersion = InstalledAppVersion(
-        versionName = "0.0.0",
-        versionCode = 0L
-    )
-)
-
 private data class PendingRideStopSnapshot(
     val tripDistanceMeters: Float,
     val lastRideLocation: Location?,
@@ -848,7 +841,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val driveSyncState: StateFlow<SyncState> = _driveSyncState.asStateFlow()
     private val _driveBackupPreview = MutableStateFlow(DriveBackupPreviewUiState())
     val driveBackupPreview: StateFlow<DriveBackupPreviewUiState> = _driveBackupPreview.asStateFlow()
-    private val _appUpdateState = MutableStateFlow<AppUpdateState>(EmptyAppUpdateState)
+    private val _appUpdateState = MutableStateFlow<AppUpdateState>(
+        AppUpdateState.Idle(appUpdateManager.getInstalledVersion())
+    )
     val appUpdateState: StateFlow<AppUpdateState> = _appUpdateState.asStateFlow()
     private val _appUpdateLastCheckedAt = MutableStateFlow(0L)
     val appUpdateLastCheckedAt: StateFlow<Long> = _appUpdateLastCheckedAt.asStateFlow()
@@ -1330,12 +1325,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun createInstallDownloadedAppUpdateIntent(): Intent? {
         val state = appUpdateState.value
+        val pkg = when (state) {
+            is AppUpdateState.Downloaded -> state.pkg
+            is AppUpdateState.InstallPermissionRequired -> state.pkg
+            else -> null
+        } ?: return null
         val apkPath = when (state) {
             is AppUpdateState.Downloaded -> state.apkPath
             is AppUpdateState.InstallPermissionRequired -> state.apkPath
             else -> null
         } ?: return null
         val apkFile = File(apkPath).takeIf { it.exists() } ?: return null
+        viewModelScope.launch {
+            appUpdateManager.markInstallLaunched(pkg.tag)
+        }
         return appUpdateManager.createInstallIntent(apkFile)
     }
 

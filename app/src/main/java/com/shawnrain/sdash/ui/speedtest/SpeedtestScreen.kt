@@ -3051,9 +3051,9 @@ private fun buildSingleMetricMermaid(
     samples: List<RideMetricSample>,
     metric: RideChartMetric
 ): String {
-    val sampled = downsampleForMermaid(samples)
+    val sampled = downsampleForMermaid(samples, maxPoints = 72)
     if (sampled.isEmpty()) return ""
-    val xValues = sampled.indices.map { it.toFloat() }
+    val xValues = sampled.map { it.elapsedMs / 1000.0f }
     val yValues = smoothSeries(sampled.map { it.metricValue(metric) })
     val minValue = yValues.minOfOrNull { it } ?: 0.0f
     val maxValue = yValues.maxOfOrNull { it } ?: minValue
@@ -3069,10 +3069,12 @@ private fun buildSingleMetricMermaid(
         appendLine("%%{init: {'theme': 'dark'}}%%")
         appendLine("%% 导入 draw.io 时请直接粘贴本段纯 Mermaid 文本")
         appendLine("%% 时间范围: ${formatAxisDuration(sampled.first().elapsedMs)} -> ${formatAxisDuration(sampled.last().elapsedMs)}")
-        appendLine("%% 导出点数: ${sampled.size}（已降采样）")
+        appendLine("%% 原始点数: ${samples.size} | 导出点数: ${sampled.size}（已降采样）")
+        appendLine("%% 绝对值统计: ${buildMetricAbsoluteStats(metric, sampled)}")
+        appendLine("%% 绝对值序列(${metric.unit}): [${sampled.map { formatMermaidValueNumber(it.metricValue(metric)) }.joinToString(", ")}]")
         appendLine("xychart-beta")
         appendLine("    title \"${escapeMermaidText(title)} - ${escapeMermaidText(metric.title)}\"")
-        appendLine("    x-axis \"采样序列\" ${formatMermaidAxisNumber(xMin)} --> ${formatMermaidAxisNumber(xMax)}")
+        appendLine("    x-axis \"时间(s)\" ${formatMermaidAxisNumber(xMin)} --> ${formatMermaidAxisNumber(xMax)}")
         appendLine("    y-axis \"${escapeMermaidText(metricLabel)}\" ${formatMermaidValueNumber(yMin)} --> ${formatMermaidValueNumber(yMax)}")
         appendLine("    line \"${escapeMermaidText(metric.title)}\" [${yValues.joinToString(", ") { formatMermaidValueNumber(it) }}]")
     }
@@ -3083,22 +3085,22 @@ private fun buildMultiMetricMermaid(
     samples: List<RideMetricSample>,
     metrics: List<RideChartMetric>
 ): String {
-    val sampled = downsampleForMermaid(samples)
+    val sampled = downsampleForMermaid(samples, maxPoints = 72)
     val distinctMetrics = metrics.distinct().take(6)
     if (sampled.isEmpty() || distinctMetrics.isEmpty()) return ""
-    val xValues = sampled.indices.map { it.toDouble() }
+    val xValues = sampled.map { it.elapsedMs / 1000.0 }
     val xPadding = 2.0
     val xMin = -xPadding
     val xMax = (xValues.lastOrNull() ?: 0.0) + xPadding
     return buildString {
         appendLine("%%{init: {'theme': 'dark'}}%%")
         appendLine("%% 导入 draw.io 时请直接粘贴本段纯 Mermaid 文本")
-        appendLine("%% 多参数已归一化到 0-100%，便于同图对照")
+        appendLine("%% 第一张图是归一化 0-100% 对照；下方注释保留各参数绝对值统计与绝对值序列")
         appendLine("%% 时间范围: ${formatAxisDuration(sampled.first().elapsedMs)} -> ${formatAxisDuration(sampled.last().elapsedMs)}")
-        appendLine("%% 导出点数: ${sampled.size}（已降采样）")
+        appendLine("%% 原始点数: ${samples.size} | 导出点数: ${sampled.size}（已降采样）")
         appendLine("xychart-beta")
         appendLine("    title \"${escapeMermaidText(title)} - 参数对照图\"")
-        appendLine("    x-axis \"采样序列\" ${formatMermaidAxisNumber(xMin)} --> ${formatMermaidAxisNumber(xMax)}")
+        appendLine("    x-axis \"时间(s)\" ${formatMermaidAxisNumber(xMin)} --> ${formatMermaidAxisNumber(xMax)}")
         appendLine("    y-axis \"归一化(%)\" -8 --> 108")
         distinctMetrics.forEach { metric ->
             val rawValues = sampled.map { it.metricValue(metric) }
@@ -3114,7 +3116,9 @@ private fun buildMultiMetricMermaid(
                     rawValues.map { ((it - lowerBound) / span * 100f).coerceIn(2f, 98f) }
                 )
             }
-            appendLine("%% ${escapeMermaidText(metric.title)} (${metric.unit}) min=${formatMermaidValueNumber(minValue)} max=${formatMermaidValueNumber(maxValue)}")
+            appendLine("%% ${escapeMermaidText(metric.title)} (${metric.unit}) 绝对值统计: ${buildMetricAbsoluteStats(metric, sampled)}")
+            appendLine("%% ${escapeMermaidText(metric.title)} (${metric.unit}) 绝对值序列: [${rawValues.joinToString(", ") { formatMermaidValueNumber(it) }}]")
+            appendLine("%% ${escapeMermaidText(metric.title)} (${metric.unit}) 归一化锚点: p05=${formatMermaidValueNumber(lowerBound)} p95=${formatMermaidValueNumber(upperBound)} min=${formatMermaidValueNumber(minValue)} max=${formatMermaidValueNumber(maxValue)}")
             appendLine("    line \"${escapeMermaidText(metric.title)}\" [${normalized.joinToString(", ") { formatMermaidValueNumber(it) }}]")
         }
     }
@@ -3122,7 +3126,7 @@ private fun buildMultiMetricMermaid(
 
 private fun downsampleForMermaid(
     samples: List<RideMetricSample>,
-    maxPoints: Int = 28
+    maxPoints: Int = 72
 ): List<RideMetricSample> {
     if (samples.size <= maxPoints) return samples
     val step = samples.lastIndex.toFloat() / (maxPoints - 1).coerceAtLeast(1)
@@ -3132,6 +3136,20 @@ private fun downsampleForMermaid(
             samples[sampleIndex]
         }
         .distinctBy { it.elapsedMs to it.distanceMeters }
+}
+
+private fun buildMetricAbsoluteStats(
+    metric: RideChartMetric,
+    samples: List<RideMetricSample>
+): String {
+    val values = samples.map { it.metricValue(metric) }.filter { it.isFinite() }
+    if (values.isEmpty()) return "无有效数据"
+    val minValue = values.minOrNull() ?: 0.0f
+    val maxValue = values.maxOrNull() ?: 0.0f
+    val avgValue = robustAverage(values)
+    val medianValue = percentile(values, 0.50f)
+    val currentValue = values.lastOrNull() ?: 0.0f
+    return "current=${formatMermaidValueNumber(currentValue)} ${metric.unit}, avg=${formatMermaidValueNumber(avgValue)} ${metric.unit}, median=${formatMermaidValueNumber(medianValue)} ${metric.unit}, min=${formatMermaidValueNumber(minValue)} ${metric.unit}, max=${formatMermaidValueNumber(maxValue)} ${metric.unit}"
 }
 
 private fun escapeMermaidText(text: String): String =

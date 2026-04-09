@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
+import android.widget.Toast
 import android.graphics.Color as AndroidColor
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -222,7 +223,7 @@ fun SettingsScreen(
         context.startActivity(
             Intent(
                 Intent.ACTION_SENDTO,
-                Uri.parse("mailto:shawnrain.dev@gmail.com")
+                Uri.parse("mailto:shawnrain.me@gmail.com")
             )
         )
     }
@@ -1276,12 +1277,20 @@ fun SettingsScreen(
                         showAppUpdateSheet = false
                     },
                     onInstall = {
-                        val intent = if (viewModel.canInstallDownloadedAppUpdate()) {
+                        val canInstallDownloaded = viewModel.canInstallDownloadedAppUpdate()
+                        val intent = if (canInstallDownloaded) {
                             viewModel.createInstallDownloadedAppUpdateIntent()
                         } else {
                             viewModel.createManageUnknownSourcesIntent()
                         }
                         if (intent != null) {
+                            if (canInstallDownloaded) {
+                                Toast.makeText(
+                                    context,
+                                    "即将交给系统安装器处理，SmartDash 可能会暂时关闭",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
                             context.startActivity(intent)
                         }
                     },
@@ -1515,7 +1524,7 @@ private fun AboutSmartDashDialog(
                         AboutSmartDashActionRow(
                             icon = Icons.Default.Email,
                             title = "邮箱",
-                            value = "shawnrain.dev@gmail.com",
+                            value = "shawnrain.me@gmail.com",
                             supporting = "反馈问题或联系作者",
                             onClick = onSendEmail
                         )

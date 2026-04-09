@@ -63,7 +63,7 @@ class DriveSyncCoordinator(
     suspend fun runReconcileNow(reason: SyncTriggerReason): SyncRunResult {
         val pullResult = runPullNow(reason)
         if (pullResult is SyncRunResult.Failure) return pullResult
-        return if (mutationRepository.hasPendingMutations()) {
+        return if (mutationRepository.hasPendingMutations() || shouldForceFullStatePush(reason)) {
             runPushNow(reason)
         } else {
             pullResult
@@ -153,7 +153,13 @@ class DriveSyncCoordinator(
             AppLogger.i(TAG, "Push complete: stateVersion=$newStateVersion, mutations=${pendingMutations.size}")
             SyncRunResult.Success(
                 reason = reason,
-                notes = listOf("本地变更已上传到云端")
+                notes = listOf(
+                    if (pendingMutations.isEmpty()) {
+                        "已将本地完整资料补传到云端"
+                    } else {
+                        "本地变更已上传到云端"
+                    }
+                )
             )
         } catch (e: Exception) {
             AppLogger.e(TAG, "Push failed", e)
@@ -369,5 +375,36 @@ class DriveSyncCoordinator(
             AppLogger.e(TAG, "V2 sync initialization failed", e)
             Result.failure(e)
         }
+    }
+
+    private suspend fun shouldForceFullStatePush(reason: SyncTriggerReason): Boolean = withContext(Dispatchers.IO) {
+        if (reason != SyncTriggerReason.MANUAL_SYNC &&
+            reason != SyncTriggerReason.AUTH_SUCCESS &&
+            reason != SyncTriggerReason.APP_FOREGROUND
+        ) {
+            return@withContext false
+        }
+
+        val metadata = metadataRepository.getMetadata(context)
+        val remoteManifest = manifestRepository.fetchRemoteManifest()
+        val localState = stateSerializer.buildCurrentState(
+            stateVersion = metadata.localStateVersion,
+            deviceId = metadata.deviceId,
+            deviceName = metadata.deviceName
+        )
+
+        val localHasMeaningfulData = localState.rides.isNotEmpty() ||
+            localState.speedTests.isNotEmpty() ||
+            localState.vehicleProfiles.size > 1
+
+        if (!localHasMeaningfulData) return@withContext false
+        if (metadata.lastPushedLocalVersion == 0L) return@withContext true
+        if (remoteManifest == null) return@withContext true
+
+        val remoteLooksEmpty = remoteManifest.entityCounters.rideCount == 0 &&
+            remoteManifest.entityCounters.speedTestCount == 0 &&
+            remoteManifest.entityCounters.vehicleProfileCount <= 1
+
+        remoteLooksEmpty
     }
 }

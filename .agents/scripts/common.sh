@@ -5,10 +5,15 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="$PROJECT_ROOT/.agents/logs"
 ARTIFACT_DIR="$PROJECT_ROOT/.agents/artifacts"
+JAVA_HOME_DEFAULT="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
 
 export ANDROID_HOME="${ANDROID_HOME:-/Users/shawnrain/android-sdk}"
-export JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home}"
+export JAVA_HOME="${JAVA_HOME:-$JAVA_HOME_DEFAULT}"
 export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
+export SMARTDASH_BUILD_HOST="${SMARTDASH_BUILD_HOST:-shawn-rains-macbook-pro}"
+export SMARTDASH_BUILD_HOST_IP="${SMARTDASH_BUILD_HOST_IP:-100.103.86.124}"
+export SMARTDASH_REMOTE_PROJECT_ROOT="${SMARTDASH_REMOTE_PROJECT_ROOT:-$PROJECT_ROOT}"
+export SMARTDASH_REMOTE_JAVA_HOME="${SMARTDASH_REMOTE_JAVA_HOME:-$JAVA_HOME_DEFAULT}"
 
 APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/debug/app-debug.apk"
 DEV_RELEASE_APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/devRelease/app-devRelease.apk"
@@ -20,6 +25,131 @@ SIGNING_FILE_PATTERN='(^|/)([^/]+\.(jks|keystore|p12)|signing\.properties|keysto
 
 timestamp() {
   date '+%Y%m%d-%H%M%S'
+}
+
+normalize_host_token() {
+  printf '%s' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -E 's/\.local$//; s/[^a-z0-9]+/-/g; s/^-+//; s/-+$//'
+  printf '\n'
+}
+
+current_host_tokens() {
+  {
+    hostname 2>/dev/null || true
+    scutil --get ComputerName 2>/dev/null || true
+    scutil --get LocalHostName 2>/dev/null || true
+  } | awk 'NF' | while IFS= read -r token; do
+    normalize_host_token "$token"
+  done | awk 'NF' | sort -u
+}
+
+is_primary_build_host() {
+  local expected_host expected_ip token
+  expected_host="$(normalize_host_token "$SMARTDASH_BUILD_HOST")"
+  expected_ip="$(normalize_host_token "$SMARTDASH_BUILD_HOST_IP")"
+  while IFS= read -r token; do
+    if [[ "$token" == "$expected_host" || "$token" == "$expected_ip" ]]; then
+      return 0
+    fi
+  done < <(current_host_tokens)
+  return 1
+}
+
+should_route_remote_build() {
+  if [[ "${SMARTDASH_FORCE_LOCAL_BUILD:-0}" == "1" ]]; then
+    return 1
+  fi
+  if [[ "${SMARTDASH_REMOTE_BUILD_EXECUTION:-0}" == "1" ]]; then
+    return 1
+  fi
+  ! is_primary_build_host
+}
+
+shell_quote() {
+  printf '%q' "$1"
+}
+
+ssh_base_opts() {
+  printf '%s\n' \
+    "-o" "BatchMode=yes" \
+    "-o" "ConnectTimeout=5" \
+    "-o" "StrictHostKeyChecking=accept-new"
+}
+
+ensure_remote_build_tools() {
+  ensure_base_env
+  require_cmd ssh
+}
+
+resolve_remote_ssh_target() {
+  local explicit_target
+  explicit_target="${SMARTDASH_REMOTE_SSH_TARGET:-}"
+  if [[ -n "$explicit_target" ]]; then
+    printf '%s\n' "$explicit_target"
+    return 0
+  fi
+
+  local candidates=()
+  if [[ -n "$SMARTDASH_BUILD_HOST" ]]; then
+    candidates+=("$SMARTDASH_BUILD_HOST")
+  fi
+  if [[ -n "$SMARTDASH_BUILD_HOST_IP" && "$SMARTDASH_BUILD_HOST_IP" != "$SMARTDASH_BUILD_HOST" ]]; then
+    candidates+=("$SMARTDASH_BUILD_HOST_IP")
+  fi
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if ssh $(ssh_base_opts) "$candidate" "exit 0" >/dev/null 2>&1; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  echo "Unable to reach the primary build host over SSH. Tried: ${candidates[*]}" >&2
+  echo "Set SMARTDASH_REMOTE_SSH_TARGET explicitly after confirming Tailscale SSH is available." >&2
+  exit 1
+}
+
+run_remote_script_capture() {
+  local target="$1"
+  local script_rel="$2"
+  local output_file="$3"
+  shift 3
+
+  local remote_cmd
+  remote_cmd=$(
+    cat <<EOF
+cd $(shell_quote "$SMARTDASH_REMOTE_PROJECT_ROOT") && \
+SMARTDASH_REMOTE_BUILD_EXECUTION=1 \
+SMARTDASH_BUILD_HOST=$(shell_quote "$SMARTDASH_BUILD_HOST") \
+SMARTDASH_BUILD_HOST_IP=$(shell_quote "$SMARTDASH_BUILD_HOST_IP") \
+SMARTDASH_REMOTE_PROJECT_ROOT=$(shell_quote "$SMARTDASH_REMOTE_PROJECT_ROOT") \
+SMARTDASH_REMOTE_JAVA_HOME=$(shell_quote "$SMARTDASH_REMOTE_JAVA_HOME") \
+JAVA_HOME=$(shell_quote "$SMARTDASH_REMOTE_JAVA_HOME") \
+ANDROID_HOME=$(shell_quote "$ANDROID_HOME") \
+bash $(shell_quote "$script_rel")
+EOF
+  )
+
+  ssh $(ssh_base_opts) "$target" "bash -lc $(shell_quote "$remote_cmd")" 2>&1 | tee "$output_file"
+  local status=${PIPESTATUS[0]}
+  return "$status"
+}
+
+extract_output_var() {
+  local output_file="$1"
+  local key="$2"
+  sed -n "s/^${key}=//p" "$output_file" | tail -n 1
+}
+
+copy_remote_file_to_local() {
+  local target="$1"
+  local remote_path="$2"
+  local local_path="$3"
+
+  mkdir -p "$(dirname "$local_path")"
+  ssh $(ssh_base_opts) "$target" "cat $(shell_quote "$remote_path")" > "$local_path"
 }
 
 ensure_dirs() {

@@ -55,3 +55,7 @@ tools/unveilr/
 
 # Local desktop/file-manager workspace metadata
 .qspacesettings/
+
+# Local OAuth client secrets
+.local/
+client_secret_*.json

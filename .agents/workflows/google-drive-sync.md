@@ -7,13 +7,16 @@
 
 ## OAuth 客户端 ID 配置
 
-### 当前客户端 ID（com.shawnrain.sdash）
-`8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.googleusercontent.com`
+### 当前 Web Client ID（Sign in with Google）
+`8447150714-u2k6i812nojbahgk7tkm2n0vcqa5mhi2.apps.googleusercontent.com`
 
 位于 `GoogleAccountAuth.kt`：
 ```kotlin
-private const val CLIENT_ID = "8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.googleusercontent.com"
+private const val CLIENT_ID = "8447150714-u2k6i812nojbahgk7tkm2n0vcqa5mhi2.apps.googleusercontent.com"
 ```
+
+### Android 客户端 ID（包名 + SHA-1 校验）
+`8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.googleusercontent.com`
 
 ### 旧客户端 ID（com.shawnrain.habe，仍保留以支持旧版本用户）
 `8447150714-6g8ef28e8n2k7n01ek1816kqulpngu45.apps.googleusercontent.com`

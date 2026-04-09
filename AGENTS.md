@@ -377,7 +377,7 @@ Release 签名约定：
   - 错误状态 5 秒后自动恢复
 - 备份版本管理：文件名含时间戳，Drive 列表按时间倒序
 - 降级兼容：v1 设备绑定密钥（旧设备）→ v2 密码派生密钥（新设备）自动识别版本解密
-- OAuth Client ID 已更新为 `com.shawnrain.sdash` 包名：`8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.googleusercontent.com`
+- Google Sign-In Web Client ID：`8447150714-u2k6i812nojbahgk7tkm2n0vcqa5mhi2.apps.googleusercontent.com`
 - Android 系统自动备份已关闭（`android:allowBackup="false"`）；卸载重装后的恢复入口只允许走 Google Drive 或 LAN Restore
 
 ### 4.9 BLE 可靠性增强
@@ -635,7 +635,7 @@ cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vib
 ### 9.8 Google Drive 云同步
 1. 设置 → 数据迁移 → Google Drive 云同步
 2. 首次使用需登录 Google 账号并授权 `drive.appdata` 权限
-3. OAuth 客户端 ID（`com.shawnrain.sdash`）：`8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.googleusercontent.com`
+3. Google Sign-In Web Client ID：`8447150714-u2k6i812nojbahgk7tkm2n0vcqa5mhi2.apps.googleusercontent.com`
 4. 点击"上传备份"上传当前设备数据到 Drive
 5. 另一台设备打开 app 时会自动检测更新（启动时一次），显示小圆点角标
 6. 点击角标提示或"合并最新备份"按钮即可静默合并

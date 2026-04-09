@@ -6,8 +6,9 @@ import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.shawnrain.sdash.debug.AppLogger
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 
 data class GoogleAccountSession(
     val email: String,
@@ -17,12 +18,13 @@ data class GoogleAccountSession(
 class GoogleAccountAuth(private val context: Context) {
 
     companion object {
+        private const val TAG = "GoogleAccountAuth"
         private const val PREFS_NAME = "google_drive_account_auth"
         private const val KEY_EMAIL = "email"
         private const val KEY_DISPLAY_NAME = "display_name"
 
-        // Existing SmartDash OAuth client id.
-        const val CLIENT_ID = "8447150714-s2l193jktl69tpc4ja7o9q0squijoj7r.apps.googleusercontent.com"
+        // SmartDash Sign in with Google must use the Web application client ID.
+        const val CLIENT_ID = "8447150714-u2k6i812nojbahgk7tkm2n0vcqa5mhi2.apps.googleusercontent.com"
     }
 
     private val prefs by lazy {
@@ -34,22 +36,26 @@ class GoogleAccountAuth(private val context: Context) {
     }
 
     suspend fun signIn(activity: Activity): GoogleAccountSession {
-        val googleIdOption = GetGoogleIdOption.Builder()
-            .setServerClientId(CLIENT_ID)
-            .setFilterByAuthorizedAccounts(false)
-            .setAutoSelectEnabled(false)
+        AppLogger.i(TAG, "Starting explicit Google sign-in")
+
+        val signInWithGoogleOption = GetSignInWithGoogleOption.Builder(CLIENT_ID)
             .build()
 
         val request = GetCredentialRequest.Builder()
-            .addCredentialOption(googleIdOption)
+            .addCredentialOption(signInWithGoogleOption)
             .build()
 
-        val response = credentialManager.getCredential(
-            context = activity,
-            request = request
-        )
+        val response = runCatching {
+            credentialManager.getCredential(
+                context = activity,
+                request = request
+            )
+        }.onFailure { error ->
+            AppLogger.e(TAG, "CredentialManager getCredential failed", error)
+        }.getOrThrow()
 
         val credential = response.credential
+        AppLogger.i(TAG, "Received credential type=${credential.type}")
         val googleCredential = when {
             credential is CustomCredential &&
                 credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL ->
@@ -63,6 +69,7 @@ class GoogleAccountAuth(private val context: Context) {
             displayName = googleCredential.displayName
         )
         saveSession(session)
+        AppLogger.i(TAG, "Google sign-in succeeded email=${session.email}")
         return session
     }
 
@@ -79,12 +86,19 @@ class GoogleAccountAuth(private val context: Context) {
 
     suspend fun signOut() {
         prefs.edit().clear().apply()
+        AppLogger.i(TAG, "Signing out Google account")
         runCatching {
             credentialManager.clearCredentialState(ClearCredentialStateRequest())
+        }.onFailure { error ->
+            AppLogger.w(TAG, "Failed to clear CredentialManager state: ${error.message}")
         }
     }
 
-    suspend fun silentSignIn(): Boolean = isSignedIn()
+    suspend fun silentSignIn(): Boolean {
+        val signedIn = isSignedIn()
+        AppLogger.d(TAG, "silentSignIn result=$signedIn")
+        return signedIn
+    }
 
     private fun saveSession(session: GoogleAccountSession) {
         prefs.edit()

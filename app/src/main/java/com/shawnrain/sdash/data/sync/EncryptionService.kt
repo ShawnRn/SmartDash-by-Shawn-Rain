@@ -2,9 +2,9 @@ package com.shawnrain.sdash.data.sync
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import android.util.Base64
 import java.security.KeyStore
-import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -21,9 +21,12 @@ import javax.crypto.spec.SecretKeySpec
  * a consistent AES key across devices signed in to the same account.
  */
 object EncryptionService {
+    const val VERSION_DEVICE_BOUND_LEGACY = 1
+    const val VERSION_PASSWORD_FIXED_SALT_LEGACY = 2
+    const val VERSION_PASSWORD_RANDOM_SALT = 3
+
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
     private const val GCM_TAG_LENGTH_BITS = 128
-    private const val GCM_IV_LENGTH_BYTES = 12
     private const val PBKDF2_ITERATIONS = 100_000
     private const val KEY_SIZE_BITS = 256
 
@@ -31,7 +34,13 @@ object EncryptionService {
     private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
     private const val DEVICE_KEY_ALIAS = "habe_backup_key_v1"
 
-    private val keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER).apply { load(null) }
+    private val base64Encoder = Base64.getEncoder().withoutPadding()
+    private val base64Decoder = Base64.getDecoder()
+    private val secureRandom = SecureRandom()
+
+    private val keyStore: KeyStore by lazy {
+        KeyStore.getInstance(KEYSTORE_PROVIDER).apply { load(null) }
+    }
 
     /**
      * Encrypts plaintext using a password-derived key.
@@ -40,8 +49,16 @@ object EncryptionService {
      * @param plainText The data to encrypt
      * @param password  Derivation password (e.g., Google account email)
      */
-    fun encryptWithPassword(plainText: ByteArray, password: String): EncryptedBackup {
-        val salt = password.toByteArray(Charsets.UTF_8)
+    fun encryptWithPassword(
+        plainText: ByteArray,
+        password: String,
+        salt: ByteArray,
+        version: Int = VERSION_PASSWORD_RANDOM_SALT
+    ): EncryptedBackup {
+        require(version >= VERSION_PASSWORD_FIXED_SALT_LEGACY) {
+            "Password-derived backups must use a password-backed version"
+        }
+        require(salt.isNotEmpty()) { "Salt must not be empty" }
         val key = deriveKey(password, salt)
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key)
@@ -54,12 +71,12 @@ object EncryptionService {
         val tag = cipherTextWithTag.copyOfRange(cipherTextWithTag.size - tagLength, cipherTextWithTag.size)
 
         return EncryptedBackup(
-            version = 2, // Version 2 = password-derived, cross-device compatible
+            version = version,
             algorithm = "AES-256-GCM",
-            salt = Base64.encodeToString(salt, Base64.NO_WRAP),
-            iv = Base64.encodeToString(iv, Base64.NO_WRAP),
-            cipherText = Base64.encodeToString(cipherText, Base64.NO_WRAP),
-            tag = Base64.encodeToString(tag, Base64.NO_WRAP)
+            salt = encodeBase64(salt),
+            iv = encodeBase64(iv),
+            cipherText = encodeBase64(cipherText),
+            tag = encodeBase64(tag)
         )
     }
 
@@ -67,10 +84,14 @@ object EncryptionService {
      * Decrypts a password-encrypted backup.
      */
     fun decryptWithPassword(encrypted: EncryptedBackup, password: String): ByteArray {
-        val salt = Base64.decode(encrypted.salt, Base64.NO_WRAP)
-        val iv = Base64.decode(encrypted.iv, Base64.NO_WRAP)
-        val cipherText = Base64.decode(encrypted.cipherText, Base64.NO_WRAP)
-        val tag = Base64.decode(encrypted.tag, Base64.NO_WRAP)
+        val salt = when (encrypted.version) {
+            VERSION_PASSWORD_FIXED_SALT_LEGACY -> password.toByteArray(Charsets.UTF_8)
+            VERSION_PASSWORD_RANDOM_SALT -> decodeBase64(encrypted.salt)
+            else -> throw IllegalArgumentException("Unsupported password backup version: ${encrypted.version}")
+        }
+        val iv = decodeBase64(encrypted.iv)
+        val cipherText = decodeBase64(encrypted.cipherText)
+        val tag = decodeBase64(encrypted.tag)
 
         val key = deriveKey(password, salt)
         val cipher = Cipher.getInstance(TRANSFORMATION)
@@ -138,27 +159,25 @@ object EncryptionService {
         val tag = cipherTextWithTag.copyOfRange(cipherTextWithTag.size - tagLength, cipherTextWithTag.size)
 
         return EncryptedBackup(
-            version = 1, // Version 1 = device-bound (legacy)
+            version = VERSION_DEVICE_BOUND_LEGACY,
             salt = "",
-            iv = Base64.encodeToString(iv, Base64.NO_WRAP),
-            cipherText = Base64.encodeToString(cipherText, Base64.NO_WRAP),
-            tag = Base64.encodeToString(tag, Base64.NO_WRAP)
+            iv = encodeBase64(iv),
+            cipherText = encodeBase64(cipherText),
+            tag = encodeBase64(tag)
         )
     }
 
     fun decrypt(encrypted: EncryptedBackup): ByteArray {
-        // Version 2 = password-derived, use password decryptor
-        if (encrypted.version >= 2) {
-            // Fall back to device key for v2 with empty salt (shouldn't happen)
-            throw IllegalStateException("Use decryptWithPassword for version 2 backups")
+        if (encrypted.version >= VERSION_PASSWORD_FIXED_SALT_LEGACY) {
+            throw IllegalStateException("Use decryptWithPassword for password-derived backups")
         }
 
         val key = getOrCreateDeviceKey()
         val cipher = Cipher.getInstance(TRANSFORMATION)
 
-        val iv = Base64.decode(encrypted.iv, Base64.NO_WRAP)
-        val cipherText = Base64.decode(encrypted.cipherText, Base64.NO_WRAP)
-        val tag = Base64.decode(encrypted.tag, Base64.NO_WRAP)
+        val iv = decodeBase64(encrypted.iv)
+        val cipherText = decodeBase64(encrypted.cipherText)
+        val tag = decodeBase64(encrypted.tag)
 
         val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
         cipher.init(Cipher.DECRYPT_MODE, key, spec)
@@ -167,9 +186,18 @@ object EncryptionService {
         return cipher.doFinal(cipherTextWithTag)
     }
 
+    fun generateSalt(lengthBytes: Int = 16): ByteArray {
+        require(lengthBytes > 0) { "Salt length must be positive" }
+        return ByteArray(lengthBytes).also(secureRandom::nextBytes)
+    }
+
     fun generateTransferPassword(): String {
         val bytes = ByteArray(16)
-        java.security.SecureRandom().nextBytes(bytes)
-        return Base64.encodeToString(bytes, Base64.NO_WRAP or Base64.URL_SAFE).take(12)
+        secureRandom.nextBytes(bytes)
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes).take(12)
     }
+
+    private fun encodeBase64(bytes: ByteArray): String = base64Encoder.encodeToString(bytes)
+
+    private fun decodeBase64(encoded: String): ByteArray = base64Decoder.decode(encoded)
 }

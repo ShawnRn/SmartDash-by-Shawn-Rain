@@ -296,7 +296,7 @@ fun BlurredAlertDialog(
 fun BlurredModalBottomSheet(
     onDismissRequest: () -> Unit,
     blurRadius: Dp = 28.dp,
-    content: @Composable ColumnScope.() -> Unit
+    content: @Composable ColumnScope.(requestDismiss: () -> Unit) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -388,7 +388,7 @@ fun BlurredModalBottomSheet(
                                     .padding(vertical = 2.dp)
                             )
                         }
-                        content()
+                        content(::requestDismiss)
                     }
                 }
             }

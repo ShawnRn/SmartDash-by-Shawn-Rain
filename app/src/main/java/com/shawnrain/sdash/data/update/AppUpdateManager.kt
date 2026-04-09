@@ -26,6 +26,12 @@ class AppUpdateManager(
 ) {
     companion object {
         private const val TAG = "AppUpdateManager"
+        private const val REPO_BASE_URL =
+            "https://github.com/ShawnRn/SmartDash-by-Shawn-Rain"
+        private const val RELEASES_LATEST_DOWNLOAD_BASE_URL =
+            "$REPO_BASE_URL/releases/latest/download"
+        private const val RELEASES_LATEST_MANIFEST_URL =
+            "$RELEASES_LATEST_DOWNLOAD_BASE_URL/release-manifest.json"
         private const val RELEASES_LATEST_URL =
             "https://api.github.com/repos/ShawnRn/SmartDash-by-Shawn-Rain/releases/latest"
         private val versionRegex = Regex("""(\d+)\.(\d+)\.(\d+)""")
@@ -95,6 +101,9 @@ class AppUpdateManager(
     }
 
     private suspend fun fetchLatestReleasePackage(etag: String?): LatestReleaseFetchResult {
+        fetchStaticManifestPackage(etag)?.let { return it }
+        AppLogger.w(TAG, "Static release manifest unavailable, falling back to GitHub API")
+
         val request = Request.Builder()
             .url(RELEASES_LATEST_URL)
             .header("Accept", "application/vnd.github+json")
@@ -131,6 +140,62 @@ class AppUpdateManager(
                 parseReleaseFromAssets(githubRelease)
             }
             return LatestReleaseFetchResult(pkg = pkg, etag = responseEtag, notModified = false)
+        }
+    }
+
+    private suspend fun fetchStaticManifestPackage(etag: String?): LatestReleaseFetchResult? {
+        val request = Request.Builder()
+            .url(RELEASES_LATEST_MANIFEST_URL)
+            .header("Accept", "application/json")
+            .header("User-Agent", "${context.packageName}/android")
+            .apply {
+                if (!etag.isNullOrBlank()) {
+                    header("If-None-Match", etag)
+                }
+            }
+            .build()
+
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                val responseEtag = response.header("ETag")
+                when {
+                    response.code == 304 -> {
+                        AppLogger.i(TAG, "Static release manifest not modified")
+                        LatestReleaseFetchResult(
+                            pkg = null,
+                            etag = responseEtag ?: etag,
+                            notModified = true
+                        )
+                    }
+
+                    response.isSuccessful -> {
+                        val body = response.body?.string().orEmpty()
+                        val manifest = json.decodeFromString<ReleaseManifestJson>(body)
+                        val pkg = manifest.toAppUpdatePackage()
+                        if (pkg != null) {
+                            AppLogger.i(TAG, "Loaded latest release from static manifest tag=${pkg.tag}")
+                        }
+                        LatestReleaseFetchResult(
+                            pkg = pkg,
+                            etag = responseEtag,
+                            notModified = false
+                        )
+                    }
+
+                    response.code == 404 -> {
+                        AppLogger.w(TAG, "Static release manifest not found yet")
+                        null
+                    }
+
+                    else -> {
+                        AppLogger.w(TAG, "Static release manifest failed: HTTP ${response.code}")
+                        null
+                    }
+                }
+            }
+        }.getOrElse { error ->
+            AppLogger.w(TAG, "Static release manifest fetch failed: ${error.message}")
+            null
         }
     }
 
@@ -346,6 +411,24 @@ class AppUpdateManager(
         val etag: String?,
         val notModified: Boolean
     )
+
+    private fun ReleaseManifestJson.toAppUpdatePackage(): AppUpdatePackage? {
+        val resolvedChannel = runCatching { ReleaseChannel.valueOf(channel.uppercase()) }
+            .getOrElse { ReleaseChannel.fromTag(tag) }
+        val resolvedApkUrl = "$RELEASES_LATEST_DOWNLOAD_BASE_URL/$apkName"
+        return AppUpdatePackage(
+            tag = tag,
+            versionName = versionName,
+            versionCode = versionCode,
+            channel = resolvedChannel,
+            apkName = apkName,
+            apkUrl = resolvedApkUrl,
+            htmlUrl = htmlUrl ?: "$REPO_BASE_URL/releases/tag/$tag",
+            sha256 = apkSha256,
+            publishedAt = publishedAt,
+            releaseNotes = releaseNotes
+        )
+    }
 
     private fun selectBestApkAsset(release: GithubReleaseResponse): GithubReleaseAsset? {
         val channel = ReleaseChannel.fromTag(release.tagName)

@@ -1,0 +1,17 @@
+product: smartdash
+skill_repo: /Users/shawnrain/agent-skills
+enabled_skills:
+  - smartdash-pro-build-host
+  - ble-telemetry-estimation
+  - direction-stabilization
+  - smartdash-overlay-dialog
+enabled_workflows:
+  - telemetry-refactor
+  - build-dev-release
+preferred_agents:
+  - codex
+  - antigravity
+  - claude
+local_overrides:
+  - smartdash-repo-local-rules
+adapter_mode: generated-only

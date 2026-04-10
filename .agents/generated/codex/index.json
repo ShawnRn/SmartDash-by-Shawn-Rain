@@ -1,0 +1,194 @@
+{
+  "product": "smartdash",
+  "agent": "codex",
+  "generated_at": "2026-04-10T00:50:36.418905+00:00",
+  "skill_repo": "/Users/shawnrain/agent-skills",
+  "skill_repo_commit": "0a621f3f3c3d3ff03243aa7ac27fb7d826e8717e",
+  "adapter_mode": "generated-only",
+  "skills": [
+    {
+      "id": "smartdash-pro-build-host",
+      "name": "SmartDash Pro Build Host",
+      "version": "1.0.0",
+      "summary": "强制 SmartDash 的所有编译、构建、测试、打包和安装相关任务通过项目脚本路由到主编译机 Pro。",
+      "scope": "product",
+      "products": [
+        "smartdash"
+      ],
+      "domains": [
+        "build",
+        "compile",
+        "test",
+        "package",
+        "remote",
+        "compile-host"
+      ],
+      "triggers": [
+        "pro",
+        "主编译机",
+        "编译机",
+        "remote_build_host",
+        "gradle",
+        "compile",
+        "assemble",
+        "test",
+        "build",
+        "package",
+        "打包",
+        "构建",
+        "安装到手机",
+        "devrelease"
+      ],
+      "paths": [
+        ".agents/scripts/",
+        ".agents/workflows/build-performance.md",
+        ".agents/workflows/build-dev-release.md",
+        ".agents/workflows/install-dev-release.md",
+        "AGENTS.md"
+      ],
+      "excludes": [],
+      "dependencies": [],
+      "priority": 110,
+      "tools_required": [
+        "ssh",
+        "rsync",
+        "adb"
+      ],
+      "risk_level": "high",
+      "adapter_support": [
+        "codex",
+        "antigravity",
+        "claude"
+      ],
+      "owner": "shawnrain",
+      "status": "active"
+    },
+    {
+      "id": "ble-telemetry-estimation",
+      "name": "SmartDash BLE Telemetry Estimation",
+      "version": "1.0.0",
+      "summary": "统一约束 SmartDash BLE 遥测采样、物理积分、SoC 和 range 估算。",
+      "scope": "domain",
+      "products": [
+        "smartdash"
+      ],
+      "domains": [
+        "ble",
+        "telemetry",
+        "soc",
+        "range",
+        "battery"
+      ],
+      "triggers": [
+        "soc",
+        "range",
+        "telemetry",
+        "ble",
+        "wh/km",
+        "bms"
+      ],
+      "paths": [
+        "app/src/main/java/com/shawnrain/sdash/ble/",
+        "app/src/main/java/com/shawnrain/sdash/data/telemetry/"
+      ],
+      "excludes": [
+        "ui-theme"
+      ],
+      "dependencies": [],
+      "priority": 100,
+      "tools_required": [],
+      "risk_level": "high",
+      "adapter_support": [
+        "codex",
+        "antigravity",
+        "claude"
+      ],
+      "owner": "shawnrain",
+      "status": "active"
+    },
+    {
+      "id": "direction-stabilization",
+      "name": "SmartDash Direction Stabilization",
+      "version": "1.0.0",
+      "summary": "统一约束 SmartDash 方向显示稳定化、冻结、平滑和滞回。",
+      "scope": "domain",
+      "products": [
+        "smartdash"
+      ],
+      "domains": [
+        "gps",
+        "heading",
+        "direction",
+        "stabilization"
+      ],
+      "triggers": [
+        "direction",
+        "heading",
+        "gps",
+        "bearing",
+        "方位",
+        "方向"
+      ],
+      "paths": [
+        "app/src/main/java/com/shawnrain/sdash/data/gps/",
+        "app/src/main/java/com/shawnrain/sdash/MainViewModel.kt"
+      ],
+      "excludes": [],
+      "dependencies": [],
+      "priority": 95,
+      "tools_required": [],
+      "risk_level": "medium",
+      "adapter_support": [
+        "codex",
+        "antigravity",
+        "claude"
+      ],
+      "owner": "shawnrain",
+      "status": "active"
+    },
+    {
+      "id": "smartdash-overlay-dialog",
+      "name": "SmartDash Overlay Dialog",
+      "version": "1.0.0",
+      "summary": "统一约束 SmartDash 弹层、对话框和 about/update 类 overlay 设计语言。",
+      "scope": "product",
+      "products": [
+        "smartdash"
+      ],
+      "domains": [
+        "ui",
+        "dialog",
+        "overlay",
+        "popup"
+      ],
+      "triggers": [
+        "dialog",
+        "overlay",
+        "popup",
+        "bottom sheet",
+        "about",
+        "update",
+        "弹层"
+      ],
+      "paths": [
+        "app/src/main/java/com/shawnrain/sdash/ui/"
+      ],
+      "excludes": [],
+      "dependencies": [],
+      "priority": 90,
+      "tools_required": [],
+      "risk_level": "medium",
+      "adapter_support": [
+        "codex",
+        "antigravity",
+        "claude"
+      ],
+      "owner": "shawnrain",
+      "status": "active"
+    }
+  ],
+  "workflows": [
+    "telemetry-refactor",
+    "build-dev-release"
+  ]
+}

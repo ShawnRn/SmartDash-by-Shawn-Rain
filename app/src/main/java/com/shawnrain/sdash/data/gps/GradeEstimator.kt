@@ -54,19 +54,21 @@ private data class GradeWindowSample(
 class GradeEstimator {
     companion object {
         private const val ALTITUDE_EMA_ALPHA = 0.2
-        private const val GRADE_EMA_ALPHA = 0.3f
+        private const val GRADE_EMA_ALPHA = 0.45f
         private const val MIN_ALTITUDE_UPDATE_SPEED_KMH = 1f
         private const val MIN_GRADE_UPDATE_SPEED_KMH = 3f
         private const val MAX_VERTICAL_ACCURACY_METERS = 12f
         private const val MAX_SHORT_HOP_ALTITUDE_JUMP_METERS = 3.0
         private const val MAX_SHORT_HOP_DISTANCE_METERS = 5.0
-        private const val GRADE_WINDOW_DISTANCE_METERS = 20.0
-        private const val MIN_GRADE_DISTANCE_METERS = 10.0
+        private const val GRADE_WINDOW_DISTANCE_METERS = 15.0
+        private const val MIN_GRADE_DISTANCE_METERS = 8.0
         private const val GRADE_UPDATE_INTERVAL_MS = 1_000L
         private const val MAX_SAMPLE_GAP_MS = 8_000L
         private const val MAX_ABSOLUTE_GRADE_PERCENT = 15f
-        private const val LOW_SPEED_GRADE_DECAY = 0.9f
+        private const val LOW_SPEED_GRADE_DECAY = 0.75f
         private const val MIN_NON_ZERO_GRADE_PERCENT = 0.05f
+        private const val FLAT_GRADE_THRESHOLD_PERCENT = 0.8f
+        private const val FLAT_SNAP_FACTOR = 0.6f
     }
 
     private val _currentGradePercent = MutableStateFlow(0f)
@@ -206,10 +208,15 @@ class GradeEstimator {
             .coerceIn(-MAX_ABSOLUTE_GRADE_PERCENT, MAX_ABSOLUTE_GRADE_PERCENT)
 
         val previousGrade = _currentGradePercent.value
-        val smoothedGrade = if (previousGrade == 0f) {
+        val flatSnappedGrade = if (abs(rawGradePercent) < FLAT_GRADE_THRESHOLD_PERCENT) {
+            moveTowardZero(previousGrade, FLAT_SNAP_FACTOR)
+        } else {
+            previousGrade
+        }
+        val smoothedGrade = if (flatSnappedGrade == 0f) {
             rawGradePercent
         } else {
-            (GRADE_EMA_ALPHA * rawGradePercent) + ((1f - GRADE_EMA_ALPHA) * previousGrade)
+            (GRADE_EMA_ALPHA * rawGradePercent) + ((1f - GRADE_EMA_ALPHA) * flatSnappedGrade)
         }
 
         _currentGradePercent.value = smoothedGrade
@@ -222,6 +229,10 @@ class GradeEstimator {
     private fun decayedGrade(currentGrade: Float): Float {
         val next = currentGrade * LOW_SPEED_GRADE_DECAY
         return if (abs(next) < MIN_NON_ZERO_GRADE_PERCENT) 0f else next
+    }
+
+    private fun moveTowardZero(value: Float, factor: Float): Float {
+        return value + ((0f - value) * factor)
     }
 
     /**

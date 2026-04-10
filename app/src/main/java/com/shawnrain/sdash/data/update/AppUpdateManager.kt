@@ -13,12 +13,15 @@ import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
+import java.util.concurrent.TimeUnit
 
 class AppUpdateManager(
     private val context: Context,
@@ -38,6 +41,17 @@ class AppUpdateManager(
         private val buildRegex = Regex("""(?im)build(?:\s+code)?\s*[:=]?\s*(\d{6,})""")
         private val json = Json { ignoreUnknownKeys = true }
     }
+
+    private val updateClient: OkHttpClient = client.newBuilder()
+        .retryOnConnectionFailure(true)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .protocols(listOf(Protocol.HTTP_1_1))
+        .connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .build()
 
     private val prefs = AppUpdatePreferences(context)
 
@@ -116,7 +130,7 @@ class AppUpdateManager(
             }
             .build()
 
-        client.newCall(request).execute().use { response ->
+        executeUpdateRequest(request).use { response ->
             val responseEtag = response.header("ETag")
             if (response.code == 304) {
                 return LatestReleaseFetchResult(
@@ -156,7 +170,7 @@ class AppUpdateManager(
             .build()
 
         return runCatching {
-            client.newCall(request).execute().use { response ->
+            executeUpdateRequest(request).use { response ->
                 val responseEtag = response.header("ETag")
                 when {
                     response.code == 304 -> {
@@ -188,13 +202,19 @@ class AppUpdateManager(
                     }
 
                     else -> {
-                        AppLogger.w(TAG, "Static release manifest failed: HTTP ${response.code}")
+                        AppLogger.w(
+                            TAG,
+                            "Static release manifest failed: HTTP ${response.code} url=$RELEASES_LATEST_MANIFEST_URL"
+                        )
                         null
                     }
                 }
             }
         }.getOrElse { error ->
-            AppLogger.w(TAG, "Static release manifest fetch failed: ${error.message}")
+            AppLogger.w(
+                TAG,
+                "Static release manifest fetch failed: ${error.javaClass.simpleName}: ${error.message} url=$RELEASES_LATEST_MANIFEST_URL"
+            )
             null
         }
     }
@@ -202,7 +222,7 @@ class AppUpdateManager(
     private suspend fun fetchManifest(url: String, assets: List<GithubReleaseAsset>): AppUpdatePackage? {
         return runCatching {
             val request = Request.Builder().url(url).build()
-            client.newCall(request).execute().use { response ->
+            executeUpdateRequest(request).use { response ->
                 if (!response.isSuccessful) return null
                 val body = response.body?.string() ?: return null
                 val manifest = json.decodeFromString<ReleaseManifestJson>(body)
@@ -256,7 +276,7 @@ class AppUpdateManager(
                 .header("User-Agent", "${context.packageName}/android")
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            executeUpdateRequest(request).use { response ->
                 if (!response.isSuccessful) {
                     error("下载更新失败：HTTP ${response.code}")
                 }
@@ -478,6 +498,10 @@ class AppUpdateManager(
             if (leftValue != rightValue) return leftValue.compareTo(rightValue)
         }
         return 0
+    }
+
+    private fun executeUpdateRequest(request: Request): Response {
+        return updateClient.newCall(request).execute()
     }
 }
 

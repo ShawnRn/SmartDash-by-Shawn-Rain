@@ -4,6 +4,7 @@ package com.shawnrain.sdash.data.sync
 
 import android.content.Context
 import com.shawnrain.sdash.data.SettingsRepository
+import com.shawnrain.sdash.data.history.RideHistoryRepository
 import com.shawnrain.sdash.data.sync.room.SyncDatabase
 import com.shawnrain.sdash.debug.AppLogger
 import kotlinx.coroutines.Dispatchers
@@ -28,6 +29,7 @@ class DriveSyncCoordinator(
     private val context: Context,
     private val driveSyncManager: GoogleDriveSyncManager,
     private val settingsRepository: SettingsRepository,
+    private val rideHistoryRepository: RideHistoryRepository,
     private val stateSerializer: DriveStateSerializer,
     private val stateMerger: DriveStateMerger,
     private val manifestRepository: DriveManifestRepository,
@@ -309,7 +311,7 @@ class DriveSyncCoordinator(
      * Apply the merged state to local data stores.
      */
     private suspend fun applyMergedState(mergeResult: MergeResult) {
-        settingsRepository.applyDriveSyncState(mergeResult.mergedState)
+        settingsRepository.applyDriveSyncState(mergeResult.mergedState, rideHistoryRepository)
         if (mergeResult.settingsUpdated) AppLogger.i(TAG, "Settings merged from remote")
         if (mergeResult.profilesMerged > 0) AppLogger.i(TAG, "${mergeResult.profilesMerged} vehicle profiles merged")
         if (mergeResult.ridesMerged > 0) AppLogger.i(TAG, "${mergeResult.ridesMerged} rides merged")

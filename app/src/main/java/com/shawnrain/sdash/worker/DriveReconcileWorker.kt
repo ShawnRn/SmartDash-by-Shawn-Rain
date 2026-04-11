@@ -55,9 +55,10 @@ class DriveReconcileWorker(
 
     private val driveSyncManager by lazy { com.shawnrain.sdash.data.sync.GoogleDriveSyncManager(applicationContext) }
     private val settingsRepository by lazy { com.shawnrain.sdash.data.SettingsRepository(applicationContext) }
+    private val rideHistoryRepository by lazy { com.shawnrain.sdash.data.history.RideHistoryRepository(applicationContext) }
     private val metadataRepository by lazy { com.shawnrain.sdash.data.sync.SyncMetadataRepository(applicationContext) }
     private val mutationRepository by lazy { com.shawnrain.sdash.data.sync.PendingMutationRepository(applicationContext) }
-    private val stateSerializer by lazy { com.shawnrain.sdash.data.sync.DriveStateSerializer(applicationContext, settingsRepository) }
+    private val stateSerializer by lazy { com.shawnrain.sdash.data.sync.DriveStateSerializer(applicationContext, settingsRepository, rideHistoryRepository) }
     private val stateMerger by lazy { com.shawnrain.sdash.data.sync.DriveStateMerger(applicationContext, settingsRepository) }
     private val manifestRepository by lazy { com.shawnrain.sdash.data.sync.DriveManifestRepository(driveSyncManager) }
     private val coordinator by lazy {
@@ -65,6 +66,7 @@ class DriveReconcileWorker(
             context = applicationContext,
             driveSyncManager = driveSyncManager,
             settingsRepository = settingsRepository,
+            rideHistoryRepository = rideHistoryRepository,
             stateSerializer = stateSerializer,
             stateMerger = stateMerger,
             manifestRepository = manifestRepository,

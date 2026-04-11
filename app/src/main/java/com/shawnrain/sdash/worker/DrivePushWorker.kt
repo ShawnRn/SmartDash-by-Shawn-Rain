@@ -11,6 +11,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.shawnrain.sdash.data.SettingsRepository
+import com.shawnrain.sdash.data.history.RideHistoryRepository
 import com.shawnrain.sdash.data.sync.DriveManifestRepository
 import com.shawnrain.sdash.data.sync.DriveStateMerger
 import com.shawnrain.sdash.data.sync.DriveStateSerializer
@@ -68,9 +69,10 @@ class DrivePushWorker(
 
     private val driveSyncManager by lazy { GoogleDriveSyncManager(applicationContext) }
     private val settingsRepository by lazy { SettingsRepository(applicationContext) }
+    private val rideHistoryRepository by lazy { RideHistoryRepository(applicationContext) }
     private val metadataRepository by lazy { SyncMetadataRepository(applicationContext) }
     private val mutationRepository by lazy { PendingMutationRepository(applicationContext) }
-    private val stateSerializer by lazy { DriveStateSerializer(applicationContext, settingsRepository) }
+    private val stateSerializer by lazy { DriveStateSerializer(applicationContext, settingsRepository, rideHistoryRepository) }
     private val stateMerger by lazy { DriveStateMerger(applicationContext, settingsRepository) }
     private val manifestRepository by lazy { DriveManifestRepository(driveSyncManager) }
     private val coordinator by lazy {
@@ -78,6 +80,7 @@ class DrivePushWorker(
             context = applicationContext,
             driveSyncManager = driveSyncManager,
             settingsRepository = settingsRepository,
+            rideHistoryRepository = rideHistoryRepository,
             stateSerializer = stateSerializer,
             stateMerger = stateMerger,
             manifestRepository = manifestRepository,

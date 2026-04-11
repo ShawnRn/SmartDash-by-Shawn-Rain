@@ -13,6 +13,7 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStore
 import com.shawnrain.sdash.data.history.RideHistoryRecord
+import com.shawnrain.sdash.data.history.RideHistoryRepository
 import com.shawnrain.sdash.data.history.RideMetricSample
 import com.shawnrain.sdash.data.history.RideMetricSampleSchema
 import com.shawnrain.sdash.data.history.RideTrackPoint
@@ -38,6 +39,7 @@ import org.json.JSONObject
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -76,6 +78,11 @@ enum class DataSource(val title: String) {
 }
 
 class SettingsRepository(private val context: Context) {
+    data class LegacyRideHistoryPayload(
+        val vehicleId: String,
+        val records: List<RideHistoryRecord>
+    )
+
     companion object {
         private const val SYNC_META_PREFIX = "__sync_mtime__"
         val CURRENT_VEHICLE_ID = stringPreferencesKey("current_vehicle_id")
@@ -108,6 +115,7 @@ class SettingsRepository(private val context: Context) {
         val OVERLAY_ENABLED = booleanPreferencesKey("overlay_enabled")
         val DRIVE_BACKUP_RETENTION = stringPreferencesKey("drive_backup_retention")
         val RIDE_HISTORY_NORMALIZATION_VERSION = intPreferencesKey("ride_history_normalization_version")
+        val RIDE_HISTORY_STORAGE_MIGRATION_VERSION = intPreferencesKey("ride_history_storage_migration_version")
 
         private fun syncMetaName(name: String): String = "$SYNC_META_PREFIX$name"
         private fun syncMetaKey(name: String) = longPreferencesKey(syncMetaName(name))
@@ -190,13 +198,13 @@ class SettingsRepository(private val context: Context) {
 
     val vehicleProfiles: Flow<List<VehicleProfile>> = preferencesFlow.map { pref ->
         loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
-    }
+    }.distinctUntilChanged()
 
     val currentVehicleId: Flow<String> = preferencesFlow.map { pref ->
         val profiles = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
         val storedId = pref.safeGet(CURRENT_VEHICLE_ID)
         profiles.firstOrNull { it.id == storedId }?.id ?: profiles.first().id
-    }
+    }.distinctUntilChanged()
 
     val currentVehicleProfile: Flow<VehicleProfile> = combine(
         vehicleProfiles,
@@ -296,19 +304,19 @@ class SettingsRepository(private val context: Context) {
 
     val logLevel: Flow<AppLogLevel> = preferencesFlow.map { pref ->
         AppLogLevel.fromName(pref.safeGet(LOG_LEVEL) ?: AppLogLevel.DEBUG.name)
-    }
+    }.distinctUntilChanged()
 
     val overlayEnabled: Flow<Boolean> = preferencesFlow.map { pref ->
         pref.safeGet(OVERLAY_ENABLED) ?: false
-    }
+    }.distinctUntilChanged()
 
     val driveBackupRetentionPolicy: Flow<BackupRetentionPolicy> = preferencesFlow.map { pref ->
         BackupRetentionPolicy.fromName(pref.safeGet(DRIVE_BACKUP_RETENTION))
-    }
+    }.distinctUntilChanged()
 
     val rideHistoryNormalizationVersion: Flow<Int> = preferencesFlow.map { pref ->
         pref.safeGet(RIDE_HISTORY_NORMALIZATION_VERSION) ?: 0
-    }
+    }.distinctUntilChanged()
 
     val posterSettings: Flow<PosterSettings> = preferencesFlow.map { pref ->
         val defaults = PosterSettings()
@@ -333,7 +341,7 @@ class SettingsRepository(private val context: Context) {
         pref.safeGet(vKey(currentId, K_LAST_CONTROLLER_DEVICE_ADDRESS))
             ?.takeIf { it.isNotBlank() }
             ?: pref.safeGet(LAST_CONTROLLER_DEVICE_ADDRESS)?.takeIf { it.isNotBlank() }
-    }
+    }.distinctUntilChanged()
 
     val lastControllerDeviceName: Flow<String?> = preferencesFlow.map { pref ->
         val profiles = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
@@ -341,7 +349,7 @@ class SettingsRepository(private val context: Context) {
         pref.safeGet(vKey(currentId, K_LAST_CONTROLLER_DEVICE_NAME))
             ?.takeIf { it.isNotBlank() }
             ?: pref.safeGet(LAST_CONTROLLER_DEVICE_NAME)?.takeIf { it.isNotBlank() }
-    }
+    }.distinctUntilChanged()
 
     val lastControllerProtocolId: Flow<String?> = preferencesFlow.map { pref ->
         val profiles = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
@@ -349,7 +357,7 @@ class SettingsRepository(private val context: Context) {
         pref.safeGet(vKey(currentId, K_LAST_CONTROLLER_PROTOCOL_ID))
             ?.takeIf { it.isNotBlank() }
             ?: pref.safeGet(LAST_CONTROLLER_PROTOCOL_ID)?.takeIf { it.isNotBlank() }
-    }
+    }.distinctUntilChanged()
 
     suspend fun saveCurrentVehicleId(id: String) = context.dataStore.edit { pref ->
         val profiles = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
@@ -527,6 +535,9 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun saveLogLevel(level: AppLogLevel) {
+        if ((preferencesFlow.first().safeGet(LOG_LEVEL) ?: AppLogLevel.DEBUG.name) == level.name) {
+            return
+        }
         context.dataStore.edit {
             it[LOG_LEVEL] = level.name
             markSyncedAt(it, LOG_LEVEL.name)
@@ -543,6 +554,34 @@ class SettingsRepository(private val context: Context) {
     suspend fun saveRideHistoryNormalizationVersion(version: Int) {
         context.dataStore.edit {
             it[RIDE_HISTORY_NORMALIZATION_VERSION] = version
+        }
+    }
+
+    suspend fun getRideHistoryStorageMigrationVersion(): Int =
+        preferencesFlow.first().safeGet(RIDE_HISTORY_STORAGE_MIGRATION_VERSION) ?: 0
+
+    suspend fun saveRideHistoryStorageMigrationVersion(version: Int) {
+        context.dataStore.edit {
+            it[RIDE_HISTORY_STORAGE_MIGRATION_VERSION] = version
+        }
+    }
+
+    suspend fun listLegacyRideHistoryPayloads(): List<LegacyRideHistoryPayload> {
+        val pref = preferencesFlow.first()
+        return loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
+            .map { profile ->
+                LegacyRideHistoryPayload(
+                    vehicleId = profile.id,
+                    records = RideHistoryRecord.listFromJson(pref.safeGet(vKey(profile.id, K_RIDE_HISTORY)))
+                )
+            }
+            .filter { it.records.isNotEmpty() }
+    }
+
+    suspend fun clearLegacyRideHistoryForVehicle(vehicleId: String) {
+        context.dataStore.edit {
+            it.remove(vKey(vehicleId, K_RIDE_HISTORY))
+            markSyncedAt(it, "v_${vehicleId}_$K_RIDE_HISTORY")
         }
     }
 
@@ -597,6 +636,13 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun applyDriveSyncState(state: DriveCurrentState) {
+        applyDriveSyncState(state, RideHistoryRepository(context))
+    }
+
+    suspend fun applyDriveSyncState(
+        state: DriveCurrentState,
+        rideHistoryRepository: RideHistoryRepository
+    ) {
         val sanitizedProfiles = state.vehicleProfiles
             .map { it.toVehicleProfile() }
             .distinctBy { it.id }
@@ -625,17 +671,6 @@ class SettingsRepository(private val context: Context) {
 
             sanitizedProfiles.forEach { profile ->
                 val vehicleId = profile.id
-                val localRideRecords = RideHistoryRecord.listFromJson(pref.safeGet(vKey(vehicleId, K_RIDE_HISTORY)))
-                val rideRecords = mergeSyncedRideHistoryRecords(
-                    local = localRideRecords,
-                    remote = ridesByVehicle[vehicleId]
-                    .orEmpty()
-                    .map { it.toRideHistoryRecord() }
-                )
-                    .sortedByDescending { it.startedAtMs }
-                pref[vKey(vehicleId, K_RIDE_HISTORY)] = RideHistoryRecord.listToJson(rideRecords)
-                markSyncedAt(pref, "v_${vehicleId}_$K_RIDE_HISTORY")
-
                 val localSpeedRecords = SpeedTestRecord.listFromJson(pref.safeGet(vKey(vehicleId, K_SPEEDTEST_HISTORY)))
                 val speedRecords = mergeSyncedSpeedTestRecords(
                     local = localSpeedRecords,
@@ -649,6 +684,18 @@ class SettingsRepository(private val context: Context) {
             }
 
             ensureVehiclePreferences(pref)
+        }
+
+        sanitizedProfiles.forEach { profile ->
+            val vehicleId = profile.id
+            val localRideRecords = rideHistoryRepository.listRideHistoryRecords(vehicleId)
+            val rideRecords = mergeSyncedRideHistoryRecords(
+                local = localRideRecords,
+                remote = ridesByVehicle[vehicleId]
+                    .orEmpty()
+                    .map { it.toRideHistoryRecord() }
+            ).sortedByDescending { it.startedAtMs }
+            rideHistoryRepository.replaceRidesForVehicle(vehicleId, rideRecords)
         }
     }
 
@@ -961,6 +1008,10 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun exportBackupJson(): String {
+        return exportBackupJson(RideHistoryRepository(context))
+    }
+
+    suspend fun exportBackupJson(rideHistoryRepository: RideHistoryRepository): String {
         val snapshot = preferencesFlow.first().asMap()
         val prefs = JSONObject()
         snapshot.forEach { (key, value) ->
@@ -980,6 +1031,7 @@ class SettingsRepository(private val context: Context) {
                 prefs.put(key.name, encoded)
             }
         }
+        encodeRideHistoryBackupEntries(prefs, rideHistoryRepository)
         return JSONObject()
             .put("schema", 1)
             .put("exportedAt", System.currentTimeMillis())
@@ -998,9 +1050,17 @@ class SettingsRepository(private val context: Context) {
     )
 
     suspend fun importBackupJson(rawJson: String): Int {
+        return importBackupJson(rawJson, RideHistoryRepository(context))
+    }
+
+    suspend fun importBackupJson(
+        rawJson: String,
+        rideHistoryRepository: RideHistoryRepository
+    ): Int {
         val root = JSONObject(rawJson)
         val prefsJson = root.optJSONObject("prefs") ?: root
         val localSnapshot = preferencesFlow.first()
+        val localRideGroups = loadRideHistoryByVehicle(rideHistoryRepository)
         val staged = mutableListOf<BackupEntry>()
         var hasAppOwnedKey = false
         val keys = prefsJson.keys()
@@ -1018,6 +1078,7 @@ class SettingsRepository(private val context: Context) {
         if (staged.isEmpty() || !hasAppOwnedKey) {
             throw IllegalArgumentException("备份内容为空或不是 SmartDash 备份格式")
         }
+        val restoredRideGroups = parseRideHistoryEntries(staged)
 
         var imported = 0
         context.dataStore.edit { pref ->
@@ -1025,8 +1086,10 @@ class SettingsRepository(private val context: Context) {
                 pref.remove(key)
             }
             staged.forEach { entry ->
-                writeBackupEntry(pref, entry)
-                imported += 1
+                if (!isLegacyRideHistoryKey(entry.name)) {
+                    writeBackupEntry(pref, entry)
+                    imported += 1
+                }
             }
             val localProfiles = loadVehicleProfiles(localSnapshot.safeGet(VEHICLE_LIST))
             val restoredProfiles = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
@@ -1037,12 +1100,6 @@ class SettingsRepository(private val context: Context) {
             localSnapshot.asMap().keys.forEach { key ->
                 val name = key.name
                 when {
-                    name.endsWith("_$K_RIDE_HISTORY") -> {
-                        val restoredJson = pref.safeGet(stringPreferencesKey(name))
-                        val localJson = localSnapshot.safeGet(stringPreferencesKey(name))
-                        pref[stringPreferencesKey(name)] = mergeRideHistoryJson(localJson, restoredJson)
-                        markSyncedAt(pref, name)
-                    }
                     name.endsWith("_$K_SPEEDTEST_HISTORY") -> {
                         val restoredJson = pref.safeGet(stringPreferencesKey(name))
                         val localJson = localSnapshot.safeGet(stringPreferencesKey(name))
@@ -1053,6 +1110,11 @@ class SettingsRepository(private val context: Context) {
             }
             ensureVehiclePreferences(pref)
         }
+        mergeRideHistoryGroupsIntoRepository(
+            rideHistoryRepository = rideHistoryRepository,
+            localRideGroups = localRideGroups,
+            remoteRideGroups = restoredRideGroups
+        )
         return imported
     }
 
@@ -1126,12 +1188,21 @@ class SettingsRepository(private val context: Context) {
      * Does NOT wipe local data first.
      */
     suspend fun mergeBackupJson(remoteJson: String): Int {
+        return mergeBackupJson(remoteJson, RideHistoryRepository(context))
+    }
+
+    suspend fun mergeBackupJson(
+        remoteJson: String,
+        rideHistoryRepository: RideHistoryRepository
+    ): Int {
         val remoteRoot = JSONObject(remoteJson)
         val remotePrefs = remoteRoot.optJSONObject("prefs") ?: remoteRoot
 
         // Parse remote entries
         val remoteEntries = parseBackupEntries(remotePrefs)
         val remoteEntriesByName = remoteEntries.associateBy { it.name }
+        val localRideGroups = loadRideHistoryByVehicle(rideHistoryRepository)
+        val remoteRideGroups = parseRideHistoryEntries(remoteEntries)
 
         if (remoteEntries.isEmpty()) return 0
 
@@ -1153,17 +1224,8 @@ class SettingsRepository(private val context: Context) {
 
             // Merge other settings using per-field modification timestamps.
             remoteEntries.forEach { entry ->
-                if (entry.name != "vehicle_list_json" && !isSyncMetadataKey(entry.name)) {
+                if (entry.name != "vehicle_list_json" && !isSyncMetadataKey(entry.name) && !isLegacyRideHistoryKey(entry.name)) {
                     when {
-                        entry.kind == BackupValueKind.STRING && entry.name.endsWith("_$K_RIDE_HISTORY") -> {
-                            val localJson = localPref.safeGet(stringPreferencesKey(entry.name))
-                            val mergedJson = mergeRideHistoryJson(localJson, entry.value as String)
-                            localPref[stringPreferencesKey(entry.name)] = mergedJson
-                            val localMtime = readLocalModifiedAt(localPref, entry.name)
-                            val remoteMtime = remoteModifiedAt(remoteEntriesByName, entry.name)
-                            markSyncedAt(localPref, entry.name, updatedAt = maxOf(localMtime, remoteMtime, System.currentTimeMillis()))
-                            mergedCount++
-                        }
                         entry.kind == BackupValueKind.STRING && entry.name.endsWith("_$K_SPEEDTEST_HISTORY") -> {
                             val localJson = localPref.safeGet(stringPreferencesKey(entry.name))
                             val mergedJson = mergeSpeedTestHistoryJson(localJson, entry.value as String)
@@ -1194,10 +1256,26 @@ class SettingsRepository(private val context: Context) {
             // Ensure current vehicle is valid
             ensureVehiclePreferences(localPref)
         }
+        if (remoteRideGroups.isNotEmpty() || localRideGroups.isNotEmpty()) {
+            mergeRideHistoryGroupsIntoRepository(
+                rideHistoryRepository = rideHistoryRepository,
+                localRideGroups = localRideGroups,
+                remoteRideGroups = remoteRideGroups
+            )
+            mergedCount += remoteRideGroups.values.sumOf { it.size }
+        }
         return mergedCount
     }
 
     suspend fun restoreRideFromBackupJson(rawJson: String, rideId: String): Boolean {
+        return restoreRideFromBackupJson(rawJson, rideId, RideHistoryRepository(context))
+    }
+
+    suspend fun restoreRideFromBackupJson(
+        rawJson: String,
+        rideId: String,
+        rideHistoryRepository: RideHistoryRepository
+    ): Boolean {
         val root = JSONObject(rawJson)
         val prefsJson = root.optJSONObject("prefs") ?: root
         val parsedEntries = parseBackupEntries(prefsJson)
@@ -1223,17 +1301,14 @@ class SettingsRepository(private val context: Context) {
             val mergedProfiles = mergeVehicleProfiles(localProfiles, listOf(matchedProfile))
             localPref[VEHICLE_LIST] = VehicleProfile.listToJson(mergedProfiles)
             markSyncedAt(localPref, VEHICLE_LIST.name)
-
-            val rideKey = vKey(matchedProfile.id, K_RIDE_HISTORY)
-            val localRideJson = localPref.safeGet(rideKey)
-            val mergedRideJson = mergeRideHistoryJson(
-                localRideJson,
-                RideHistoryRecord.listToJson(listOf(targetRide))
-            )
-            localPref[rideKey] = mergedRideJson
-            markSyncedAt(localPref, rideKey.name)
             ensureVehiclePreferences(localPref)
         }
+        val localRideRecords = rideHistoryRepository.listRideHistoryRecords(matchedProfile.id)
+        val mergedRideRecords = mergeSyncedRideHistoryRecords(
+            local = localRideRecords,
+            remote = listOf(targetRide)
+        ).sortedByDescending { it.startedAtMs }
+        rideHistoryRepository.replaceRidesForVehicle(matchedProfile.id, mergedRideRecords)
         return true
     }
 
@@ -1253,6 +1328,62 @@ class SettingsRepository(private val context: Context) {
         val suffixToken = "_$suffix"
         if (!name.startsWith(prefix) || !name.endsWith(suffixToken)) return ""
         return name.removePrefix(prefix).removeSuffix(suffixToken)
+    }
+
+    private suspend fun encodeRideHistoryBackupEntries(
+        prefs: JSONObject,
+        rideHistoryRepository: RideHistoryRepository
+    ) {
+        val grouped = loadRideHistoryByVehicle(rideHistoryRepository)
+        grouped.forEach { (vehicleId, records) ->
+            prefs.put(
+                "v_${vehicleId}_$K_RIDE_HISTORY",
+                JSONObject()
+                    .put("type", "string")
+                    .put("value", RideHistoryRecord.listToJson(records))
+            )
+        }
+    }
+
+    private suspend fun loadRideHistoryByVehicle(
+        rideHistoryRepository: RideHistoryRepository
+    ): Map<String, List<RideHistoryRecord>> {
+        val grouped = linkedMapOf<String, MutableList<RideHistoryRecord>>()
+        rideHistoryRepository.listRideHistorySummaries().forEach { summary ->
+            val record = rideHistoryRepository.loadRideRecord(summary.id) ?: return@forEach
+            grouped.getOrPut(summary.vehicleId) { mutableListOf() }.add(record)
+        }
+        return grouped.mapValues { (_, records) ->
+            records.sortedByDescending { it.startedAtMs }
+        }
+    }
+
+    private fun parseRideHistoryEntries(entries: List<BackupEntry>): Map<String, List<RideHistoryRecord>> =
+        entries
+            .filter { it.kind == BackupValueKind.STRING && it.name.endsWith("_$K_RIDE_HISTORY") }
+            .mapNotNull { entry ->
+                val vehicleId = vehicleIdFromScopedKey(entry.name, K_RIDE_HISTORY)
+                    .takeIf { it.isNotBlank() }
+                    ?: return@mapNotNull null
+                vehicleId to RideHistoryRecord.listFromJson(entry.value as? String)
+            }
+            .toMap()
+
+    private suspend fun mergeRideHistoryGroupsIntoRepository(
+        rideHistoryRepository: RideHistoryRepository,
+        localRideGroups: Map<String, List<RideHistoryRecord>>,
+        remoteRideGroups: Map<String, List<RideHistoryRecord>>
+    ) {
+        val allVehicleIds = (localRideGroups.keys + remoteRideGroups.keys)
+            .filter { it.isNotBlank() }
+            .distinct()
+        allVehicleIds.forEach { vehicleId ->
+            val mergedRideRecords = mergeSyncedRideHistoryRecords(
+                local = localRideGroups[vehicleId].orEmpty(),
+                remote = remoteRideGroups[vehicleId].orEmpty()
+            ).sortedByDescending { it.startedAtMs }
+            rideHistoryRepository.replaceRidesForVehicle(vehicleId, mergedRideRecords)
+        }
     }
 
     private fun mergeRideHistoryJson(localJson: String?, remoteJson: String?): String {
@@ -1655,10 +1786,16 @@ class SettingsRepository(private val context: Context) {
         if (name == LAST_CONTROLLER_PROTOCOL_ID.name) return true
         if (name == LOG_LEVEL.name) return true
         if (name == OVERLAY_ENABLED.name) return true
+        if (name == DRIVE_BACKUP_RETENTION.name) return true
+        if (name == RIDE_HISTORY_NORMALIZATION_VERSION.name) return true
+        if (name == RIDE_HISTORY_STORAGE_MIGRATION_VERSION.name) return true
         return name.startsWith("v_")
     }
 
     private fun isSyncMetadataKey(name: String): Boolean = name.startsWith(SYNC_META_PREFIX)
+
+    private fun isLegacyRideHistoryKey(name: String): Boolean =
+        name.startsWith("v_") && name.endsWith("_$K_RIDE_HISTORY")
 
     private fun expectedKindForKey(name: String): BackupValueKind? {
         if (isSyncMetadataKey(name)) return BackupValueKind.LONG
@@ -1669,6 +1806,9 @@ class SettingsRepository(private val context: Context) {
         if (name == LAST_CONTROLLER_PROTOCOL_ID.name) return BackupValueKind.STRING
         if (name == LOG_LEVEL.name) return BackupValueKind.STRING
         if (name == OVERLAY_ENABLED.name) return BackupValueKind.BOOLEAN
+        if (name == DRIVE_BACKUP_RETENTION.name) return BackupValueKind.STRING
+        if (name == RIDE_HISTORY_NORMALIZATION_VERSION.name) return BackupValueKind.INT
+        if (name == RIDE_HISTORY_STORAGE_MIGRATION_VERSION.name) return BackupValueKind.INT
         if (!name.startsWith("v_")) return null
         if (name.endsWith("_$K_WHEEL")) return BackupValueKind.FLOAT
         if (name.endsWith("_$K_POLE")) return BackupValueKind.INT

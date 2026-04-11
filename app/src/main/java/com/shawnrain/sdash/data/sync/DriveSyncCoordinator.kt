@@ -199,6 +199,9 @@ class DriveSyncCoordinator(
                 )
             }
 
+            // Resolve encryption password before downloading the state payload.
+            val password = deriveEncryptionPassword()
+
             // Download current state
             val encryptedStateBytes = manifestRepository.downloadCurrentState(remoteManifest.currentStateFileName).getOrElse {
                 _syncState.value = SyncStateV2.Idle
@@ -206,7 +209,6 @@ class DriveSyncCoordinator(
             }
 
             // Decrypt
-            val password = deriveEncryptionPassword()
             val stateBytes = decryptStateBytes(encryptedStateBytes, password)
 
             // Verify checksum
@@ -361,9 +363,10 @@ class DriveSyncCoordinator(
      * Derive encryption password from Google account email (same as V1).
      */
     private suspend fun deriveEncryptionPassword(): String {
-        val account = com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context)
+        val account = driveSyncManager.getCurrentAccount()
             ?: throw IllegalStateException("Not signed in to Google")
-        val email = account.email ?: throw IllegalStateException("No email in account")
+        val email = account.email.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("No email in account")
 
         val digest = java.security.MessageDigest.getInstance("SHA-256")
         val hash = digest.digest(email.toByteArray(Charsets.UTF_8))

@@ -115,6 +115,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.shawnrain.sdash.MainViewModel
 import com.shawnrain.sdash.data.MetricType
 import com.shawnrain.sdash.data.history.RideHistoryRecord
+import com.shawnrain.sdash.data.history.RideHistorySummary
 import com.shawnrain.sdash.data.history.RideMetricSample
 import com.shawnrain.sdash.data.history.RideTrackPoint
 import com.shawnrain.sdash.data.history.computeRideSummaryStats
@@ -230,6 +231,7 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     )
     val isSyncing = driveSyncState is SyncState.Syncing
     val rideSelectionMode = selectedRideIds.isNotEmpty()
+    val loadRideRecordErrorMessage = "读取行程详情失败"
     BackHandler(enabled = rideSelectionMode) {
         selectedRideIds = emptySet()
     }
@@ -376,44 +378,65 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                                 if (rideHistory.isEmpty()) {
                                     item { EmptyCard("还没有行程记录", "开始骑行后系统会自动创建记录，停车一段时间后自动归档") }
                                 } else {
-                                    items(rideHistory, key = { it.id }) { record ->
-                                        val displayRecord = remember(record) {
-                                            viewModel.presentRideHistoryRecord(record)
-                                        }
+                                    items(rideHistory, key = { it.id }) { summary ->
                                         RideHistoryCard(
-                                            record = displayRecord,
+                                            summary = summary,
                                             selectionMode = rideSelectionMode,
-                                            selected = record.id in selectedRideIds,
+                                            selected = summary.id in selectedRideIds,
                                             onOpen = {
                                                 if (rideSelectionMode) {
-                                                    selectedRideIds = if (record.id in selectedRideIds) {
-                                                        selectedRideIds - record.id
+                                                    selectedRideIds = if (summary.id in selectedRideIds) {
+                                                        selectedRideIds - summary.id
                                                     } else {
-                                                        selectedRideIds + record.id
+                                                        selectedRideIds + summary.id
                                                     }
                                                 } else {
-                                                    selectedRideRecord = displayRecord
+                                                    scope.launch {
+                                                        selectedRideRecord = viewModel.loadPresentedRideHistoryRecord(summary.id)
+                                                        if (selectedRideRecord == null) {
+                                                            snackbarHostState.showSnackbar(loadRideRecordErrorMessage)
+                                                        }
+                                                    }
                                                 }
                                             },
                                             onLongPress = {
-                                                selectedRideIds = selectedRideIds + record.id
+                                                selectedRideIds = selectedRideIds + summary.id
                                             },
                                             onShare = {
-                                                previewRideRecord = displayRecord
+                                                scope.launch {
+                                                    previewRideRecord = viewModel.loadPresentedRideHistoryRecord(summary.id)
+                                                    if (previewRideRecord == null) {
+                                                        snackbarHostState.showSnackbar(loadRideRecordErrorMessage)
+                                                    }
+                                                }
                                             },
                                             onSaveToAlbum = {
-                                                runCatching { viewModel.saveRidePosterToGallery(displayRecord) }
-                                                    .onSuccess { fileName ->
-                                                        scope.launch { snackbarHostState.showSnackbar("已保存到相册: $fileName") }
+                                                scope.launch {
+                                                    val record = viewModel.loadPresentedRideHistoryRecord(summary.id)
+                                                    if (record == null) {
+                                                        snackbarHostState.showSnackbar(loadRideRecordErrorMessage)
+                                                    } else {
+                                                        runCatching { viewModel.saveRidePosterToGallery(record) }
+                                                            .onSuccess { fileName ->
+                                                                snackbarHostState.showSnackbar("已保存到相册: $fileName")
+                                                            }
+                                                            .onFailure {
+                                                                snackbarHostState.showSnackbar("保存到相册失败")
+                                                            }
                                                     }
-                                                    .onFailure {
-                                                        scope.launch { snackbarHostState.showSnackbar("保存到相册失败") }
-                                                    }
+                                                }
                                             },
                                             onExportCsv = {
-                                                context.startActivity(viewModel.createRideCsvShareIntent(displayRecord))
+                                                scope.launch {
+                                                    val record = viewModel.loadPresentedRideHistoryRecord(summary.id)
+                                                    if (record == null) {
+                                                        snackbarHostState.showSnackbar(loadRideRecordErrorMessage)
+                                                    } else {
+                                                        context.startActivity(viewModel.createRideCsvShareIntent(record))
+                                                    }
+                                                }
                                             },
-                                            onDelete = { viewModel.deleteRideHistoryRecord(record.id) }
+                                            onDelete = { viewModel.deleteRideHistoryRecord(summary.id) }
                                         )
                                     }
                                 }
@@ -471,13 +494,15 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                     }
                     Button(
                         onClick = {
-                            val merged = viewModel.mergeRideHistoryRecords(selectedRideIds)
-                            if (merged != null) {
-                                selectedRideIds = emptySet()
-                                selectedRideRecord = merged
-                                scope.launch { snackbarHostState.showSnackbar("已合并行程记录") }
-                            } else {
-                                scope.launch { snackbarHostState.showSnackbar("至少选择 2 条行程记录") }
+                            scope.launch {
+                                val merged = viewModel.mergeRideHistoryRecords(selectedRideIds)
+                                if (merged != null) {
+                                    selectedRideIds = emptySet()
+                                    selectedRideRecord = merged
+                                    snackbarHostState.showSnackbar("已合并行程记录")
+                                } else {
+                                    snackbarHostState.showSnackbar("至少选择 2 条行程记录")
+                                }
                             }
                         },
                         enabled = selectedRideIds.size >= 2,
@@ -951,7 +976,7 @@ private fun SpeedTestHistoryCard(
 
 @Composable
 private fun RideHistoryCard(
-    record: RideHistoryRecord,
+    summary: RideHistorySummary,
     selectionMode: Boolean,
     selected: Boolean,
     onOpen: () -> Unit,
@@ -961,27 +986,24 @@ private fun RideHistoryCard(
     onExportCsv: () -> Unit,
     onDelete: () -> Unit
 ) {
-    var showDeleteConfirm by remember(record.id) { mutableStateOf(false) }
-    var showShareActions by remember(record.id) { mutableStateOf(false) }
-    var isRemoving by remember(record.id) { mutableStateOf(false) }
+    var showDeleteConfirm by remember(summary.id) { mutableStateOf(false) }
+    var showShareActions by remember(summary.id) { mutableStateOf(false) }
+    var isRemoving by remember(summary.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
-    val summaryStats = remember(record) { computeRideSummaryStats(record) }
-    val displayDistanceMeters = summaryStats.distanceMeters
-    val displayAvgSpeedKmh = summaryStats.avgSpeedKmh
     val summaryMetrics = buildList {
-        add("里程" to metricOf(displayDistanceMeters / 1000f, "km"))
-        add("最高速度" to metricOf(summaryStats.maxSpeedKmh, "km/h"))
-        add("平均速度" to metricOf(displayAvgSpeedKmh, "km/h"))
-        if (summaryStats.hasGradeData) {
-            add("最大坡度" to metricOf(dominantSignedGrade(summaryStats), "%"))
+        add("里程" to metricOf(summary.distanceMeters / 1000f, "km"))
+        add("最高速度" to metricOf(summary.maxSpeedKmh, "km/h"))
+        add("平均速度" to metricOf(summary.avgSpeedKmh, "km/h"))
+        if (summary.hasGradeData) {
+            add("最大坡度" to metricOf(dominantSignedGrade(summary), "%"))
         }
-        if (summaryStats.hasAltitudeData) {
-            add("最高海拔" to metricOf(summaryStats.maxAltitudeMeters, "m"))
+        if (summary.hasAltitudeData) {
+            add("最高海拔" to metricOf(summary.maxAltitudeMeters, "m"))
         }
-        add("峰值功率" to metricOf(record.peakPowerKw, "kW"))
-        add("能耗" to metricOf(record.avgNetEfficiencyWhKm, "Wh/km"))
-        add("采样点" to metricOfLabel(record.samples.size.toString()))
+        add("峰值功率" to metricOf(summary.peakPowerKw, "kW"))
+        add("能耗" to metricOf(summary.avgNetEfficiencyWhKm, "Wh/km"))
+        add("采样点" to metricOfLabel(summary.sampleCount.toString()))
     }
 
     AnimatedVisibility(
@@ -1018,7 +1040,7 @@ private fun RideHistoryCard(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(formatRideTitle(record.title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                            Text(formatRideTitle(summary.title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
                             if (selectionMode) {
                                 Text(
                                     text = if (selected) "已选择" else "点按选择",
@@ -1029,7 +1051,7 @@ private fun RideHistoryCard(
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            "${formatDate(record.startedAtMs)} · ${formatDuration(record.durationMs)}",
+                            "${formatDate(summary.startedAtMs)} · ${formatDuration(summary.durationMs)}",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -4180,6 +4202,14 @@ private fun dominantSignedGrade(summaryStats: com.shawnrain.sdash.data.history.R
         summaryStats.maxDownhillGradePercent
     } else {
         summaryStats.maxUphillGradePercent
+    }
+}
+
+private fun dominantSignedGrade(summary: RideHistorySummary): Float {
+    return if (kotlin.math.abs(summary.maxDownhillGradePercent) > kotlin.math.abs(summary.maxUphillGradePercent)) {
+        summary.maxDownhillGradePercent
+    } else {
+        summary.maxUphillGradePercent
     }
 }
 

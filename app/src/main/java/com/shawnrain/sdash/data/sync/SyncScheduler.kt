@@ -2,6 +2,7 @@ package com.shawnrain.sdash.data.sync
 
 import android.content.Context
 import com.shawnrain.sdash.data.SettingsRepository
+import com.shawnrain.sdash.data.history.RideHistoryRepository
 import com.shawnrain.sdash.debug.AppLogger
 import com.shawnrain.sdash.worker.DrivePullWorker
 import com.shawnrain.sdash.worker.DrivePushWorker
@@ -170,13 +171,15 @@ class SyncScheduler(
                 AppLogger.i(TAG, "Auth success: initializing V2 sync")
 
                 val driveSyncManager = GoogleDriveSyncManager(context)
-                val stateSerializer = DriveStateSerializer(context, settingsRepository)
+                val rideHistoryRepository = RideHistoryRepository(context)
+                val stateSerializer = DriveStateSerializer(context, settingsRepository, rideHistoryRepository)
                 val stateMerger = DriveStateMerger(context, settingsRepository)
                 val manifestRepository = DriveManifestRepository(driveSyncManager)
                 val coordinator = DriveSyncCoordinator(
                     context = context,
                     driveSyncManager = driveSyncManager,
                     settingsRepository = settingsRepository,
+                    rideHistoryRepository = rideHistoryRepository,
                     stateSerializer = stateSerializer,
                     stateMerger = stateMerger,
                     manifestRepository = manifestRepository,

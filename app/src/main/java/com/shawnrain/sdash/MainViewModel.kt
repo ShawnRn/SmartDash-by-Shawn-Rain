@@ -72,6 +72,8 @@ import com.shawnrain.sdash.data.update.AppUpdatePreferences
 import com.shawnrain.sdash.data.update.AppUpdateState
 import com.shawnrain.sdash.data.update.InstalledAppVersion
 import com.shawnrain.sdash.data.history.RideHistoryRecord
+import com.shawnrain.sdash.data.history.RideHistoryRepository
+import com.shawnrain.sdash.data.history.RideHistorySummary
 import com.shawnrain.sdash.data.history.RideRecordNormalizer
 import com.shawnrain.sdash.data.history.RideMetricSampleSchema
 import com.shawnrain.sdash.data.history.RideMetricSample
@@ -226,18 +228,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val bleManager = BleManager(application)
     private val bmsBleManager = BleManager(application)
     private val settingsRepository = SettingsRepository(application)
+    private val rideHistoryRepository = RideHistoryRepository(application)
     private val lanBackupTransfer = LanBackupTransfer()
     private val driveSyncManager = GoogleDriveSyncManager(application)
     private val syncScheduler = com.shawnrain.sdash.data.sync.SyncScheduler(application, settingsRepository)
     private val syncMetadataRepository = SyncMetadataRepository(application)
     private val pendingMutationRepository = PendingMutationRepository(application)
-    private val driveStateSerializer = DriveStateSerializer(application, settingsRepository)
+    private val driveStateSerializer = DriveStateSerializer(application, settingsRepository, rideHistoryRepository)
     private val driveStateMerger = DriveStateMerger(application, settingsRepository)
     private val driveManifestRepository = DriveManifestRepository(driveSyncManager)
     private val driveSyncCoordinator = DriveSyncCoordinator(
         context = application,
         driveSyncManager = driveSyncManager,
         settingsRepository = settingsRepository,
+        rideHistoryRepository = rideHistoryRepository,
         stateSerializer = driveStateSerializer,
         stateMerger = driveStateMerger,
         manifestRepository = driveManifestRepository,
@@ -390,8 +394,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val speedTestSession: StateFlow<SpeedTestSessionUiState> = _speedTestSession.asStateFlow()
     private val _speedTestHistory = MutableStateFlow<List<SpeedTestRecord>>(emptyList())
     val speedTestHistory: StateFlow<List<SpeedTestRecord>> = _speedTestHistory.asStateFlow()
-    private val _rideHistory = MutableStateFlow<List<RideHistoryRecord>>(emptyList())
-    val rideHistory: StateFlow<List<RideHistoryRecord>> = _rideHistory.asStateFlow()
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val rideHistory: StateFlow<List<RideHistorySummary>> = settingsRepository.currentVehicleId
+        .distinctUntilChanged()
+        .flatMapLatest { vehicleId ->
+            rideHistoryRepository.observeRideHistorySummaries(vehicleId)
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val metrics: StateFlow<VehicleMetrics> = combine(
         ProtocolParser.latestMetrics,
@@ -951,7 +960,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun uploadToDrive(): kotlinx.coroutines.Job = viewModelScope.launch {
         _driveSyncState.value = SyncState.Syncing
         try {
-            val backupJson = settingsRepository.exportBackupJson()
+            val backupJson = settingsRepository.exportBackupJson(rideHistoryRepository)
             val result = driveSyncManager.uploadBackup(backupJson)
             result.fold(
                 onSuccess = {
@@ -987,7 +996,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val result = driveSyncManager.downloadBackup(fileId)
             result.fold(
                 onSuccess = { backupJson ->
-                    val count = settingsRepository.importBackupJson(backupJson)
+                    val count = settingsRepository.importBackupJson(backupJson, rideHistoryRepository)
                     _driveSyncState.value = SyncState.Synced(uploaded = false, downloaded = true)
                     _driveSyncMessage.value = "恢复完成：已应用 $count 项资料"
                     loadDriveBackups()
@@ -1072,7 +1081,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _driveSyncState.value = SyncState.Syncing
         try {
             val backupJson = driveSyncManager.downloadBackup(fileId).getOrElse { throw it }
-            val restored = settingsRepository.restoreRideFromBackupJson(backupJson, rideId)
+            val restored = settingsRepository.restoreRideFromBackupJson(backupJson, rideId, rideHistoryRepository)
             if (restored) {
                 _driveSyncState.value = SyncState.Synced(uploaded = false, downloaded = true)
                 _driveSyncMessage.value = "已恢复这条行程，并同步对应车辆档案"
@@ -1259,7 +1268,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             result.fold(
                 onSuccess = { remoteBackupJson ->
                     // Use merge strategy instead of full overwrite
-                    val count = settingsRepository.mergeBackupJson(remoteBackupJson)
+                    val count = settingsRepository.mergeBackupJson(remoteBackupJson, rideHistoryRepository)
                     lastKnownRemoteTimestamp = System.currentTimeMillis()
                     _driveSyncState.value = SyncState.Synced(uploaded = false, downloaded = true)
                     _driveSyncMessage.value = "合并完成：已同步 $count 项资料"
@@ -1560,18 +1569,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _speedTestHistory.value = history
         }.launchIn(viewModelScope)
 
-        settingsRepository.rideHistory.onEach { history ->
-            val normalizedHistory = normalizeRideHistoryRecords(history)
-            _rideHistory.value = normalizedHistory
-            if (normalizedHistory != history) {
-                viewModelScope.launch {
-                    settingsRepository.saveRideHistory(normalizedHistory)
-                    settingsRepository.saveRideHistoryNormalizationVersion(
-                        RIDE_HISTORY_NORMALIZATION_VERSION_CURRENT
-                    )
-                }
-            }
-        }.launchIn(viewModelScope)
+        viewModelScope.launch(Dispatchers.IO) {
+            migrateLegacyRideHistoryIfNeeded()
+        }
 
         currentVehicle.onEach { profile ->
             if (estimatorVehicleId != profile.id) {
@@ -2120,10 +2120,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             historyRecord.distanceMeters >= 50.0 || historyRecord.durationMs >= 60_000L
         }
         if (shouldPersist) {
-            val updated = listOf(historyRecord) + _rideHistory.value
-            _rideHistory.value = updated.take(HISTORY_LIMIT)
             viewModelScope.launch {
-                settingsRepository.saveRideHistory(_rideHistory.value)
+                rideHistoryRepository.upsertRide(currentVehicle.value.id, historyRecord)
                 persistVehicleSnapshot()
                 // Auto-sync to Google Drive after saving ride (V2 sync engine)
                 syncScheduler.onRideSaved(historyRecord.id)
@@ -2158,19 +2156,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return false
     }
 
-    private fun normalizeRideHistoryRecords(records: List<RideHistoryRecord>): List<RideHistoryRecord> {
-        if (records.isEmpty()) return records
-        var changedCount = 0
-        val normalized = records.map { record ->
-            val updated = presentRideHistoryRecord(record)
+    private suspend fun migrateLegacyRideHistoryIfNeeded() {
+        val currentVersion = settingsRepository.getRideHistoryStorageMigrationVersion()
+        if (currentVersion >= RIDE_HISTORY_NORMALIZATION_VERSION_CURRENT) return
 
-            if (updated != record) changedCount += 1
-            updated
+        val profilesById = settingsRepository.vehicleProfiles.first().associateBy { it.id }
+        val legacyPayloads = settingsRepository.listLegacyRideHistoryPayloads()
+        var migratedRecordCount = 0
+
+        legacyPayloads.forEach { payload ->
+            val profile = profilesById[payload.vehicleId]
+            val wheelCircumferenceMm = profile?.wheelCircumferenceMm ?: 1800f
+            val polePairs = profile?.polePairs ?: 50
+            val normalizedRecords = payload.records.map { record ->
+                normalizeRideHistoryRecord(
+                    record = record,
+                    wheelCircumferenceMm = wheelCircumferenceMm,
+                    polePairs = polePairs
+                )
+            }.sortedByDescending { it.startedAtMs }
+
+            if (normalizedRecords.isNotEmpty()) {
+                rideHistoryRepository.replaceRidesForVehicle(payload.vehicleId, normalizedRecords)
+                migratedRecordCount += normalizedRecords.size
+            }
+            settingsRepository.clearLegacyRideHistoryForVehicle(payload.vehicleId)
         }
-        if (changedCount > 0) {
-            AppLogger.i(TAG, "Ride history normalized for $changedCount record(s)")
+
+        settingsRepository.saveRideHistoryStorageMigrationVersion(RIDE_HISTORY_NORMALIZATION_VERSION_CURRENT)
+        settingsRepository.saveRideHistoryNormalizationVersion(RIDE_HISTORY_NORMALIZATION_VERSION_CURRENT)
+        if (migratedRecordCount > 0) {
+            AppLogger.i(TAG, "Ride history storage migrated to Room records=$migratedRecordCount")
         }
-        return normalized
     }
 
     fun presentRideHistoryRecord(record: RideHistoryRecord): RideHistoryRecord {
@@ -2182,6 +2199,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         return rideRecordNormalizer.normalize(normalized)
     }
+
+    suspend fun loadPresentedRideHistoryRecord(id: String): RideHistoryRecord? =
+        rideHistoryRepository.loadRideRecord(id)?.let(::presentRideHistoryRecord)
 
     private fun needsRideHistoryRepair(
         original: RideHistoryRecord,
@@ -2199,21 +2219,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun repairRideHistoryRecord(id: String): String {
-        val currentHistory = _rideHistory.value
-        val targetIndex = currentHistory.indexOfFirst { it.id == id }
-        if (targetIndex == -1) return "未找到这条行程记录"
-
-        val original = currentHistory[targetIndex]
+        val original = rideHistoryRepository.loadRideRecord(id) ?: return "未找到这条行程记录"
         val repaired = presentRideHistoryRecord(original)
         if (!needsRideHistoryRepair(original, repaired)) {
             return "当前记录无需修复"
         }
-
-        val updatedHistory = currentHistory.toMutableList().apply {
-            this[targetIndex] = repaired
-        }
-        settingsRepository.saveRideHistory(updatedHistory)
-        _rideHistory.value = updatedHistory
+        val vehicleId = rideHistory.value.firstOrNull { it.id == id }?.vehicleId ?: currentVehicle.value.id
+        rideHistoryRepository.upsertRide(vehicleId, repaired)
+        syncScheduler.onRideHistoryChanged(id)
         AppLogger.i(TAG, "Ride history repaired id=$id")
         return "已按新版算法修复"
     }
@@ -3006,16 +3019,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteRideHistoryRecord(id: String) {
-        _rideHistory.value = _rideHistory.value.filterNot { it.id == id }
         viewModelScope.launch {
-            settingsRepository.saveRideHistory(_rideHistory.value)
-            syncScheduler.onRideHistoryChanged()
+            rideHistoryRepository.deleteRide(id)
+            syncScheduler.onRideHistoryChanged(id)
         }
     }
 
-    fun mergeRideHistoryRecords(ids: Set<String>): RideHistoryRecord? {
-        val selected = _rideHistory.value
-            .filter { it.id in ids }
+    suspend fun mergeRideHistoryRecords(ids: Set<String>): RideHistoryRecord? {
+        val selected = rideHistoryRepository.loadRideRecords(ids)
             .sortedBy { it.startedAtMs }
         if (selected.size < 2) return null
 
@@ -3117,13 +3128,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             trackPoints = mergedTrackPoints,
             samples = mergedSamples
         )
-
-        val updated = listOf(mergedRecord) + _rideHistory.value.filterNot { it.id in ids }
-        _rideHistory.value = updated.take(HISTORY_LIMIT)
-        viewModelScope.launch {
-            settingsRepository.saveRideHistory(_rideHistory.value)
-            syncScheduler.onRideHistoryChanged(mergedRecord.id)
-        }
+        val vehicleId = rideHistory.value.firstOrNull { it.id in ids }?.vehicleId ?: currentVehicle.value.id
+        ids.forEach { rideHistoryRepository.deleteRide(it) }
+        rideHistoryRepository.upsertRide(vehicleId, mergedRecord)
+        syncScheduler.onRideHistoryChanged(mergedRecord.id)
         _calibrationMessage.value = "已合并 ${selected.size} 条行程记录"
         return mergedRecord
     }
@@ -3533,7 +3541,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _lanBackupShare.value = LanBackupShareUiState()
                     _lanBackupMessage.value = "新设备恢复成功，已自动停止发送"
                 }
-            ) { settingsRepository.exportBackupJson() }
+            ) { settingsRepository.exportBackupJson(rideHistoryRepository) }
         }.onSuccess { offer ->
             _lanBackupShare.value = LanBackupShareUiState(
                 isSharing = true,
@@ -3583,7 +3591,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         try {
             val count = withContext(Dispatchers.IO) {
                 val payload = lanBackupTransfer.pull(cleanHost, port, cleanCode)
-                val importedCount = settingsRepository.importBackupJson(payload)
+                val importedCount = settingsRepository.importBackupJson(payload, rideHistoryRepository)
                 runCatching { lanBackupTransfer.notifyRestoreApplied(cleanHost, port, cleanCode) }
                 importedCount
             }

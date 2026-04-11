@@ -2,7 +2,9 @@ package com.shawnrain.sdash.data.sync
 
 import android.content.Context
 import com.shawnrain.sdash.data.SettingsRepository
+import com.shawnrain.sdash.data.history.RideHistoryRepository
 import com.shawnrain.sdash.data.history.RideHistoryRecord
+import com.shawnrain.sdash.data.history.computeRideDetailFingerprint
 import com.shawnrain.sdash.data.history.RideMetricSample
 import com.shawnrain.sdash.data.history.RideMetricSampleSchema
 import com.shawnrain.sdash.data.history.RideTrackPoint
@@ -29,7 +31,8 @@ private const val RIDE_DETAIL_SCHEMA_REVISION = 2
  */
 class DriveStateSerializer(
     private val context: Context,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val rideHistoryRepository: RideHistoryRepository
 ) {
     /**
      * Build the current state snapshot from local data sources.
@@ -68,9 +71,11 @@ class DriveStateSerializer(
             profile.toSyncSnapshot(deviceId, profile.lastModified.takeIf { it > 0L } ?: now)
         }
 
-        // Load ride history
-        val rides = settingsRepository.rideHistory.first().map { ride ->
-            ride.toSyncSnapshot(deviceId, now, activeVehicleId)
+        // Load ride history from Room-backed repository
+        val rides = rideHistoryRepository.listRideHistorySummaries().mapNotNull { summary ->
+            rideHistoryRepository
+                .loadRideRecord(summary.id)
+                ?.toSyncSnapshot(deviceId, now, summary.vehicleId.ifBlank { activeVehicleId })
         }
 
         // Load speed test history
@@ -194,31 +199,3 @@ private fun SpeedTestTrackPoint.toSyncSnapshot() = SyncSpeedTestTrackPoint(
     latitude = latitude,
     longitude = longitude
 )
-
-private fun computeRideDetailFingerprint(
-    trackPoints: List<RideTrackPoint>,
-    samples: List<RideMetricSample>
-): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    val payload = buildString {
-        append("tracks:")
-        trackPoints.forEach { point ->
-            append(point.latitude)
-            append(',')
-            append(point.longitude)
-            append(';')
-        }
-        append("|samples:")
-        samples.forEach { sample ->
-            RideMetricSampleSchema.toValueMap(sample).forEach { (key, value) ->
-                append(key)
-                append('=')
-                append(value ?: "null")
-                append('|')
-            }
-            append(';')
-        }
-    }
-    return digest.digest(payload.toByteArray(Charsets.UTF_8))
-        .joinToString("") { "%02x".format(it) }
-}

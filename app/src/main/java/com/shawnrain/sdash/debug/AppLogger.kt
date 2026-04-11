@@ -43,6 +43,7 @@ object AppLogger {
     private var minLevel: AppLogLevel = AppLogLevel.INFO
 
     fun setMinLevel(level: AppLogLevel) {
+        if (minLevel == level) return
         minLevel = level
         log(
             level = AppLogLevel.INFO,

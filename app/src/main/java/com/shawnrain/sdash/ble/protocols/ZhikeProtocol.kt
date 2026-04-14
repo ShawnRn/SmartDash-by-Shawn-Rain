@@ -25,6 +25,7 @@ data class ZhikeSettings(
     var bluetoothPassword: Int = 8888, // Word 60
     var originalBluetoothPassword: Int = 8888,
     var speedCoefficient: Int = 0,
+    var firmwareVersion: String? = null,
     var loadedFromController: Boolean = false,
     var rawWords: IntArray = IntArray(64) // Keep raw data for unmapped fields
 )
@@ -161,6 +162,15 @@ class ZhikeProtocol : ControllerProtocol {
         }
         settings.rawWords = words
         settings.syncLegacyFieldsFromWords()
+        
+        // 固件版本解析逻辑：基于官方小程序 Word 30 (低字节) + Word 26 + Word 27
+        val verInt = words.getOrElse(30) { 0 } and 0xFF
+        val w26 = words.getOrElse(26) { 0 }
+        val w27 = words.getOrElse(27) { 0 }
+        if (verInt > 0) {
+            settings.firmwareVersion = "$verInt-$w26$w27"
+        }
+
         settings.originalBluetoothPassword = settings.bluetoothPassword
         settings.speedCoefficient = extractSpeedCoefficient(frame)
         settings.loadedFromController = true

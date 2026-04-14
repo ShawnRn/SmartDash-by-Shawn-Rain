@@ -3,6 +3,7 @@ package com.shawnrain.sdash.ble.protocols
 data class ControllerCapabilities(
     val protocol: String,
     val firmwareVersion: Int? = null,
+    val firmwareVersionLabel: String? = null,
     val hardwareVersion: String? = null,
     val featureFlags: Set<String> = emptySet()
 )

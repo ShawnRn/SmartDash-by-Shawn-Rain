@@ -24,6 +24,9 @@ data class VehicleProfile(
     val learnedUsableEnergyRatio: Float = 0.9f,
     val lastModified: Long = 0L
 ) {
+    val sohPercent: Float get() = (learnedUsableEnergyRatio * 100f).coerceIn(0f, 100f)
+    val estimatedCapacityAh: Float get() = batteryCapacityAh * learnedUsableEnergyRatio
+
     fun toJson(): JSONObject {
         return JSONObject()
             .put("id", id)

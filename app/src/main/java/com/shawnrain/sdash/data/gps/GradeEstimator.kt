@@ -53,16 +53,16 @@ private data class GradeWindowSample(
 
 class GradeEstimator {
     companion object {
-        private const val ALTITUDE_EMA_ALPHA = 0.2
-        private const val GRADE_EMA_ALPHA = 0.45f
+        private const val ALTITUDE_EMA_ALPHA = 0.4
+        private const val GRADE_EMA_ALPHA = 0.7f
         private const val MIN_ALTITUDE_UPDATE_SPEED_KMH = 1f
         private const val MIN_GRADE_UPDATE_SPEED_KMH = 3f
         private const val MAX_VERTICAL_ACCURACY_METERS = 12f
         private const val MAX_SHORT_HOP_ALTITUDE_JUMP_METERS = 3.0
         private const val MAX_SHORT_HOP_DISTANCE_METERS = 5.0
-        private const val GRADE_WINDOW_DISTANCE_METERS = 15.0
-        private const val MIN_GRADE_DISTANCE_METERS = 8.0
-        private const val GRADE_UPDATE_INTERVAL_MS = 1_000L
+        private const val GRADE_WINDOW_DISTANCE_METERS = 12.0
+        private const val MIN_GRADE_DISTANCE_METERS = 5.0
+        private const val GRADE_UPDATE_INTERVAL_MS = 400L
         private const val MAX_SAMPLE_GAP_MS = 8_000L
         private const val MAX_ABSOLUTE_GRADE_PERCENT = 15f
         private const val LOW_SPEED_GRADE_DECAY = 0.75f

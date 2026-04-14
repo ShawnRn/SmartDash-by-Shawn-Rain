@@ -43,7 +43,8 @@ class RangeEstimator {
         accumulator: RideAccumulatorState,
         batterySeries: Int,
         batteryCapacityAh: Float,
-        usableEnergyRatio: Float
+        usableEnergyRatio: Float,
+        startupEfficiencyWhKm: EfficiencyWhKm = 35.0f
     ): RangeEstimate {
         // 1. 更新滑动窗口 (基于 Net Wh, 即 Traction - Regen, 更贴合电池真实的能量循环)
         val currentDistanceKm = accumulator.totalDistanceMeters / 1000.0f
@@ -73,10 +74,18 @@ class RangeEstimator {
         lastNetWh = currentNetWh
 
         // 2. 计算窗口效率 (United Energy Standard: 强制使用 Net Wh)
-        val avgEfficiencyWhKm: EfficiencyWhKm = if (rangeWindowDistanceKm >= MIN_RANGE_WINDOW_DISTANCE_KM) {
-            rangeWindowEnergyWh / rangeWindowDistanceKm
-        } else {
-            0.0f
+        // 在行驶距离不足 MIN_RANGE_WINDOW_DISTANCE_KM 时使用 startupEfficiency，并随着距离增加逐渐混合
+        val avgEfficiencyWhKm: EfficiencyWhKm = when {
+            rangeWindowDistanceKm >= MIN_RANGE_WINDOW_DISTANCE_KM -> {
+                rangeWindowEnergyWh / rangeWindowDistanceKm
+            }
+            rangeWindowDistanceKm > 0.001f -> {
+                // 线性混合：0m 时 100% startup, 200m(MIN) 时 100% window
+                val windowRatio = (rangeWindowDistanceKm / MIN_RANGE_WINDOW_DISTANCE_KM).coerceIn(0f, 1f)
+                val rawWindowEff = rangeWindowEnergyWh / rangeWindowDistanceKm
+                (rawWindowEff * windowRatio) + (startupEfficiencyWhKm * (1f - windowRatio))
+            }
+            else -> startupEfficiencyWhKm
         }
 
         // 3. 计算置信度 (综合窗口距离、电池状态置信度、以及遥测物理质量)

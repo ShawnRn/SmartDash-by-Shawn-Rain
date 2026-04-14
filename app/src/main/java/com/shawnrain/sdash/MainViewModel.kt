@@ -213,7 +213,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val RANGE_REFERENCE_MIN_SPEED_KMH = 12f
         private const val RANGE_BASE_ACCESSORY_POWER_W = 34f
         private const val RANGE_AGGRESSIVE_CURRENT_A = 28f
-        private const val RANGE_DISPLAY_UPDATE_STEP_KM = 1f
+        private const val RANGE_DISPLAY_UPDATE_STEP_KM = 0.1f
         private const val HISTORY_BACKFILL_MIN_SPEED_KMH = 0.8f
         private const val HISTORY_BACKFILL_MIN_RPM = 30f
         private const val HISTORY_BACKFILL_MIN_CURRENT_A = 1.0f
@@ -559,9 +559,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 accumulator = accumulatorState,
                 batteryCapacityAh = currentVehicleProfile.batteryCapacityAh,
                 batterySeries = currentVehicleProfile.batterySeries,
+                usableEnergyRatio = currentVehicleProfile.learnedUsableEnergyRatio,
                 fallbackSocPercent = fallbackSoc
             )
             _batteryState.value = batteryState
+            
+            val startupEff = currentVehicleProfile.learnedEfficiencyWhKm
+                .takeIf { it in MIN_VALID_EFFICIENCY_WH_KM..MAX_VALID_EFFICIENCY_WH_KM }
+                ?: DEFAULT_STARTUP_EFFICIENCY_WH_KM
 
             rangeEstimate = rangeEstimator.estimate(
                 sample = s,
@@ -569,7 +574,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 accumulator = accumulatorState,
                 batterySeries = currentVehicleProfile.batterySeries,
                 batteryCapacityAh = currentVehicleProfile.batteryCapacityAh,
-                usableEnergyRatio = currentVehicleProfile.learnedUsableEnergyRatio
+                usableEnergyRatio = currentVehicleProfile.learnedUsableEnergyRatio,
+                startupEfficiencyWhKm = startupEff
             )
             _rangeEstimate.value = rangeEstimate
         }
@@ -4060,8 +4066,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun extractZhikeFirmwareVersion(settings: ZhikeSettings?): Int? {
-        // 当前智科参数帧尚未暴露固件版本字段，先通过 capability 对象显式表示“未知”。
-        return null
+        if (settings == null) return null
+        // 低字节 Word 30 (官方协议 n = 255 & e[30])
+        val word30 = settings.rawWords.getOrElse(30) { 0 }
+        val ver = word30 and 0xFF
+        return if (ver > 0) ver else null
+    }
+
+    private fun extractZhikeFirmwareVersionLabel(settings: ZhikeSettings?): String? {
+        return settings?.firmwareVersion
     }
 
     private fun extractZhikeHardwareVersion(settings: ZhikeSettings?): String? {

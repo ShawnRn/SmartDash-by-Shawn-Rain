@@ -61,6 +61,7 @@ class BatteryStateEstimator {
         accumulator: RideAccumulatorState,
         batteryCapacityAh: Float,
         batterySeries: Int,
+        usableEnergyRatio: Float = 1.0f,
         fallbackSocPercent: Float? = null
     ): BatteryState {
         // 0. 幂等性保护：同一帧不重复消费 (防止 UI 刷新干扰 EMA 和静置时长)
@@ -101,7 +102,7 @@ class BatteryStateEstimator {
         val socByOcv = socFromPackVoltage(ocvCompensated, batterySeries)
 
         // 5. 计算基于 Ah 积分的 SoC
-        val capacityAh = batteryCapacityAh.coerceAtLeast(1.0f)
+        val effectiveCapacityAh = (batteryCapacityAh * usableEnergyRatio).coerceAtLeast(1.0f)
         val initialSoc = fallbackSocPercent?.takeIf { it in 1.0f..100.0f } ?: socByOcv
         
         if (baseSocPercent.isNaN()) {
@@ -109,7 +110,7 @@ class BatteryStateEstimator {
         }
         
         val netAh = accumulator.netBatteryAh
-        val socByAh = (baseSocPercent - ((netAh / capacityAh) * 100.0f)).coerceIn(0.0f, 100.0f)
+        val socByAh = (baseSocPercent - ((netAh / effectiveCapacityAh) * 100.0f)).coerceIn(0.0f, 100.0f)
 
         // 6. 静置检测与融合 (除电流、速度、转速外，引入电压稳定性门控)
         val isStationary = abs(filteredCurrent) < STATIONARY_CURRENT_THRESHOLD_A &&

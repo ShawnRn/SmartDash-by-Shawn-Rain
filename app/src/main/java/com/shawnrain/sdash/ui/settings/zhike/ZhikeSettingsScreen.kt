@@ -205,7 +205,9 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
         topBar = {
             SecondaryScreenTopBar(
                 title = "智科调校",
-                subtitle = "控制器参数",
+                subtitle = controllerCapabilities?.let { 
+                    "控制器参数${it.firmwareVersionLabel?.let { v -> " (固件: $v)" } ?: ""}"
+                } ?: "控制器参数",
                 onBack = onBack,
                 actions = {
                     IconButton(onClick = {

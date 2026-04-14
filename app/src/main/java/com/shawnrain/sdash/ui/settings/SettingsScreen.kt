@@ -358,6 +358,12 @@ fun SettingsScreen(
                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
                                 )
                             }
+                            Text(
+                                "SOH ${String.format(Locale.getDefault(), "%.1f", currentVehicle.sohPercent)}% " +
+                                        "(估计 ${String.format(Locale.getDefault(), "%.1f", currentVehicle.estimatedCapacityAh)} Ah)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
+                            )
                         }
                     }
 

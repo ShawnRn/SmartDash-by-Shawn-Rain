@@ -52,7 +52,13 @@
       "Bash(sed *)",
       "Bash(gh *)",
       "Bash(tr *)",
-      "Bash(git ls-remote *)"
+      "Bash(git ls-remote *)",
+      "Bash(ls *)",
+      "Bash(cp *)",
+      "Bash(node *)",
+      "Bash(grep *)",
+      "Bash(xargs *)",
+      "Bash(wc *)"
     ]
   },
   "$version": 3

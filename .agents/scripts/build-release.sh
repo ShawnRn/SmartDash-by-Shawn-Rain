@@ -3,6 +3,8 @@ set -euo pipefail
 
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 
+ensure_release_signing
+
 if should_route_remote_build; then
   ensure_dirs
   ensure_remote_build_tools
@@ -43,6 +45,11 @@ fi
 
 ensure_base_env
 ensure_release_signing
+
+echo "DEBUG: HABE_RELEASE_STORE_FILE=$HABE_RELEASE_STORE_FILE"
+echo "DEBUG: HABE_RELEASE_KEY_ALIAS=$HABE_RELEASE_KEY_ALIAS"
+echo "DEBUG: HABE_RELEASE_STORE_PASSWORD_LEN=${#HABE_RELEASE_STORE_PASSWORD}"
+echo "DEBUG: HABE_RELEASE_KEY_PASSWORD_LEN=${#HABE_RELEASE_KEY_PASSWORD}"
 
 STAMP="$(timestamp)"
 LOG_FILE="$LOG_DIR/build-release-$STAMP.log"

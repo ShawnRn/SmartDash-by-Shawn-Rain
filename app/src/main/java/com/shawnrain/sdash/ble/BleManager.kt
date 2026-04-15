@@ -427,12 +427,6 @@ class BleManager(private val context: Context) {
         }, delayMs)
     }
 
-    /**
-     * Triggers the ZhiKe parameter unlock handshake.
-     */
-    fun handshakeZhike() {
-        sendZhikeMainCommand("AA16004C58B3A7")
-    }
 
     /**
      * Requests ZhiKe controller to enter write mode (AA210001).
@@ -567,18 +561,14 @@ class BleManager(private val context: Context) {
                 startPolling()
 
                 if (activeProtocolId == "zhike") {
-                    zhikeHandshakeCharacteristic?.let {
-                        AppLogger.d(TAG, "尝试读取智科握手特征 ${it.uuidString()}")
-                        readCharacteristicCompat(gatt, it)
-                    }
                     // The original miniapp wakes the controller through FFE2 once before
                     // starting the regular FFE1 real-time polling loop.
                     pollingHandler.postDelayed({
                         sendZhikeAuxCommand("0102")
-                    }, 250)
+                    }, 400)
                     pollingHandler.postDelayed({
                         sendZhikeMainCommand("AA110001")
-                    }, 900)
+                    }, 1200)
                 }
             } else {
                 // Handle service discovery failure

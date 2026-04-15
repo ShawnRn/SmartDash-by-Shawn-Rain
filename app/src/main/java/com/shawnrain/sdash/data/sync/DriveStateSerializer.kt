@@ -21,6 +21,8 @@ private val syncJson = Json {
     ignoreUnknownKeys = true
     encodeDefaults = true
     prettyPrint = false
+    // 强制使用确定性排序并允许宽松输入
+    coerceInputValues = true
 }
 
 private const val RIDE_DETAIL_SCHEMA_REVISION = 2

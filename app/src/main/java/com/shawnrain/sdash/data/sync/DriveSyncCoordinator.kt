@@ -216,6 +216,11 @@ class DriveSyncCoordinator(
             if (expectedChecksum.isNotEmpty()) {
                 val actualChecksum = stateSerializer.computeChecksum(stateBytes)
                 if (actualChecksum != expectedChecksum) {
+                    AppLogger.w(
+                        TAG,
+                        "Checksum mismatch: expected=$expectedChecksum, actual=$actualChecksum, " +
+                                "size=${stateBytes.size}, remoteEnvSize=${encryptedStateBytes.size}"
+                    )
                     val refreshedManifest = manifestRepository.fetchRemoteManifest()
                     if (refreshedManifest != null && refreshedManifest.stateVersion >= remoteManifest.stateVersion) {
                         val retriedBytes = manifestRepository
@@ -224,6 +229,11 @@ class DriveSyncCoordinator(
                         val retriedStateBytes = decryptStateBytes(retriedBytes, password)
                         val retriedChecksum = stateSerializer.computeChecksum(retriedStateBytes)
                         if (retriedChecksum != refreshedManifest.checksum) {
+                            AppLogger.e(
+                                TAG,
+                                "Retry checksum mismatch: expected=${refreshedManifest.checksum}, " +
+                                        "actual=$retriedChecksum, size=${retriedStateBytes.size}"
+                            )
                             throw IllegalStateException(
                                 "Checksum mismatch: expected=${refreshedManifest.checksum}, actual=$retriedChecksum"
                             )

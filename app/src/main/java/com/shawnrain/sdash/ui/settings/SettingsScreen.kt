@@ -353,14 +353,18 @@ fun SettingsScreen(
                             )
                             if (currentVehicle.learnedInternalResistanceOhm > 0f) {
                                 Text(
-                                    "学习内阻 ${formatResistance(currentVehicle.learnedInternalResistanceOhm)}",
+                                    "测试内阻: ${formatResistance(currentVehicle.learnedInternalResistanceOhm)}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
                                 )
                             }
                             Text(
-                                "SOH ${String.format(Locale.getDefault(), "%.1f", currentVehicle.sohPercent)}% " +
-                                        "(估计 ${String.format(Locale.getDefault(), "%.1f", currentVehicle.estimatedCapacityAh)} Ah)",
+                                "电池健康度 (SOH): ${String.format(Locale.getDefault(), "%.1f", currentVehicle.sohPercent)}%",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
+                            )
+                            Text(
+                                "估计可用容量: ${String.format(Locale.getDefault(), "%.1f", currentVehicle.estimatedCapacityAh)} Ah (实设 ${currentVehicle.batteryCapacityAh} Ah)",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
                             )
@@ -1218,7 +1222,8 @@ fun SettingsScreen(
                 viewModel.saveVehicleProfile(profile)
                 creatingVehicle = false
                 editingVehicle = null
-            }
+            },
+            viewModel = viewModel
         )
     }
 
@@ -2980,7 +2985,8 @@ private fun VehicleEditorDialog(
     initialVehicle: VehicleProfile?,
     fallbackVehicle: VehicleProfile,
     onDismiss: () -> Unit,
-    onConfirm: (VehicleProfile) -> Unit
+    onConfirm: (VehicleProfile) -> Unit,
+    viewModel: MainViewModel
 ) {
     val vehicleKey = initialVehicle?.id ?: "new"
     val seedVehicle = initialVehicle ?: fallbackVehicle
@@ -3248,6 +3254,88 @@ private fun VehicleEditorDialog(
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
+
+                        // --- 学习状态 (只对已有车辆显示) ---
+                        if (initialVehicle != null) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            HorizontalDivider(modifier = Modifier.padding(horizontal = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            Text(
+                                "已学习参数",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                ),
+                                shape = MaterialTheme.shapes.medium
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                "健康度 (SOH): ${String.format(Locale.getDefault(), "%.1f", initialVehicle.sohPercent)}%",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                "可用容量: ${String.format(Locale.getDefault(), "%.1f", initialVehicle.estimatedCapacityAh)} Ah",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        
+                                        var showResetConfirm by remember { mutableStateOf(false) }
+                                        TextButton(
+                                            onClick = { showResetConfirm = true },
+                                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                        ) {
+                                            Text("重置学习数据")
+                                        }
+
+                                        if (showResetConfirm) {
+                                            AlertDialog(
+                                                onDismissRequest = { showResetConfirm = false },
+                                                confirmButton = {
+                                                    TextButton(
+                                                        onClick = {
+                                                            viewModel.resetVehicleLearnedData()
+                                                            showResetConfirm = false
+                                                        }
+                                                    ) {
+                                                        Text("确认重置", color = MaterialTheme.colorScheme.error)
+                                                    }
+                                                },
+                                                dismissButton = {
+                                                    TextButton(onClick = { showResetConfirm = false }) {
+                                                        Text("取消")
+                                                    }
+                                                },
+                                                title = { Text("重置学习数据？") },
+                                                text = { Text("这将清除已学习的电池内阻、能耗效率以及可用容量估计。建议仅在更换了新电池后执行此操作。") },
+                                                shape = bezierRoundedShape(24.dp)
+                                            )
+                                        }
+                                    }
+                                    
+                                    if (initialVehicle.learnedInternalResistanceOhm > 0f) {
+                                        Text(
+                                            "测试内阻: ${String.format(Locale.getDefault(), "%.2f", initialVehicle.learnedInternalResistanceOhm * 1000f)} mΩ",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     Row(

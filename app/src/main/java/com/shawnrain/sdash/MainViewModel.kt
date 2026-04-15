@@ -3509,6 +3509,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         syncScheduler.onVehicleProfileChanged(id)
         _calibrationMessage.value = "已删除车辆档案：${target.name}"
     }
+
+    /**
+     * 重置当前车辆的学习数据（内阻、能耗效率、SOH）
+     */
+    fun resetVehicleLearnedData() = viewModelScope.launch(Dispatchers.IO) {
+        settingsRepository.updateCurrentVehicle { profile ->
+            profile.copy(
+                learnedInternalResistanceOhm = 0f,
+                learnedEfficiencyWhKm = 0f,
+                learnedUsableEnergyRatio = 0.9f, // 恢复默认 90% (SOH)
+                lastModified = System.currentTimeMillis()
+            )
+        }
+        AppLogger.i("MainViewModel", "已重置当前车辆的学习数据")
+    }
     fun saveLogLevel(level: AppLogLevel): kotlinx.coroutines.Job = viewModelScope.launch {
         settingsRepository.saveLogLevel(level)
         _calibrationMessage.value = "日志级别已切换为 ${level.name}"
@@ -3794,10 +3809,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     
     fun readZhikeSettings() {
         viewModelScope.launch {
-            bleManager.handshakeZhike()
-            delay(180)
-            bleManager.sendZhikeAuxCommand("0102")
-            delay(220)
+            // 已移除 destructive 的 handshake (AA16)
+            // 根据官方 App 逻辑，连接后 0102 预热一次即可，刷新时直接请求
             bleManager.sendZhikeMainCommand("AA110001")
         }
     }
@@ -3858,9 +3871,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isWriteInProgress = true
 
         try {
-            // Phase 1: Handshake
+            // Phase 1: Prepare
             _zhikeWriteState.value = ZhikeWriteState.Handshaking
-            bleManager.handshakeZhike()
+            // 已移除 destructive 的 handshake (AA16)，改为简单的延时等待特征值稳定
             delay(300)
 
             // Phase 2: Enter write mode (AA210001)
@@ -3886,10 +3899,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Phase 6: Verify by reading back
             _zhikeWriteState.value = ZhikeWriteState.Verifying
             delay(300)
-            bleManager.handshakeZhike()
-            delay(180)
-            bleManager.sendZhikeAuxCommand("0102")
-            delay(220)
             bleManager.sendZhikeMainCommand("AA110001")
             delay(600)
 
@@ -3983,7 +3992,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun resetZhikeFactorySettings() {
         viewModelScope.launch {
             try {
-                bleManager.handshakeZhike()
+                // 已移除 destructive 的 handshake (AA16)
                 delay(300)
                 // 发送恢复出厂设置命令 (具体命令字取决于协议文档)
                 bleManager.sendZhikeMainCommand("AA150001")
@@ -4025,8 +4034,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                // 先握手
-                bleManager.handshakeZhike()
+                // 已移除 destructive 的 handshake (AA16)
                 delay(300)
 
                 // 修改密码需要写入参数，使用编码后的数据

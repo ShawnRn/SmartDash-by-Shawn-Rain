@@ -774,7 +774,12 @@ fun MainScreen(
                         }
                     )
                 }
-                composable(Screen.Dashboard.route) { DashboardScreen(viewModel = viewModel) }
+                composable(Screen.Dashboard.route) { 
+                    DashboardScreen(
+                        viewModel = viewModel,
+                        onNavigateToZhikeSettings = { navController.navigate(Screen.ZhikeSettings.route) }
+                    ) 
+                }
                 composable(
                     route = Screen.Bms.route,
                     enterTransition = {

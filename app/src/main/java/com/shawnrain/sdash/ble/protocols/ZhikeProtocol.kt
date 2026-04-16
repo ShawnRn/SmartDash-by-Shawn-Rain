@@ -52,6 +52,7 @@ class ZhikeProtocol : ControllerProtocol {
         private const val CMD_REALTIME = 0x13.toByte()
         private const val CMD_PARAM_READ = 0x11.toByte()
         private const val CMD_PARAM_WRITE = 0x12.toByte()
+        private const val CMD_SELF_LEARNING = 0x14.toByte()
         private const val CMD_WRITE_MODE = 0x21.toByte()
         private const val MAX_REASONABLE_CURRENT_A = 5_000f
     }
@@ -342,7 +343,8 @@ class ZhikeProtocol : ControllerProtocol {
                     faultCode = faultCode,
                     isBraking = (ioStatus and 0x08) != 0,
                     isCruise = (ioStatus and 0x40) != 0,
-                    isReverse = isReverse
+                    isReverse = isReverse,
+                    isSelfLearning = (ioStatus and 0x20) != 0
                 )
                 lastRealtimeMetrics = realtimeMetrics
                 lastValidRealtimeMetrics = realtimeMetrics

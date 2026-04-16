@@ -21,12 +21,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -94,7 +96,8 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     var isDirty by remember { mutableStateOf(false) }
     var showWriteDialog by remember { mutableStateOf(false) }
     var currentPassword by remember { mutableStateOf("8888") }
-    var isSyncing by remember { mutableStateOf(false) }
+    val isSyncing by viewModel.isZhikeSettingsLoading.collectAsState()
+    val isSelfLearning by viewModel.isZhikeSelfLearning.collectAsState()
     var authError by remember { mutableStateOf<String?>(null) }
 
     // Write state observation
@@ -111,6 +114,7 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     var showImportDialog by remember { mutableStateOf(false) }
     var importJsonContent by remember { mutableStateOf("") }
     var importError by remember { mutableStateOf<String?>(null) }
+    var showSelfLearningWarning by remember { mutableStateOf(false) }
 
     // Password change state
     var oldPassword by remember { mutableStateOf("") }
@@ -174,7 +178,6 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
         viewModel.zhikeSettings.collect {
             settings = it
             isDirty = false
-            isSyncing = false
             if (it.loadedFromController) {
                 currentPassword = String.format(Locale.getDefault(), "%04d", it.originalBluetoothPassword)
             }
@@ -210,9 +213,27 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 } ?: "控制器参数",
                 onBack = onBack,
                 actions = {
+                    // 自学习操作入口
+                    IconButton(onClick = {
+                        showSelfLearningWarning = true
+                    }) {
+                        if (isSelfLearning) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.width(20.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.Build, 
+                                contentDescription = "自学习",
+                                tint = if (isSelfLearning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+
                     IconButton(onClick = {
                         authError = null
-                        isSyncing = true
                         viewModel.readZhikeSettings()
                     }) {
                         if (isSyncing) {
@@ -467,6 +488,92 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
 
     SnackbarHost(hostState = snackbarHostState)
 
+    // 自学习电机警告弹窗
+    if (showSelfLearningWarning) {
+        BlurredAlertDialog(
+            onDismissRequest = { showSelfLearningWarning = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Build,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    Text(text = if (isSelfLearning) "停止自学习？" else "启动电机自学习？")
+                }
+            },
+            text = {
+                Text(
+                    text = if (isSelfLearning) {
+                        "你确定要停止当前的电机自学习过程吗？"
+                    } else {
+                        "自学习过程中，控制器将驱动电机空转以识别相位与极对数。\n\n⚠️ 注意事项：\n1. 请务必使用大撑将后轮支离地面！\n2. 确保后轮周围无杂物或人员！\n3. 过程中请勿触碰旋转部分。"
+                    }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSelfLearningWarning = false
+                        viewModel.toggleZhikeSelfLearning()
+                    },
+                    colors = if (isSelfLearning) {
+                        ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    } else {
+                        ButtonDefaults.buttonColors()
+                    }
+                ) {
+                    Text(if (isSelfLearning) "停止学习" else "开始自学习")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSelfLearningWarning = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    // 自学习中指示卡片 (悬浮在列表顶部或特定位置)
+    if (isSelfLearning) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 80.dp) // Avoid overlap with FAB or BottomBar
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.width(24.dp),
+                        strokeWidth = 3.dp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "正在自学习中，请等待车轮停止...",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+        }
+    }
+
     // Validation dialog (shown before write dialog if there are issues)
     if (showValidationDialog && validationResult != null) {
         val result = validationResult!!
@@ -579,7 +686,6 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                             return@Button
                         }
                         authError = null
-                        isSyncing = true
                         showWriteDialog = false
                     },
                     shape = bezierPillShape()

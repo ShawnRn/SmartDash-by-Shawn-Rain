@@ -121,32 +121,36 @@ run_remote_script_capture() {
 
   sync_workspace_to_remote "$target"
 
-  local signing_env=""
-  if [[ -n "${HABE_RELEASE_STORE_FILE:-}" ]]; then
-    signing_env+="HABE_RELEASE_STORE_FILE=$(shell_quote "$HABE_RELEASE_STORE_FILE") \\"$'\n'
-  fi
-  if [[ -n "${HABE_RELEASE_STORE_PASSWORD:-}" ]]; then
-    signing_env+="HABE_RELEASE_STORE_PASSWORD=$(shell_quote "$HABE_RELEASE_STORE_PASSWORD") \\"$'\n'
-  fi
-  if [[ -n "${HABE_RELEASE_KEY_ALIAS:-}" ]]; then
-    signing_env+="HABE_RELEASE_KEY_ALIAS=$(shell_quote "$HABE_RELEASE_KEY_ALIAS") \\"$'\n'
-  fi
-  if [[ -n "${HABE_RELEASE_KEY_PASSWORD:-}" ]]; then
-    signing_env+="HABE_RELEASE_KEY_PASSWORD=$(shell_quote "$HABE_RELEASE_KEY_PASSWORD") \\"$'\n'
-  fi
+  local env_file="/tmp/sdash_build_${RANDOM}.env"
+  local env_content=""
+  
+  # 收集签名环境变量
+  if [[ -n "${HABE_RELEASE_STORE_FILE:-}" ]]; then env_content+="export HABE_RELEASE_STORE_FILE=$(shell_quote "$HABE_RELEASE_STORE_FILE")"$'\n'; fi
+  if [[ -n "${HABE_RELEASE_STORE_PASSWORD:-}" ]]; then env_content+="export HABE_RELEASE_STORE_PASSWORD=$(shell_quote "$HABE_RELEASE_STORE_PASSWORD")"$'\n'; fi
+  if [[ -n "${HABE_RELEASE_KEY_ALIAS:-}" ]]; then env_content+="export HABE_RELEASE_KEY_ALIAS=$(shell_quote "$HABE_RELEASE_KEY_ALIAS")"$'\n'; fi
+  if [[ -n "${HABE_RELEASE_KEY_PASSWORD:-}" ]]; then env_content+="export HABE_RELEASE_KEY_PASSWORD=$(shell_quote "$HABE_RELEASE_KEY_PASSWORD")"$'\n'; fi
+  
+  # 收集构建环境
+  env_content+="export SMARTDASH_REMOTE_BUILD_EXECUTION=1"$'\n'
+  env_content+="export SMARTDASH_BUILD_HOST=$(shell_quote "$SMARTDASH_BUILD_HOST")"$'\n'
+  env_content+="export SMARTDASH_BUILD_HOST_IP=$(shell_quote "$SMARTDASH_BUILD_HOST_IP")"$'\n'
+  env_content+="export SMARTDASH_REMOTE_PROJECT_ROOT=$(shell_quote "$SMARTDASH_REMOTE_PROJECT_ROOT")"$'\n'
+  env_content+="export SMARTDASH_REMOTE_JAVA_HOME=$(shell_quote "$SMARTDASH_REMOTE_JAVA_HOME")"$'\n'
+  env_content+="export JAVA_HOME=$(shell_quote "$SMARTDASH_REMOTE_JAVA_HOME")"$'\n'
+  env_content+="export ANDROID_HOME=$(shell_quote "$ANDROID_HOME")"$'\n'
+
+  # 将环境变量写入远端文件
+  ssh $(ssh_base_opts) "$target" "cat <<EOF > $(shell_quote "$env_file")
+$env_content
+EOF"
 
   local remote_cmd
   remote_cmd=$(
     cat <<EOF
+source $(shell_quote "$env_file") && \
+rm -f $(shell_quote "$env_file") && \
 cd $(shell_quote "$SMARTDASH_REMOTE_PROJECT_ROOT") && \
-SMARTDASH_REMOTE_BUILD_EXECUTION=1 \
-SMARTDASH_BUILD_HOST=$(shell_quote "$SMARTDASH_BUILD_HOST") \
-SMARTDASH_BUILD_HOST_IP=$(shell_quote "$SMARTDASH_BUILD_HOST_IP") \
-SMARTDASH_REMOTE_PROJECT_ROOT=$(shell_quote "$SMARTDASH_REMOTE_PROJECT_ROOT") \
-SMARTDASH_REMOTE_JAVA_HOME=$(shell_quote "$SMARTDASH_REMOTE_JAVA_HOME") \
-JAVA_HOME=$(shell_quote "$SMARTDASH_REMOTE_JAVA_HOME") \
-ANDROID_HOME=$(shell_quote "$ANDROID_HOME") \
-${signing_env}bash $(shell_quote "$script_rel")
+bash $(shell_quote "$script_rel")
 EOF
   )
 

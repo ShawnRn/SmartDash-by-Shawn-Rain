@@ -314,6 +314,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isZhikeController = MutableStateFlow(false)
     val isZhikeController = _isZhikeController.asStateFlow()
 
+    private val _isZhikeSettingsLoading = MutableStateFlow(false)
+    val isZhikeSettingsLoading = _isZhikeSettingsLoading.asStateFlow()
+
+    val isZhikeSelfLearning: StateFlow<Boolean> = ProtocolParser.latestMetrics.map { m: VehicleMetrics -> m.isSelfLearning }.distinctUntilChanged()
+        .stateIn<Boolean>(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     private val _replayReport = MutableStateFlow<TelemetryReplayRunner.ReplayReport?>(null)
     val replayReport = _replayReport.asStateFlow()
     private val _pendingRideStop = MutableStateFlow<PendingRideStopUiState?>(null)
@@ -1593,7 +1599,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         bleManager.rawData.onEach { ProtocolParser.parse(it) }.launchIn(viewModelScope)
         bmsBleManager.rawData.onEach { BmsParser.parse(it) }.launchIn(viewModelScope)
-        ProtocolParser.zhikeSettings.onEach { _latestZhikeSettings.value = it }.launchIn(viewModelScope)
+        ProtocolParser.zhikeSettings.onEach { 
+            _latestZhikeSettings.value = it 
+            _isZhikeSettingsLoading.value = false
+        }.launchIn(viewModelScope)
         viewModelScope.launch(telemetryDispatcher) {
             ProtocolParser.metrics.collect { raw ->
                 val resolved = raw.copy(
@@ -3807,12 +3816,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // 写入前参数快照（用于回读核对）
     private var _preWriteSettingsSnapshot: ZhikeSettings? = null
     
+    private var zhikeReadJob: Job? = null
+
     fun readZhikeSettings() {
-        viewModelScope.launch {
-            // 已移除 destructive 的 handshake (AA16)
-            // 根据官方 App 逻辑，连接后 0102 预热一次即可，刷新时直接请求
+        if (activeProtocolId.value != "zhike") return
+        
+        zhikeReadJob?.cancel()
+        _isZhikeSettingsLoading.value = true
+        
+        zhikeReadJob = viewModelScope.launch {
+            AppLogger.i(TAG, "请求智科控制器参数 (AA110001)")
             bleManager.sendZhikeMainCommand("AA110001")
+            
+            // 5秒超时保护：如果未收到回包，自动清理状态
+            delay(5000)
+            if (_isZhikeSettingsLoading.value) {
+                _isZhikeSettingsLoading.value = false
+                AppLogger.w(TAG, "读取智科参数超时 (5s)")
+            }
         }
+    }
+
+    fun toggleZhikeSelfLearning() {
+        if (activeProtocolId.value != "zhike") return
+        
+        val isCurrentlyLearning = isZhikeSelfLearning.value
+        val cmd = if (isCurrentlyLearning) "AA140000" else "AA140001"
+        
+        AppLogger.i(TAG, "切换智科自学习状态: ${if (isCurrentlyLearning) "停止" else "开始"} (指令: $cmd)")
+        bleManager.sendZhikeMainCommand(cmd)
     }
 
     fun writeZhikeSettings(settings: ZhikeSettings, password: String): String? {

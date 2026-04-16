@@ -2755,7 +2755,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         settingsRepository.updateCurrentVehicle { profile ->
             // 里程更新不再依赖行程开始时的基准值，而是直接基于当前档案进行增量累加
-            val updatedTotalMileage = (profile.totalMileageKm + deltaMileageKm).coerceAtLeast(0f)
+            val previousMileage = profile.totalMileageKm
+            val updatedTotalMileage = (previousMileage + deltaMileageKm).coerceAtLeast(0f)
+            
+            AppLogger.i("MainViewModel", "Mileage update: $previousMileage -> $updatedTotalMileage (delta: $deltaMileageKm)")
             
             val newResistance = if (learnedResistance > 0.0f) learnedResistance else profile.learnedInternalResistanceOhm
             val newEfficiency = blendLearnedEfficiencyWhKm(

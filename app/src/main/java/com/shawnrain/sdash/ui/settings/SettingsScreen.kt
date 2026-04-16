@@ -1591,6 +1591,12 @@ private fun AboutSmartDashDialog(
                                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f),
                                         maxLines = 1
                                     )
+                                    Text(
+                                        "Build: 2026-04-16 11:51 (Commit: e8b9630)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
+                                        maxLines = 1
+                                    )
                                 }
                             }
                         }

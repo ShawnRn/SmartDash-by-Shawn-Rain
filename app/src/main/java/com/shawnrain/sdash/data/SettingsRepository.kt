@@ -64,7 +64,8 @@ enum class MetricType(val title: String, val unit: String) {
     TRIP_DISTANCE("本次里程", "km"),
     TOTAL_ENERGY("总能耗", "Wh"),
     PEAK_REGEN_POWER("最大回收功率", "W"),
-    RECOVERED_ENERGY("总回收能量", "Wh")
+    RECOVERED_ENERGY("总回收能量", "Wh"),
+    MEDIA_CONTROL("媒体控制", "")
 }
 
 enum class SpeedSource(val title: String) {
@@ -262,7 +263,7 @@ class SettingsRepository(private val context: Context) {
         preferencesFlow.map { pref ->
             val raw = pref.safeGet(vKey(id, K_DASH_ITEMS))
             val resolved = if (raw.isNullOrEmpty()) {
-                listOf(MetricType.SOC, MetricType.RANGE, MetricType.POWER, MetricType.EFFICIENCY)
+                listOf(MetricType.SOC, MetricType.RANGE, MetricType.POWER, MetricType.MEDIA_CONTROL)
             } else {
                 raw.split(",").mapNotNull { try { MetricType.valueOf(it) } catch (e: Exception) { null } }
             }

@@ -23,6 +23,8 @@ import androidx.lifecycle.viewModelScope
 import com.shawnrain.sdash.ble.AutoConnectManager
 import com.shawnrain.sdash.ble.AutoConnectState
 import com.shawnrain.sdash.ble.BleManager
+import com.shawnrain.sdash.ble.HidRemoteManager
+import com.shawnrain.sdash.ble.LocalMediaManager
 import com.shawnrain.sdash.ble.ConnectionState
 import com.shawnrain.sdash.ble.ProtocolParser
 import com.shawnrain.sdash.ble.VehicleMetrics
@@ -145,6 +147,17 @@ data class LanBackupShareUiState(
     val code: String = ""
 )
 
+enum class MediaTarget {
+    LOCAL,
+    IPHONE
+}
+
+enum class MediaAction {
+    PLAY_PAUSE,
+    NEXT,
+    PREVIOUS
+}
+
 data class DriveBackupPreviewUiState(
     val selectedBackup: BackupMetadata? = null,
     val preview: BackupPreview? = null,
@@ -262,6 +275,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bleManager = bleManager,
         scope = viewModelScope
     )
+    private val localMediaManager = LocalMediaManager(application)
+    private val hidRemoteManager = HidRemoteManager(application)
+
+    private val _mediaTarget = MutableStateFlow(MediaTarget.LOCAL)
+    val mediaTarget = _mediaTarget.asStateFlow()
+
+    val isHidConnected = hidRemoteManager.isConnected
+    val isHidSupported = hidRemoteManager.isSupported
 
     private val _currentRpm = MutableStateFlow(0f)
     private val _controllerReportedSpeed = MutableStateFlow(0f)
@@ -787,6 +808,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return plausibleByVoltage.minByOrNull { series ->
             abs(voltage - (series * 3.7f))
         } ?: configured.coerceIn(8, 24)
+    }
+
+    // --- Media Control ---
+
+    fun setMediaTarget(target: MediaTarget) {
+        _mediaTarget.value = target
+        AppLogger.i(TAG, "Media target set to: $target")
+    }
+
+    fun onMediaAction(action: MediaAction) {
+        val target = _mediaTarget.value
+        AppLogger.d(TAG, "Media action: $action on target: $target")
+        
+        when (target) {
+            MediaTarget.LOCAL -> {
+                when (action) {
+                    MediaAction.PLAY_PAUSE -> localMediaManager.playPause()
+                    MediaAction.NEXT -> localMediaManager.next()
+                    MediaAction.PREVIOUS -> localMediaManager.previous()
+                }
+            }
+            MediaTarget.IPHONE -> {
+                val usageCode = when (action) {
+                    MediaAction.PLAY_PAUSE -> HidRemoteManager.KEY_PLAY_PAUSE
+                    MediaAction.NEXT -> HidRemoteManager.KEY_NEXT
+                    MediaAction.PREVIOUS -> HidRemoteManager.KEY_PREV
+                }
+                hidRemoteManager.sendMediaKey(usageCode)
+            }
+        }
     }
 
     private fun socFromPackVoltage(packVoltage: Float, batterySeries: Int): Float {
@@ -2137,7 +2188,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (shouldPersist) {
             viewModelScope.launch {
                 rideHistoryRepository.upsertRide(currentVehicle.value.id, historyRecord)
-                persistVehicleSnapshot()
+                // 行程结束时，同步最后一段未保存的里程增量
+                val finalTripDistanceKm = authoritativeTripDistanceMeters() / 1000.0f
+                val finalDeltaKm = (finalTripDistanceKm - lastVehicleSnapshotTripDistanceKm).coerceAtLeast(0f)
+                persistVehicleSnapshot(finalDeltaKm)
+                lastVehicleSnapshotTripDistanceKm = finalTripDistanceKm
                 // Auto-sync to Google Drive after saving ride (V2 sync engine)
                 syncScheduler.onRideSaved(historyRecord.id)
             }
@@ -2669,21 +2724,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun maybePersistVehicleSnapshot(now: Long) {
         if (!_isRideActive.value) return
-        val tripDistanceKm = authoritativeTripDistanceMeters() / 1000.0f
+        val currentTripDistanceKm = authoritativeTripDistanceMeters() / 1000.0f
+        val deltaDistanceKm = (currentTripDistanceKm - lastVehicleSnapshotTripDistanceKm).coerceAtLeast(0f)
+        
         val dueByTime = now - lastVehicleSnapshotAtMs >= 3 * 60 * 1000L
-        val dueByDistance = (tripDistanceKm - lastVehicleSnapshotTripDistanceKm) >= 1f
-        if (!dueByTime && !dueByDistance) return
+        val dueByDistance = deltaDistanceKm >= 0.5f // 每 500 米位移强制存一次
+        
+        // 只要有一定位移 (如 100m) 且到了最小时间窗 (1min)，也存一次
+        val opportunisticSave = deltaDistanceKm >= 0.1f && (now - lastVehicleSnapshotAtMs >= 60 * 1000L)
+
+        if (!dueByTime && !dueByDistance && !opportunisticSave) return
 
         lastVehicleSnapshotAtMs = now
-        lastVehicleSnapshotTripDistanceKm = tripDistanceKm
+        lastVehicleSnapshotTripDistanceKm = currentTripDistanceKm
+        
         viewModelScope.launch {
-            persistVehicleSnapshot()
+            persistVehicleSnapshot(deltaDistanceKm)
         }
     }
 
-    private suspend fun persistVehicleSnapshot() {
+    private suspend fun persistVehicleSnapshot(deltaMileageKm: Float = 0f) {
         val tripDistanceKm = authoritativeTripDistanceMeters() / 1000.0f
-        val absoluteMileageKm = rideStartVehicleMileageKm + tripDistanceKm
         val learnedResistance: Float = _batteryState.value?.learnedInternalResistanceOhm ?: 0.0f
         val observedEfficiencyWhKm = observeCurrentRideEfficiencyWhKm()
         val currentProfile = currentVehicle.value
@@ -2693,7 +2754,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             consumedEnergyWh = consumedEnergy
         )
         settingsRepository.updateCurrentVehicle { profile ->
-            val newMileage = absoluteMileageKm.coerceAtLeast(profile.totalMileageKm)
+            // 里程更新不再依赖行程开始时的基准值，而是直接基于当前档案进行增量累加
+            val updatedTotalMileage = (profile.totalMileageKm + deltaMileageKm).coerceAtLeast(0f)
+            
             val newResistance = if (learnedResistance > 0.0f) learnedResistance else profile.learnedInternalResistanceOhm
             val newEfficiency = blendLearnedEfficiencyWhKm(
                 previousLearnedWhKm = profile.learnedEfficiencyWhKm,
@@ -2705,13 +2768,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 observedRatio = observedUsableEnergyRatio,
                 tripDistanceKm = tripDistanceKm
             )
-            val updated: VehicleProfile = profile.copy(
-                totalMileageKm = newMileage,
+            profile.copy(
+                totalMileageKm = updatedTotalMileage,
                 learnedInternalResistanceOhm = newResistance,
                 learnedEfficiencyWhKm = newEfficiency,
                 learnedUsableEnergyRatio = newUsableRatio
             )
-            updated
         }
     }
 

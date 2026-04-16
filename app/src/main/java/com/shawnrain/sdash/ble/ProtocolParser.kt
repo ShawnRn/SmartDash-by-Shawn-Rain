@@ -45,7 +45,8 @@ data class VehicleMetrics(
     val faultCode: Int = 0,
     val isBraking: Boolean = false,
     val isCruise: Boolean = false,
-    val isReverse: Boolean = false
+    val isReverse: Boolean = false,
+    val isSelfLearning: Boolean = false
 )
 
 object ProtocolParser {

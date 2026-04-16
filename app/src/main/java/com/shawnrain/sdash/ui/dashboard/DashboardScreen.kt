@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -118,7 +119,11 @@ fun formatMetricValue(type: MetricType, metrics: VehicleMetrics): String {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
+fun DashboardScreen(
+    viewModel: MainViewModel,
+    onNavigateToZhikeSettings: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val metrics = viewModel.metrics.collectAsStateWithLifecycle().value
     val config = LocalConfiguration.current
     val isLandscape = config.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -247,7 +252,10 @@ fun DashboardScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                         metrics = metrics,
                         connectionStatusLabel = connectionStatusLabel,
                         isControllerConnected = isControllerConnected,
-                        onConnectionClick = { showConnectionSheet = true }
+                        onConnectionClick = { showConnectionSheet = true },
+                        onTuningClick = if (activeProtocol == "zhike") {
+                            onNavigateToZhikeSettings
+                        } else null
                     )
                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                         SquareSpeedIndicator(
@@ -699,7 +707,8 @@ private fun DashboardStatusStrip(
     metrics: VehicleMetrics,
     connectionStatusLabel: String,
     isControllerConnected: Boolean,
-    onConnectionClick: () -> Unit
+    onConnectionClick: () -> Unit,
+    onTuningClick: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
@@ -717,7 +726,8 @@ private fun DashboardStatusStrip(
             ConnectionStatusBadge(
                 label = connectionStatusLabel,
                 isConnected = isControllerConnected,
-                onClick = onConnectionClick
+                onClick = onConnectionClick,
+                onTuningClick = onTuningClick
             )
         }
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
@@ -850,7 +860,12 @@ private fun CompactTelemetryBadge(label: String, value: String) {
 }
 
 @Composable
-private fun ConnectionStatusBadge(label: String, isConnected: Boolean, onClick: () -> Unit) {
+private fun ConnectionStatusBadge(
+    label: String, 
+    isConnected: Boolean, 
+    onClick: () -> Unit,
+    onTuningClick: (() -> Unit)? = null
+) {
     Surface(
         color = if (isConnected) {
             MaterialTheme.colorScheme.primaryContainer
@@ -883,6 +898,21 @@ private fun ConnectionStatusBadge(label: String, isConnected: Boolean, onClick: 
                     MaterialTheme.colorScheme.onSurfaceVariant
                 }
             )
+
+            if (isConnected && onTuningClick != null) {
+                VerticalDivider(
+                    modifier = Modifier.height(12.dp),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f)
+                )
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Tuning",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                    modifier = Modifier
+                        .size(14.dp)
+                        .clickable { onTuningClick() }
+                )
+            }
         }
     }
 }

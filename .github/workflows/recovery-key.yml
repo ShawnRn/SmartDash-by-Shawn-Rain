@@ -1,0 +1,20 @@
+name: Recovery Signing Key Artifact
+on:
+  workflow_dispatch:
+
+jobs:
+  recovery:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Recover Key
+        run: |
+          mkdir -p output
+          echo "${{ secrets.HABE_RELEASE_STORE_FILE_BASE64 }}" | base64 --decode > output/habe-release.jks
+          echo "Key restored to output/habe-release.jks"
+          
+      - name: Upload Key as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovered-signing-key
+          path: output/habe-release.jks
+          retention-days: 1

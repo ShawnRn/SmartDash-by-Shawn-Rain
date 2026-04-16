@@ -104,12 +104,17 @@ class BleManager(private val context: Context) {
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
-            val name = safeDeviceName(device)
+            // Android 16 (SDK 36) Optimization: Prefer name from ScanRecord (advertisement) 
+            // over BluetoothDevice.name which often returns null for unbonded devices.
+            val name = result.scanRecord?.deviceName ?: safeDeviceName(device)
+            val rssi = result.rssi
+
+            AppLogger.v(TAG, "发现设备信号: ${name ?: "Unknown"} (${device.address}) rssi=$rssi")
 
             // 针对 AirPods 场景：如果发现目标设备，立即停止扫描并触发连接
             val targetAddress = targetDeviceAddress
             if (targetAddress != null && device.address == targetAddress) {
-                AppLogger.i(TAG, "🎯 发现目标设备: $name (${device.address}) rssi=${result.rssi}，立即停止扫描")
+                AppLogger.i(TAG, "🎯 发现目标设备: ${name ?: "Unknown"} (${device.address}) rssi=$rssi，立即停止扫描")
                 stopScan()
                 onTargetDeviceFound?.invoke(device)
                 onTargetDeviceFound = null
@@ -117,12 +122,10 @@ class BleManager(private val context: Context) {
                 return
             }
 
-            if (!name.isNullOrBlank()) {
-                val currentDevices = _scannedDevices.value
-                if (currentDevices.none { it.address == device.address }) {
-                    AppLogger.d(TAG, "扫描到设备: $name (${device.address}) rssi=${result.rssi}")
-                    _scannedDevices.update { it + device }
-                }
+            val currentDevices = _scannedDevices.value
+            if (currentDevices.none { it.address == device.address }) {
+                AppLogger.d(TAG, "扫描到新设备: ${name ?: "Unknown"} (${device.address}) rssi=$rssi")
+                _scannedDevices.update { it + device }
             }
         }
 
@@ -182,12 +185,13 @@ class BleManager(private val context: Context) {
                 .setServiceUuid(android.os.ParcelUuid(UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb")))
                 .build()
 
-            // AirPods 体验关键：有目标时用 LOW_LATENCY，无目标时用 LOW_POWER
+            // AirPods 体验关键：有目标时用 LOW_LATENCY，无目标（手动扫描）时用 BALANCED
+            // 在 Android 16 / SDK 36 下，LOW_POWER 可能导致前台扫描响应过慢
             val isTargeted = targetAddress != null
             val scanMode = if (isTargeted) {
                 ScanSettings.SCAN_MODE_LOW_LATENCY
             } else {
-                ScanSettings.SCAN_MODE_LOW_POWER
+                ScanSettings.SCAN_MODE_BALANCED
             }
 
             val settings = ScanSettings.Builder()

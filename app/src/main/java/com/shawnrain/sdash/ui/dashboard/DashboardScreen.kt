@@ -24,8 +24,16 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PhoneIphone
+import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -114,6 +122,7 @@ fun formatMetricValue(type: MetricType, metrics: VehicleMetrics): String {
         MetricType.TOTAL_ENERGY -> String.format("%.1f", metrics.totalEnergyWh)
         MetricType.PEAK_REGEN_POWER -> String.format("%.0f", metrics.peakRegenPowerKw * 1000f)
         MetricType.RECOVERED_ENERGY -> String.format("%.1f", metrics.recoveredEnergyWh)
+        MetricType.MEDIA_CONTROL -> ""
     }
 }
 
@@ -133,6 +142,11 @@ fun DashboardScreen(
     val autoConnectState by viewModel.autoConnectState.collectAsStateWithLifecycle()
     val isRideActive by viewModel.isRideActive.collectAsStateWithLifecycle()
     val rideDirectionLabel by viewModel.rideDirectionLabel.collectAsStateWithLifecycle()
+    
+    val mediaTarget by viewModel.mediaTarget.collectAsStateWithLifecycle()
+    val isHidConnected by viewModel.isHidConnected.collectAsStateWithLifecycle()
+    val isHidSupported by viewModel.isHidSupported.collectAsStateWithLifecycle()
+
     val haptic = LocalHapticFeedback.current
     val view = LocalView.current
     val context = LocalContext.current
@@ -280,6 +294,11 @@ fun DashboardScreen(
                         isEditMode = isEditMode,
                         draggingItem = draggingItem,
                         shakeAngle = angle,
+                        mediaTarget = mediaTarget,
+                        isHidConnected = isHidConnected,
+                        isHidSupported = isHidSupported,
+                        onMediaAction = { viewModel.onMediaAction(it) },
+                        onSetMediaTarget = { viewModel.setMediaTarget(it) },
                         onMove = { from, to ->
                             val moved = displayedDashboardItems.removeAt(from)
                             displayedDashboardItems.add(to, moved)
@@ -381,6 +400,11 @@ fun DashboardScreen(
                 isEditMode = false,
                 shakeAngle = 0f,
                 onRemove = {},
+                mediaTarget = mediaTarget,
+                isHidConnected = isHidConnected,
+                isHidSupported = isHidSupported,
+                onMediaAction = { viewModel.onMediaAction(it) },
+                onSetMediaTarget = { viewModel.setMediaTarget(it) },
                 modifier = Modifier
                     .zIndex(10f)
                     .offset {
@@ -454,6 +478,11 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.dashboardItemsGr
     onDragStart: (MetricType) -> Unit,
     onDrag: (Offset) -> Unit,
     onDragEnd: () -> Unit,
+    mediaTarget: com.shawnrain.sdash.MediaTarget,
+    isHidConnected: Boolean,
+    isHidSupported: Boolean,
+    onMediaAction: (com.shawnrain.sdash.MediaAction) -> Unit,
+    onSetMediaTarget: (com.shawnrain.sdash.MediaTarget) -> Unit,
     itemBounds: MutableMap<MetricType, Rect>
 ) {
     itemsIndexed(items, key = { _, type -> type.name }) { index, type ->
@@ -466,6 +495,11 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.dashboardItemsGr
             isEditMode = isEditMode,
             shakeAngle = shake,
             onRemove = { onRemove(index) },
+            mediaTarget = mediaTarget,
+            isHidConnected = isHidConnected,
+            isHidSupported = isHidSupported,
+            onMediaAction = onMediaAction,
+            onSetMediaTarget = onSetMediaTarget,
             modifier = Modifier
                 .then(if (isDragging) Modifier else Modifier.animateItem())
                 .graphicsLayer {
@@ -651,8 +685,26 @@ fun StatCardWrap(
     isEditMode: Boolean,
     shakeAngle: Float,
     onRemove: () -> Unit,
+    mediaTarget: com.shawnrain.sdash.MediaTarget,
+    isHidConnected: Boolean,
+    isHidSupported: Boolean,
+    onMediaAction: (com.shawnrain.sdash.MediaAction) -> Unit,
+    onSetMediaTarget: (com.shawnrain.sdash.MediaTarget) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    if (type == MetricType.MEDIA_CONTROL && !isEditMode) {
+        MediaControlCard(
+            mediaTarget = mediaTarget,
+            isHidConnected = isHidConnected,
+            isHidSupported = isHidSupported,
+            onMediaAction = onMediaAction,
+            onSetMediaTarget = onSetMediaTarget,
+            shakeAngle = shakeAngle,
+            modifier = modifier
+        )
+        return
+    }
+
     val valueStr = remember(metrics, type) {
         formatMetricValue(type, metrics)
     }
@@ -1372,5 +1424,121 @@ private tailrec fun android.content.Context.findActivity(): Activity? {
         is Activity -> this
         is android.content.ContextWrapper -> baseContext.findActivity()
         else -> null
+    }
+}
+
+@Composable
+fun MediaControlCard(
+    mediaTarget: com.shawnrain.sdash.MediaTarget,
+    isHidConnected: Boolean,
+    isHidSupported: Boolean,
+    onMediaAction: (com.shawnrain.sdash.MediaAction) -> Unit,
+    onSetMediaTarget: (com.shawnrain.sdash.MediaTarget) -> Unit,
+    shakeAngle: Float,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .graphicsLayer { rotationZ = shakeAngle }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 80.dp)
+                .clip(bezierRoundedShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "媒体控制",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                
+                // Target Switcher
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                        .clickable {
+                            onSetMediaTarget(
+                                if (mediaTarget == com.shawnrain.sdash.MediaTarget.LOCAL) 
+                                    com.shawnrain.sdash.MediaTarget.IPHONE 
+                                else com.shawnrain.sdash.MediaTarget.LOCAL
+                            )
+                        }
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Icon(
+                        imageVector = if (mediaTarget == com.shawnrain.sdash.MediaTarget.LOCAL) 
+                            Icons.Default.Smartphone else Icons.Default.PhoneIphone,
+                        contentDescription = null,
+                        modifier = Modifier.size(12.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (mediaTarget == com.shawnrain.sdash.MediaTarget.LOCAL) "本机" else "iPhone",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Control Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { onMediaAction(com.shawnrain.sdash.MediaAction.PREVIOUS) }) {
+                    Icon(Icons.Default.SkipPrevious, contentDescription = "Prev", tint = MaterialTheme.colorScheme.onSurface)
+                }
+                Surface(
+                    onClick = { onMediaAction(com.shawnrain.sdash.MediaAction.PLAY_PAUSE) },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                    modifier = Modifier.size(42.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = "Play/Pause", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                IconButton(onClick = { onMediaAction(com.shawnrain.sdash.MediaAction.NEXT) }) {
+                    Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = MaterialTheme.colorScheme.onSurface)
+                }
+            }
+
+            if (mediaTarget == com.shawnrain.sdash.MediaTarget.IPHONE) {
+                Spacer(modifier = Modifier.height(4.dp))
+                val statusText = when {
+                    !isHidSupported -> "设备硬件不支持 HID"
+                    !isHidConnected -> "iPhone 未连接 (请在设置配对)"
+                    else -> "已连接 iPhone"
+                }
+                val statusColor = when {
+                    !isHidSupported -> MaterialTheme.colorScheme.error
+                    !isHidConnected -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    else -> Color(0xFF10B981)
+                }
+                Text(
+                    text = statusText,
+                    fontSize = 9.sp,
+                    color = statusColor,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
     }
 }

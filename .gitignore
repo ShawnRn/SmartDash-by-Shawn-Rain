@@ -38,12 +38,14 @@ app/build/outputs/apk/fastDevRelease/*.apk
 *.p12
 signing.properties
 keystore.properties
+signing.env
 .env
 .env.*
 
 # Temporary files
 /tmp/
 *.log
+build_log.txt
 
 # Local agent assets and generated workflow artifacts
 .agent/

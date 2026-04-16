@@ -694,3 +694,24 @@ cd "/Users/shawnrain/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Vib
 - `proguard-rules.pro` 更新后需验证 release 构建：跑 `.agents/scripts/build-release.sh` 并安装到真机测试
 - 所有涉及 `VehicleProfile` 浮点字段的读写，必须经过 `finiteOr()` 或 `isFinite()` 守卫，防止 NaN 再次写入 DataStore
 - `ProtocolParser._metrics` 保持 `SharedFlow`，不得改回 `StateFlow`，否则会导致里程/能耗再次为 0
+
+## 12. 安全性与数据完整性 (Security & Secrets)
+
+### 12.1 绝密规则 (The Zero Leak Rule)
+- **AI Agent 禁止** 将以下任何包含敏感信息的临时文件或配置提交到 Git 仓库：
+    - `signing.env`: 包含签名库明文密码的环境变量文件。
+    - `build_log.txt`: 可能包含编译环境敏感变量的日志文件。
+    - `*.env*`: 任何包含 `.env` 后缀的配置文件（除非是明确的示例模板）。
+    - `*.jks / *.p12 / *.keystore`: 签名原始密钥文件。
+- **强制拦截**：`.agents/scripts/common.sh` 已内置正则拦截逻辑。如果检测到这些文件处于 Staged 状态，同步脚本（如 `sync-github.sh`）将强制中止。
+
+### 12.2 多机协作数据对齐规则 (Cross-Host Sync)
+- **同步原则**：本仓库通过 iCloud Drive 同步，但 iCloud Drive 存在感知延迟。为了确保 Pro 主机（主编译机）编译的是 Air 主机（开发机）的最新代码，**必须** 遵循以下流程：
+    1. **Air 主机**：完成代码修改并测试后，先执行 `commit` 并 `push` 到 GitHub。
+    2. **Pro 主机**：在开始编译前，必须先执行 `git fetch origin && git reset --hard origin/main` 强制对齐历史。
+- **冲突处理**：如果在 Air 主机执行了 `force push`（如清理泄漏历史），Pro 主机端必须立即通过 `git reset --hard` 对齐，禁止从 Pro 端执行反向推送。
+
+### 12.3 签名安全
+- 签名密码仅允许存储在 macOS Keychain 或 iCloud Keychain 中。
+- 绝不允许在代码注释中明文写入任何 keystore 密码。
+- 若需从云端恢复密钥（如误删情况），应使用临时加密通道（如 GitHub Actions Secrets），并事后立即销毁恢复脚本。

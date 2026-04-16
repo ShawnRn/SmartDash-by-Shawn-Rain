@@ -21,7 +21,7 @@ FAST_DEV_RELEASE_APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/fastDevRelease/ap
 RELEASE_APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/release/app-release.apk"
 DEFAULT_RELEASE_KEYSTORE_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Secure/habe_android/signing"
 DEFAULT_RELEASE_KEYSTORE_FILE="$DEFAULT_RELEASE_KEYSTORE_DIR/habe-release.jks"
-SIGNING_FILE_PATTERN='(^|/)([^/]+\.(jks|keystore|p12)|signing\.properties|keystore\.properties|\.env(\..*)?)$'
+SIGNING_FILE_PATTERN='(^|/)([^/]+\.(jks|keystore|p12)|signing\.properties|keystore\.properties|signing\.env|build_log\.txt|\.env(\..*)?)$'
 
 timestamp() {
   date '+%Y%m%d-%H%M%S'

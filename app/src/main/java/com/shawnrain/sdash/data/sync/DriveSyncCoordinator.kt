@@ -39,6 +39,7 @@ class DriveSyncCoordinator(
     companion object {
         private const val TAG = "DriveSyncCoord"
         const val SYNC_ENGINE_VERSION = 2
+        private const val LARGE_STATE_WARN_BYTES = 8 * 1024 * 1024
     }
 
     private val _syncState = MutableStateFlow<SyncStateV2>(SyncStateV2.Idle)
@@ -151,6 +152,12 @@ class DriveSyncCoordinator(
                         }
                     )
                 )
+            } catch (oom: OutOfMemoryError) {
+                val message = "同步状态过大，已暂停本次云端上传以避免闪退"
+                AppLogger.e(TAG, message, oom)
+                metadataRepository.recordSyncError(context, message)
+                _syncState.value = SyncStateV2.Error(message, reason)
+                SyncRunResult.Failure(reason, oom)
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Push failed", e)
                 metadataRepository.recordSyncError(context, e.message ?: "Unknown error")
@@ -254,6 +261,12 @@ class DriveSyncCoordinator(
                 metadata = metadata,
                 reason = reason
             )
+        } catch (oom: OutOfMemoryError) {
+            val message = "同步状态过大，已暂停本次云端同步以避免闪退"
+            AppLogger.e(TAG, message, oom)
+            metadataRepository.recordSyncError(context, message)
+            _syncState.value = SyncStateV2.Error(message, reason)
+            SyncRunResult.Failure(reason, oom)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Pull failed", e)
             metadataRepository.recordSyncError(context, e.message ?: "Unknown error")
@@ -270,17 +283,31 @@ class DriveSyncCoordinator(
             deviceName = metadata.deviceName
         )
         val stateBytes = stateSerializer.serialize(currentState)
+        if (stateBytes.size >= LARGE_STATE_WARN_BYTES) {
+            AppLogger.w(
+                TAG,
+                "Preparing large sync state: bytes=${stateBytes.size}, rides=${currentState.rides.size}, " +
+                    "speedTests=${currentState.speedTests.size}, profiles=${currentState.vehicleProfiles.size}"
+            )
+        }
         val checksum = stateSerializer.computeChecksum(stateBytes)
         val password = deriveEncryptionPassword()
         val encrypted = com.shawnrain.sdash.data.sync.EncryptionService.encryptWithPassword(
             plainText = stateBytes,
             password = password,
-            salt = com.shawnrain.sdash.data.sync.EncryptionService.generateSalt()
+            salt = com.shawnrain.sdash.data.sync.EncryptionService.generateSalt(),
+            version = com.shawnrain.sdash.data.sync.EncryptionService.VERSION_PASSWORD_RANDOM_SALT_GZIP
+        )
+        val encryptedPayload = encrypted.toJson().toByteArray(Charsets.UTF_8)
+        AppLogger.i(
+            TAG,
+            "Prepared sync upload: plainBytes=${stateBytes.size}, encryptedBytes=${encryptedPayload.size}, " +
+                "rides=${currentState.rides.size}, speedTests=${currentState.speedTests.size}"
         )
         return PreparedStateUpload(
             stateVersion = stateVersion,
             checksum = checksum,
-            encryptedPayload = encrypted.toJson().toByteArray(Charsets.UTF_8),
+            encryptedPayload = encryptedPayload,
             stateFileName = "current_state_v${stateVersion}.json.enc",
             currentState = currentState
         )
@@ -433,7 +460,8 @@ class DriveSyncCoordinator(
             val encrypted = com.shawnrain.sdash.data.sync.EncryptionService.encryptWithPassword(
                 plainText = stateBytes,
                 password = password,
-                salt = com.shawnrain.sdash.data.sync.EncryptionService.generateSalt()
+                salt = com.shawnrain.sdash.data.sync.EncryptionService.generateSalt(),
+                version = com.shawnrain.sdash.data.sync.EncryptionService.VERSION_PASSWORD_RANDOM_SALT_GZIP
             )
             val encryptedPayload = encrypted.toJson().toByteArray(Charsets.UTF_8)
 
@@ -459,6 +487,11 @@ class DriveSyncCoordinator(
             metadataRepository.recordPushSuccess(context, newStateVersion)
             AppLogger.i(TAG, "V2 sync initialized")
             Result.success(Unit)
+        } catch (oom: OutOfMemoryError) {
+            val message = "初始化云同步时状态过大，已停止本次初始化以避免闪退"
+            AppLogger.e(TAG, message, oom)
+            metadataRepository.recordSyncError(context, message)
+            Result.failure(oom)
         } catch (e: Exception) {
             AppLogger.e(TAG, "V2 sync initialization failed", e)
             Result.failure(e)

@@ -153,13 +153,15 @@ class BleManager(private val context: Context) {
      */
     fun startTargetedScan(
         targetAddress: String,
+        lowPower: Boolean = false,
         onFound: (BluetoothDevice) -> Unit
     ) {
-        startScanWithTarget(targetAddress, onFound)
+        startScanWithTarget(targetAddress, lowPower, onFound)
     }
 
     private fun startScanWithTarget(
         targetAddress: String? = null,
+        lowPower: Boolean = false,
         onFound: ((BluetoothDevice) -> Unit)? = null
     ) {
         if (!hasBluetoothScanPermission()) {
@@ -174,33 +176,42 @@ class BleManager(private val context: Context) {
         onTargetDeviceFound = onFound
 
         _scannedDevices.value = emptyList()
-        val logMsg = if (targetAddress != null) "针对目标设备 $targetAddress 快速扫描" else "开始 BLE 扫描"
+        val logMsg = if (targetAddress != null) "针对目标设备 $targetAddress 快速扫描 (lowPower=$lowPower)" else "开始 BLE 扫描 (lowPower=$lowPower)"
         AppLogger.i(TAG, logMsg)
 
         pollingHandler.removeCallbacks(scanTimeoutRunnable)
 
         val scanner = bluetoothAdapter?.bluetoothLeScanner
         if (scanner != null) {
-            val filter = ScanFilter.Builder()
-                .setServiceUuid(android.os.ParcelUuid(UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb")))
-                .build()
-
-            // AirPods 体验关键：有目标时用 LOW_LATENCY，无目标（手动扫描）时用 BALANCED
-            // 在 Android 16 / SDK 36 下，LOW_POWER 可能导致前台扫描响应过慢
-            val isTargeted = targetAddress != null
-            val scanMode = if (isTargeted) {
-                ScanSettings.SCAN_MODE_LOW_LATENCY
+            // Android 16 / SDK 36 兼容性优化：
+            // 移除强制的 Service UUID (FFE0) 过滤器，因为部分设备可能在广播中省略此字段。
+            // 允许全波段扫描，在 callback 中再进行地址精准匹配。
+            val filters = if (targetAddress != null) {
+                listOf(ScanFilter.Builder().setDeviceAddress(targetAddress).build())
             } else {
-                ScanSettings.SCAN_MODE_BALANCED
+                null
+            }
+
+            // AirPods 体验关键：有目标时用 LOW_LATENCY，无目标（手动扫描/自动重连）时也提升到 BALANCED 或以上
+            // 但如果 HOGP 活跃（lowPower=true），必须降级到 LOW_POWER 以免挤占广播射频
+            val isTargeted = targetAddress != null
+            val scanMode = when {
+                lowPower -> ScanSettings.SCAN_MODE_LOW_POWER
+                isTargeted -> ScanSettings.SCAN_MODE_LOW_LATENCY
+                else -> ScanSettings.SCAN_MODE_BALANCED
             }
 
             val settings = ScanSettings.Builder()
                 .setScanMode(scanMode)
+                .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+                .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
+                .setNumOfMatches(ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT)
                 .build()
 
-            scanner.startScan(listOf(filter), settings, scanCallback)
+            AppLogger.d(TAG, "启动扫描: mode=$scanMode targeted=$isTargeted filters=${filters?.size ?: 0}")
+            scanner.startScan(filters, settings, scanCallback)
         } else {
-            bluetoothAdapter?.bluetoothLeScanner?.startScan(scanCallback)
+            AppLogger.w(TAG, "BluetoothLeScanner 不可用")
         }
 
         val timeout = if (targetAddress != null) TARGET_SCAN_TIMEOUT_MS else SCAN_TIMEOUT_MS

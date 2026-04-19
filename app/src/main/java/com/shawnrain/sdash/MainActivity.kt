@@ -781,6 +781,28 @@ fun MainScreen(
                     ) 
                 }
                 composable(
+                    route = Screen.Pairing.route,
+                    enterTransition = {
+                        slideInVertically(
+                            animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+                            initialOffsetY = { fullHeight -> fullHeight }
+                        ) + fadeIn(animationSpec = tween(durationMillis = 300))
+                    },
+                    exitTransition = {
+                        slideOutVertically(
+                            animationSpec = tween(durationMillis = 350, easing = FastOutLinearInEasing),
+                            targetOffsetY = { fullHeight -> fullHeight }
+                        ) + fadeOut(animationSpec = tween(durationMillis = 250))
+                    }
+                ) {
+                    com.shawnrain.sdash.ui.navigation.PredictiveBackPage(onBack = { navController.popBackStack() }) { 
+                        com.shawnrain.sdash.ui.settings.PairingScreen(
+                            viewModel = viewModel,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+                }
+                composable(
                     route = Screen.Bms.route,
                     enterTransition = {
                         slideInHorizontally(
@@ -810,7 +832,8 @@ fun MainScreen(
                     SettingsScreen(
                         viewModel = viewModel,
                         onNavigateToBms = { navController.navigate(Screen.Bms.route) },
-                        onNavigateToZhikeSettings = { navController.navigate(Screen.ZhikeSettings.route) }
+                        onNavigateToZhikeSettings = { navController.navigate(Screen.ZhikeSettings.route) },
+                        onNavigateToPairing = { navController.navigate(Screen.Pairing.route) }
                     )
                 }
                 composable(
@@ -990,4 +1013,5 @@ sealed class Screen(
     data object Settings : Screen("settings", "设置", Icons.Filled.Settings)
     data object Bms : Screen("bms", "电池与BMS", Icons.Filled.BatteryChargingFull)
     data object ZhikeSettings : Screen("zhike_settings", "智科调校", Icons.Filled.Settings)
+    data object Pairing : Screen("pairing", "iPhone 配对", Icons.Filled.Bluetooth)
 }

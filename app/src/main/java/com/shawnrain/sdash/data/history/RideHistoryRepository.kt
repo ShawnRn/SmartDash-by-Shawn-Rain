@@ -61,6 +61,11 @@ class RideHistoryRepository(context: Context) {
         dao.deleteRide(rideId)
     }
 
+    suspend fun getTotalHistoricalDistanceKm(vehicleId: String): Float {
+        val totalMeters = dao.getTotalDistanceMeters(vehicleId) ?: 0.0
+        return (totalMeters / 1000.0).toFloat()
+    }
+
     suspend fun replaceRidesForVehicle(vehicleId: String, records: List<RideHistoryRecord>, updatedAt: Long = System.currentTimeMillis()) {
         val normalizedRecords = records.map(normalizer::normalize)
             .sortedByDescending { it.startedAtMs }

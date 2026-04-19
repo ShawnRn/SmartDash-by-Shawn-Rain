@@ -2,9 +2,13 @@ package com.shawnrain.sdash.data.sync
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.security.KeyStore
 import java.security.SecureRandom
 import java.util.Base64
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -24,6 +28,7 @@ object EncryptionService {
     const val VERSION_DEVICE_BOUND_LEGACY = 1
     const val VERSION_PASSWORD_FIXED_SALT_LEGACY = 2
     const val VERSION_PASSWORD_RANDOM_SALT = 3
+    const val VERSION_PASSWORD_RANDOM_SALT_GZIP = 4
 
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
     private const val GCM_TAG_LENGTH_BITS = 128
@@ -62,9 +67,13 @@ object EncryptionService {
         val key = deriveKey(password, salt)
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key)
+        val payload = when (version) {
+            VERSION_PASSWORD_RANDOM_SALT_GZIP -> gzip(plainText)
+            else -> plainText
+        }
 
         val iv = cipher.iv
-        val cipherTextWithTag = cipher.doFinal(plainText)
+        val cipherTextWithTag = cipher.doFinal(payload)
 
         val tagLength = GCM_TAG_LENGTH_BITS / 8 // 16 bytes
         val cipherText = cipherTextWithTag.copyOfRange(0, cipherTextWithTag.size - tagLength)
@@ -86,7 +95,8 @@ object EncryptionService {
     fun decryptWithPassword(encrypted: EncryptedBackup, password: String): ByteArray {
         val salt = when (encrypted.version) {
             VERSION_PASSWORD_FIXED_SALT_LEGACY -> password.toByteArray(Charsets.UTF_8)
-            VERSION_PASSWORD_RANDOM_SALT -> decodeBase64(encrypted.salt)
+            VERSION_PASSWORD_RANDOM_SALT,
+            VERSION_PASSWORD_RANDOM_SALT_GZIP -> decodeBase64(encrypted.salt)
             else -> throw IllegalArgumentException("Unsupported password backup version: ${encrypted.version}")
         }
         val iv = decodeBase64(encrypted.iv)
@@ -99,7 +109,11 @@ object EncryptionService {
         cipher.init(Cipher.DECRYPT_MODE, key, spec)
 
         val cipherTextWithTag = cipherText + tag
-        return cipher.doFinal(cipherTextWithTag)
+        val plainBytes = cipher.doFinal(cipherTextWithTag)
+        return when (encrypted.version) {
+            VERSION_PASSWORD_RANDOM_SALT_GZIP -> gunzip(plainBytes)
+            else -> plainBytes
+        }
     }
 
     /**
@@ -196,6 +210,19 @@ object EncryptionService {
         secureRandom.nextBytes(bytes)
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes).take(12)
     }
+
+    private fun gzip(bytes: ByteArray): ByteArray {
+        val output = ByteArrayOutputStream()
+        GZIPOutputStream(output).use { gzip ->
+            gzip.write(bytes)
+        }
+        return output.toByteArray()
+    }
+
+    private fun gunzip(bytes: ByteArray): ByteArray =
+        GZIPInputStream(ByteArrayInputStream(bytes)).use { input ->
+            input.readBytes()
+        }
 
     private fun encodeBase64(bytes: ByteArray): String = base64Encoder.encodeToString(bytes)
 

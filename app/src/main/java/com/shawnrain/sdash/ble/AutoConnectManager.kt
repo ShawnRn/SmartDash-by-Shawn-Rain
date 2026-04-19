@@ -114,20 +114,29 @@ class AutoConnectManager(
         AppLogger.i(TAG, "停止自动连接")
     }
 
+    private var isThrottled = false
+
+    /**
+     * Sets whether auto-connect should be throttled (reduce radio usage).
+     * Useful when HOGP/HID mode is active to prioritize that link.
+     */
+    fun setThrottled(throttled: Boolean) {
+        if (isThrottled != throttled) {
+            isThrottled = throttled
+            AppLogger.d(TAG, "自动连接节流状态变更: $throttled")
+            // Restart scan with new timing if searching
+            if (_state.value is AutoConnectState.Searching) {
+                startBackgroundScan()
+            }
+        }
+    }
+
     /**
      * Call when app goes to foreground: try direct connect immediately
      */
     fun onAppForeground() {
-        val lastDevice = knownControllers.values
-            .filter { it.lastConnectedAt > 0 }
-            .maxByOrNull { it.lastConnectedAt }
-
-        if (lastDevice != null) {
-            AppLogger.i(TAG, "📱 App 前台，快速直连: ${lastDevice.address}")
-            scope.launch {
-                attemptConnect(lastDevice)
-            }
-        }
+        // Foreground usually implies we want faster connection
+        start()
     }
 
     /**
@@ -160,12 +169,7 @@ class AutoConnectManager(
         _state.value = AutoConnectState.Searching
         AppLogger.w(TAG, "⚠️ 控制器断开: $address，准备自动重连")
 
-        scope.launch {
-            delay(RECONNECT_DELAY_MS)
-            if (_state.value is AutoConnectState.Searching) {
-                startBackgroundScan()
-            }
-        }
+        startBackgroundScan()
     }
 
     fun connectTo(address: String) {
@@ -204,50 +208,34 @@ class AutoConnectManager(
             return true
         } else {
             isConnecting = false
-            // Direct connect failed, start targeted scan
-            AppLogger.w(TAG, "直连失败，启动针对性扫描")
-            startTargetedScanForController(controller)
+            // Direct connect failed, wait a bit and start cycle
+            AppLogger.w(TAG, "直连失败，进入自动扫描循环")
+            startBackgroundScan()
             return false
         }
     }
 
     /**
-     * Start targeted scan for a specific device - this is the AirPods magic.
-     * Scans with LOW_LATENCY mode, immediately connects when device is found.
-     */
-    private fun startTargetedScanForController(controller: KnownController) {
-        AppLogger.i(TAG, "🎯 启动针对 ${controller.address} 的快速扫描")
-
-        bleManager.startTargetedScan(controller.address) { device ->
-            // Device found! Immediately connect
-            scope.launch {
-                AppLogger.i(TAG, "🎯 发现目标，立即连接: ${controller.address}")
-                bleManager.connect(
-                    address = controller.address,
-                    nameHint = controller.name,
-                    protocolIdHint = controller.protocolId
-                )
-            }
-        }
-    }
-
-    /**
-     * Start low-power background scan for all known devices.
-     * This runs when app is in background, listening for the target device.
+     * Start a duty-cycle background scan for all known devices.
+     * This is more radio-efficient than continuous scanning.
      */
     private fun startBackgroundScan() {
         if (knownControllers.isEmpty()) return
 
         backgroundScanJob?.cancel()
         backgroundScanJob = scope.launch {
-            // Get the last connected device to scan for
-            val lastDevice = knownControllers.values
-                .filter { it.lastConnectedAt > 0 }
-                .maxByOrNull { it.lastConnectedAt }
+            while (true) {
+                // Get the last connected device to scan for
+                val lastDevice = knownControllers.values
+                    .filter { it.lastConnectedAt > 0 }
+                    .maxByOrNull { it.lastConnectedAt } ?: knownControllers.values.first()
 
-            if (lastDevice != null) {
-                AppLogger.i(TAG, "🔍 后台扫描最后连接设备: ${lastDevice.address}")
-                bleManager.startTargetedScan(lastDevice.address) { device ->
+                val scanDuration = if (isThrottled) 2000L else 5000L
+                val waitDuration = if (isThrottled) 15000L else 5000L
+
+                AppLogger.d(TAG, "🔍 守护扫描轮次 (throttled=$isThrottled): ${lastDevice.address}")
+                
+                bleManager.startTargetedScan(lastDevice.address, lowPower = isThrottled) { device ->
                     // Found! Connect immediately
                     scope.launch {
                         bleManager.connect(
@@ -257,6 +245,12 @@ class AutoConnectManager(
                         )
                     }
                 }
+                
+                delay(scanDuration)
+                bleManager.stopScan()
+                delay(waitDuration)
+                
+                // If we got connected meanwhile, the job would be cancelled by onConnected
             }
         }
     }

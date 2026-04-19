@@ -49,4 +49,7 @@ interface RideHistoryDao {
 
     @Query("DELETE FROM ride_history_summary WHERE vehicleId = :vehicleId")
     suspend fun deleteRidesForVehicle(vehicleId: String)
+
+    @Query("SELECT SUM(distanceMeters) FROM ride_history_summary WHERE vehicleId = :vehicleId")
+    suspend fun getTotalDistanceMeters(vehicleId: String): Double?
 }

@@ -98,6 +98,7 @@ import com.shawnrain.sdash.data.speedtest.SpeedTestTrackPoint
 import com.shawnrain.sdash.ui.poster.PosterRenderer
 import com.shawnrain.sdash.ui.poster.PosterFactory
 import com.shawnrain.sdash.ui.poster.PosterSettings
+import kotlinx.coroutines.flow.first
 import com.shawnrain.sdash.ui.poster.PosterTemplates
 import com.shawnrain.sdash.ui.poster.PosterRendererV2
 import com.shawnrain.sdash.ui.text.withDisplaySpacing
@@ -148,8 +149,8 @@ data class LanBackupShareUiState(
 )
 
 enum class MediaTarget {
-    LOCAL,
-    IPHONE
+    SYSTEM, // 系统透传（利用现有蓝牙配对）
+    REMOTE  // 专属遥控（HOGP 兼容模式）
 }
 
 enum class MediaAction {
@@ -278,11 +279,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val localMediaManager = LocalMediaManager(application)
     private val hidRemoteManager = HidRemoteManager(application)
 
-    private val _mediaTarget = MutableStateFlow(MediaTarget.LOCAL)
+    private val _mediaTarget = MutableStateFlow(MediaTarget.SYSTEM)
     val mediaTarget = _mediaTarget.asStateFlow()
-
     val isHidConnected = hidRemoteManager.isConnected
+    val isHidSubscribed = hidRemoteManager.isSubscribed
     val isHidSupported = hidRemoteManager.isSupported
+    val isHogpActive = hidRemoteManager.isHogpActive
+    val isClassicHidSupported = hidRemoteManager.isClassicSupported
+    val isHidPairingActive = hidRemoteManager.isHogpActive
 
     private val _currentRpm = MutableStateFlow(0f)
     private val _controllerReportedSpeed = MutableStateFlow(0f)
@@ -294,9 +298,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _latestTelemetrySample = MutableStateFlow<TelemetrySample?>(null)
     val latestTelemetrySample: StateFlow<TelemetrySample?> = _latestTelemetrySample.asStateFlow()
     private var _lastRideHistorySampleAtMs = 0L
-    private var _tripDistanceMeters = 0.0f
-    private var _rideLastDistanceUpdateAtMs = 0L
-    private var _rideLastDistanceSpeedKmh = 0.0f
     private var _rideStopCandidateAtMs: Long? = null
     private var _sessionStartTime = 0L
     private var _rideStartedAtMs = 0L
@@ -815,6 +816,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setMediaTarget(target: MediaTarget) {
         _mediaTarget.value = target
         AppLogger.i(TAG, "Media target set to: $target")
+        
+        // Auto-Engage/Disengage HOGP Advertising
+        if (target == MediaTarget.REMOTE) {
+            hidRemoteManager.togglePairingMode(true)
+            autoConnectManager.setThrottled(true)
+        } else {
+            // Only stop if we weren't manually in pairing mode or if we want strict power saving
+            // For simplicity, let's stop it when not in REMOTE mode to save battery
+            hidRemoteManager.togglePairingMode(false)
+            autoConnectManager.setThrottled(false)
+        }
     }
 
     fun onMediaAction(action: MediaAction) {
@@ -822,14 +834,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         AppLogger.d(TAG, "Media action: $action on target: $target")
         
         when (target) {
-            MediaTarget.LOCAL -> {
+            MediaTarget.SYSTEM -> {
                 when (action) {
                     MediaAction.PLAY_PAUSE -> localMediaManager.playPause()
                     MediaAction.NEXT -> localMediaManager.next()
                     MediaAction.PREVIOUS -> localMediaManager.previous()
                 }
             }
-            MediaTarget.IPHONE -> {
+            MediaTarget.REMOTE -> {
                 val usageCode = when (action) {
                     MediaAction.PLAY_PAUSE -> HidRemoteManager.KEY_PLAY_PAUSE
                     MediaAction.NEXT -> HidRemoteManager.KEY_NEXT
@@ -905,6 +917,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val lanBackupMessage: StateFlow<String?> = _lanBackupMessage.asStateFlow()
     fun clearLanBackupMessage() { _lanBackupMessage.value = null }
     fun showLanBackupMessage(message: String) { _lanBackupMessage.value = message }
+
+    private var lastMileageHealingAtMs = 0L
+
+    /**
+     * 将档案里程与历史行程记录之和进行对齐 (Data Healing)
+     * 如果历史记录之和大于档案当前的累计里程，则进行对齐更新。
+     */
+    fun syncVehicleMileageWithHistory(vehicleId: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastMileageHealingAtMs < 10_000L) return // 10秒内不重复触发
+        lastMileageHealingAtMs = now
+
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                // 将历史里程汇总转换为 Float 消除比较时的重载歧义
+                val historicalKm = rideHistoryRepository.getTotalHistoricalDistanceKm(vehicleId).toFloat()
+                
+                // 获取档案列表并查找目标
+                val profiles = settingsRepository.vehicleProfiles.first()
+                val targetProfile = profiles.find { it.id == vehicleId } ?: return@launch
+                
+                val currentProfileMileage = targetProfile.totalMileageKm
+                
+                // 给 100 米的容差，防止浮点数微小偏差导致频繁写
+                if (historicalKm > currentProfileMileage + 0.1f) {
+                    AppLogger.i(TAG, "检测到里程不一致(ID:$vehicleId)：档案值=${currentProfileMileage}km, 历史汇总=${historicalKm}km。正在进行对齐 (Healing)...")
+                    val updatedProfile = targetProfile.copy(totalMileageKm = historicalKm)
+                    settingsRepository.upsertVehicleProfile(updatedProfile)
+                } else {
+                    AppLogger.d(TAG, "里程一致性检查完成(ID:$vehicleId)：正常 (档案=${currentProfileMileage}km, 历史汇总=${historicalKm}km)")
+                }
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "里程同步修复逻辑执行异常", e)
+            }
+        }
+    }
+
+    fun toggleBluetoothDiscoverable() {
+        val currentHogp = hidRemoteManager.isHogpActive.value
+        hidRemoteManager.togglePairingMode(!currentHogp)
+    }
 
     // ======== Auto-Connect State ========
     val autoConnectState: StateFlow<AutoConnectState> = autoConnectManager.state
@@ -1597,11 +1650,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }.launchIn(viewModelScope)
 
         settingsRepository.dashboardItems.onEach { items ->
-            if (_dashboardItems.value != items) {
-                _dashboardItems.value = items
+            // 如果列表不为空但缺少媒体控制，则根据本次重大更新需求，自动将其注入（仅注入一次）
+            val finalItems = if (items.isEmpty()) {
+                listOf(
+                    com.shawnrain.sdash.data.MetricType.SPEED,
+                    com.shawnrain.sdash.data.MetricType.POWER,
+                    com.shawnrain.sdash.data.MetricType.EFFICIENCY,
+                    com.shawnrain.sdash.data.MetricType.MEDIA_CONTROL
+                )
+            } else if (com.shawnrain.sdash.data.MetricType.MEDIA_CONTROL !in items) {
+                // 如果用户已经配置过仪表盘但没有媒体，则将其加在末尾
+                items + com.shawnrain.sdash.data.MetricType.MEDIA_CONTROL
+            } else items
+
+            if (_dashboardItems.value != finalItems) {
+                _dashboardItems.value = finalItems
                 AppLogger.i(
                     TAG,
-                    "仪表排列已从仓库刷新：${items.joinToString(",") { it.name }}"
+                    "仪表排列已更新：${finalItems.joinToString(",") { it.name }}"
                 )
             }
         }.launchIn(viewModelScope)
@@ -1645,6 +1711,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 lastKnownSocPercent = Float.NaN
                 lastKnownRangeKm = Float.NaN
                 lastRangeDisplayCommitDistanceKm = Float.NaN
+                
+                // 切换车辆档案时同步里程
+                syncVehicleMileageWithHistory(profile.id)
             }
         }.launchIn(viewModelScope)
 
@@ -1854,21 +1923,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun updateRideSession(metrics: VehicleMetrics, now: Long) {
         val speed = metrics.speedKmH.toFloat()
-        val distanceSpeedKmh = metrics.controllerSpeedKmH.toFloat().coerceAtLeast(0.0f)
-        if (_rideLastDistanceUpdateAtMs <= 0L) {
-            _rideLastDistanceUpdateAtMs = now
-            _rideLastDistanceSpeedKmh = distanceSpeedKmh
-        } else {
-            val dtSeconds = (now - _rideLastDistanceUpdateAtMs).coerceAtLeast(0L).toFloat() / 1000.0f
-            if (dtSeconds > 0.0f && dtSeconds <= DISTANCE_FALLBACK_MAX_DT_SECONDS) {
-                val avgDistanceSpeedKmh = (_rideLastDistanceSpeedKmh + distanceSpeedKmh) * 0.5f
-                if (avgDistanceSpeedKmh >= DISTANCE_FALLBACK_MIN_SPEED_KMH) {
-                    _tripDistanceMeters += (avgDistanceSpeedKmh / 3.6f) * dtSeconds
-                }
-            }
-            _rideLastDistanceUpdateAtMs = now
-            _rideLastDistanceSpeedKmh = distanceSpeedKmh
-        }
 
         if (_pendingRideStop.value != null) {
             if (speed >= AUTO_RIDE_START_SPEED_KMH) {
@@ -2087,7 +2141,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun startRideInternal(mode: RideStartMode) {
-        _tripDistanceMeters = 0.0f
         _sessionStartTime = System.currentTimeMillis()
         _rideStartedAtMs = _sessionStartTime
         rideStartVehicleMileageKm = currentVehicle.value.totalMileageKm
@@ -2206,7 +2259,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         rideStartMode = null
         rideStartSocPercent = Float.NaN
         lastRangeDisplayCommitDistanceKm = Float.NaN
-        _tripDistanceMeters = 0.0f
         return shouldPersist
     }
 
@@ -2758,7 +2810,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val previousMileage = profile.totalMileageKm
             val updatedTotalMileage = (previousMileage + deltaMileageKm).coerceAtLeast(0f)
             
-            AppLogger.i("MainViewModel", "Mileage update: $previousMileage -> $updatedTotalMileage (delta: $deltaMileageKm)")
+            AppLogger.d("MainViewModel", "里程存点更新: [${profile.name}] $previousMileage -> $updatedTotalMileage (增加: $deltaMileageKm km)")
             
             val newResistance = if (learnedResistance > 0.0f) learnedResistance else profile.learnedInternalResistanceOhm
             val newEfficiency = blendLearnedEfficiencyWhKm(
@@ -4158,6 +4210,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun getActiveProtocolId(): String? = ProtocolParser.getActiveProtocolId()
+
+    init {
+        AppLogger.setMinLevel(AppLogLevel.DEBUG)
+        AppLogger.i(TAG, "Initializing MainViewModel...")
+    }
 
     override fun onCleared() {
         AppLogger.i(TAG, "MainViewModel 被清理，清理 BLE 资源")

@@ -30,6 +30,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PhoneIphone
 import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material.icons.filled.SettingsInputAntenna
+import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.getValue
@@ -56,6 +58,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -145,7 +148,9 @@ fun DashboardScreen(
     
     val mediaTarget by viewModel.mediaTarget.collectAsStateWithLifecycle()
     val isHidConnected by viewModel.isHidConnected.collectAsStateWithLifecycle()
+    val isHidSubscribed by viewModel.isHidSubscribed.collectAsStateWithLifecycle()
     val isHidSupported by viewModel.isHidSupported.collectAsStateWithLifecycle()
+    val isHogpActive by viewModel.isHogpActive.collectAsStateWithLifecycle()
 
     val haptic = LocalHapticFeedback.current
     val view = LocalView.current
@@ -294,11 +299,14 @@ fun DashboardScreen(
                         isEditMode = isEditMode,
                         draggingItem = draggingItem,
                         shakeAngle = angle,
-                        mediaTarget = mediaTarget,
-                        isHidConnected = isHidConnected,
-                        isHidSupported = isHidSupported,
                         onMediaAction = { viewModel.onMediaAction(it) },
                         onSetMediaTarget = { viewModel.setMediaTarget(it) },
+                        onToggleDiscoverable = { viewModel.toggleBluetoothDiscoverable() },
+                        mediaTarget = mediaTarget,
+                        isHidConnected = isHidConnected,
+                        isHidSubscribed = isHidSubscribed,
+                        isHidSupported = isHidSupported,
+                        isHogpActive = isHogpActive,
                         onMove = { from, to ->
                             val moved = displayedDashboardItems.removeAt(from)
                             displayedDashboardItems.add(to, moved)
@@ -402,9 +410,12 @@ fun DashboardScreen(
                 onRemove = {},
                 mediaTarget = mediaTarget,
                 isHidConnected = isHidConnected,
+                isHidSubscribed = isHidSubscribed,
                 isHidSupported = isHidSupported,
+                isHogpActive = isHogpActive,
                 onMediaAction = { viewModel.onMediaAction(it) },
                 onSetMediaTarget = { viewModel.setMediaTarget(it) },
+                onToggleDiscoverable = { viewModel.toggleBluetoothDiscoverable() },
                 modifier = Modifier
                     .zIndex(10f)
                     .offset {
@@ -480,9 +491,12 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.dashboardItemsGr
     onDragEnd: () -> Unit,
     mediaTarget: com.shawnrain.sdash.MediaTarget,
     isHidConnected: Boolean,
+    isHidSubscribed: Boolean,
     isHidSupported: Boolean,
+    isHogpActive: Boolean,
     onMediaAction: (com.shawnrain.sdash.MediaAction) -> Unit,
     onSetMediaTarget: (com.shawnrain.sdash.MediaTarget) -> Unit,
+    onToggleDiscoverable: () -> Unit,
     itemBounds: MutableMap<MetricType, Rect>
 ) {
     itemsIndexed(items, key = { _, type -> type.name }) { index, type ->
@@ -497,9 +511,12 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.dashboardItemsGr
             onRemove = { onRemove(index) },
             mediaTarget = mediaTarget,
             isHidConnected = isHidConnected,
+            isHidSubscribed = isHidSubscribed,
             isHidSupported = isHidSupported,
+            isHogpActive = isHogpActive,
             onMediaAction = onMediaAction,
             onSetMediaTarget = onSetMediaTarget,
+            onToggleDiscoverable = onToggleDiscoverable,
             modifier = Modifier
                 .then(if (isDragging) Modifier else Modifier.animateItem())
                 .graphicsLayer {
@@ -687,18 +704,24 @@ fun StatCardWrap(
     onRemove: () -> Unit,
     mediaTarget: com.shawnrain.sdash.MediaTarget,
     isHidConnected: Boolean,
+    isHidSubscribed: Boolean,
     isHidSupported: Boolean,
+    isHogpActive: Boolean,
     onMediaAction: (com.shawnrain.sdash.MediaAction) -> Unit,
     onSetMediaTarget: (com.shawnrain.sdash.MediaTarget) -> Unit,
+    onToggleDiscoverable: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (type == MetricType.MEDIA_CONTROL && !isEditMode) {
         MediaControlCard(
             mediaTarget = mediaTarget,
             isHidConnected = isHidConnected,
+            isHidSubscribed = isHidSubscribed,
             isHidSupported = isHidSupported,
+            isHogpActive = isHogpActive,
             onMediaAction = onMediaAction,
             onSetMediaTarget = onSetMediaTarget,
+            onToggleDiscoverable = onToggleDiscoverable,
             shakeAngle = shakeAngle,
             modifier = modifier
         )
@@ -718,21 +741,21 @@ fun StatCardWrap(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 80.dp)
+                .height(105.dp)
                 .clip(bezierRoundedShape(16.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .padding(14.dp)
         ) {
             Column(horizontalAlignment = Alignment.Start) {
                 Text(text = type.title, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.weight(1f))
                 BaselineMetricValue(
                     value = valueStr,
                     unit = type.unit,
                     valueColor = MaterialTheme.colorScheme.onSurface,
                     unitColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    valueFontSize = 24.sp,
-                    unitFontSize = 12.sp
+                    valueFontSize = 26.sp,
+                    unitFontSize = 13.sp
                 )
             }
         }
@@ -844,11 +867,11 @@ fun SquareSpeedIndicator(
                     unit = "",
                     valueColor = color,
                     unitColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    valueFontSize = 68.sp,
+                    valueFontSize = 74.sp,
                     unitFontSize = 14.sp,
                     valueFontWeight = FontWeight.Black,
                     unitFontWeight = FontWeight.Bold,
-                    valueLineHeight = 68.sp,
+                    valueLineHeight = 74.sp,
                     horizontalArrangement = Arrangement.Center,
                     textAlign = TextAlign.Center,
                     singleLine = true
@@ -1088,11 +1111,11 @@ private fun FocusSpeedIndicator(
                     unit = "",
                     valueColor = color,
                     unitColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    valueFontSize = 128.sp,
+                    valueFontSize = 120.sp, 
                     unitFontSize = 24.sp,
                     valueFontWeight = FontWeight.Black,
                     unitFontWeight = FontWeight.Bold,
-                    valueLineHeight = 128.sp,
+                    valueLineHeight = 120.sp,
                     horizontalArrangement = Arrangement.Center,
                     textAlign = TextAlign.Center,
                     singleLine = true
@@ -1114,6 +1137,99 @@ private fun FocusSpeedIndicator(
                 .padding(horizontal = 3.dp, vertical = 0.dp)
                 .height(8.dp)
         )
+    }
+}
+
+@Composable
+fun CompactMediaControls(
+    mediaTarget: com.shawnrain.sdash.MediaTarget,
+    isHidConnected: Boolean,
+    isHidSupported: Boolean,
+    isHogpActive: Boolean,
+    onMediaAction: (com.shawnrain.sdash.MediaAction) -> Unit,
+    onSetMediaTarget: (com.shawnrain.sdash.MediaTarget) -> Unit,
+    onToggleDiscoverable: () -> Unit,
+    isCompactLandscape: Boolean = false
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(top = if (isCompactLandscape) 0.dp else 4.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            IconButton(
+                onClick = { onMediaAction(com.shawnrain.sdash.MediaAction.PREVIOUS) },
+                modifier = Modifier.size(if (isCompactLandscape) 32.dp else 36.dp)
+            ) {
+                Icon(Icons.Default.SkipPrevious, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f))
+            }
+            
+            Surface(
+                onClick = { onMediaAction(com.shawnrain.sdash.MediaAction.PLAY_PAUSE) },
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                modifier = Modifier.size(if (isCompactLandscape) 42.dp else 48.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+                }
+            }
+
+            IconButton(
+                onClick = { onMediaAction(com.shawnrain.sdash.MediaAction.NEXT) },
+                modifier = Modifier.size(if (isCompactLandscape) 32.dp else 36.dp)
+            ) {
+                Icon(Icons.Default.SkipNext, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f))
+            }
+        }
+        
+        // Compact Status & Switcher
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .padding(top = 4.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                .clickable {
+                    onSetMediaTarget(
+                        if (mediaTarget == com.shawnrain.sdash.MediaTarget.SYSTEM)
+                            com.shawnrain.sdash.MediaTarget.REMOTE
+                        else com.shawnrain.sdash.MediaTarget.SYSTEM
+                    )
+                }
+                .padding(horizontal = 10.dp, vertical = 2.dp)
+        ) {
+            Icon(
+                imageVector = if (mediaTarget == com.shawnrain.sdash.MediaTarget.SYSTEM)
+                    Icons.Default.SettingsInputAntenna else Icons.Default.BluetoothConnected,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = if (mediaTarget == com.shawnrain.sdash.MediaTarget.SYSTEM) "系统级" else "专属遥控",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            
+            if (mediaTarget == com.shawnrain.sdash.MediaTarget.REMOTE) {
+                val statusText = when {
+                    isHidConnected -> " · 已连接"
+                    isHogpActive -> " · 配对中"
+                    else -> " · 未连接"
+                }
+                Text(
+                    text = statusText,
+                    fontSize = 11.sp,
+                    color = if (isHidConnected) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.clickable(enabled = !isHidConnected) { onToggleDiscoverable() }
+                )
+            }
+        }
     }
 }
 
@@ -1431,9 +1547,12 @@ private tailrec fun android.content.Context.findActivity(): Activity? {
 fun MediaControlCard(
     mediaTarget: com.shawnrain.sdash.MediaTarget,
     isHidConnected: Boolean,
+    isHidSubscribed: Boolean,
     isHidSupported: Boolean,
+    isHogpActive: Boolean,
     onMediaAction: (com.shawnrain.sdash.MediaAction) -> Unit,
     onSetMediaTarget: (com.shawnrain.sdash.MediaTarget) -> Unit,
+    onToggleDiscoverable: () -> Unit,
     shakeAngle: Float,
     modifier: Modifier = Modifier
 ) {
@@ -1441,104 +1560,137 @@ fun MediaControlCard(
         modifier = modifier
             .graphicsLayer { rotationZ = shakeAngle }
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 80.dp)
+                .height(105.dp)
                 .clip(bezierRoundedShape(16.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(12.dp)
+                .padding(12.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "媒体控制",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                
-                // Target Switcher
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-                        .clickable {
-                            onSetMediaTarget(
-                                if (mediaTarget == com.shawnrain.sdash.MediaTarget.LOCAL) 
-                                    com.shawnrain.sdash.MediaTarget.IPHONE 
-                                else com.shawnrain.sdash.MediaTarget.LOCAL
-                            )
-                        }
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Icon(
-                        imageVector = if (mediaTarget == com.shawnrain.sdash.MediaTarget.LOCAL) 
-                            Icons.Default.Smartphone else Icons.Default.PhoneIphone,
-                        contentDescription = null,
-                        modifier = Modifier.size(12.dp),
-                        tint = MaterialTheme.colorScheme.primary
+                    AnimatedMediaButton(
+                        onClick = { onMediaAction(com.shawnrain.sdash.MediaAction.PREVIOUS) },
+                        icon = Icons.Default.SkipPrevious,
+                        contentDescription = "上一个",
+                        size = 36.dp
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = if (mediaTarget == com.shawnrain.sdash.MediaTarget.LOCAL) "本机" else "iPhone",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                    
+                    AnimatedMediaButton(
+                        onClick = { onMediaAction(com.shawnrain.sdash.MediaAction.PLAY_PAUSE) },
+                        icon = Icons.Default.PlayArrow, // TODO: Update based on actual state if available
+                        contentDescription = "播放暂停",
+                        size = 48.dp,
+                        isPrimary = true
+                    )
+
+                    AnimatedMediaButton(
+                        onClick = { onMediaAction(com.shawnrain.sdash.MediaAction.NEXT) },
+                        icon = Icons.Default.SkipNext,
+                        contentDescription = "下一个",
+                        size = 36.dp
                     )
                 }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Control Buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = { onMediaAction(com.shawnrain.sdash.MediaAction.PREVIOUS) }) {
-                    Icon(Icons.Default.SkipPrevious, contentDescription = "Prev", tint = MaterialTheme.colorScheme.onSurface)
-                }
+                
+                Spacer(modifier = Modifier.height(6.dp))
+                
+                // Device Switcher
                 Surface(
-                    onClick = { onMediaAction(com.shawnrain.sdash.MediaAction.PLAY_PAUSE) },
+                    onClick = {
+                        onSetMediaTarget(
+                            if (mediaTarget == com.shawnrain.sdash.MediaTarget.SYSTEM)
+                                com.shawnrain.sdash.MediaTarget.REMOTE
+                            else com.shawnrain.sdash.MediaTarget.SYSTEM
+                        )
+                    },
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                    modifier = Modifier.size(42.dp)
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = "Play/Pause", tint = MaterialTheme.colorScheme.primary)
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (mediaTarget == com.shawnrain.sdash.MediaTarget.SYSTEM)
+                                Icons.Default.SettingsInputAntenna else Icons.Default.BluetoothConnected,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = if (mediaTarget == com.shawnrain.sdash.MediaTarget.REMOTE && isHidSubscribed)
+                                Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = when {
+                                mediaTarget == com.shawnrain.sdash.MediaTarget.SYSTEM -> "控制: 手机转发"
+                                isHidSubscribed -> "控制: 模拟遥控"
+                                isHidConnected -> "控制: 模拟遥控 (配对中...)"
+                                else -> "控制: 模拟遥控 (等待...)"
+                            },
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (mediaTarget == com.shawnrain.sdash.MediaTarget.REMOTE && isHidSubscribed)
+                                Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
-                IconButton(onClick = { onMediaAction(com.shawnrain.sdash.MediaAction.NEXT) }) {
-                    Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = MaterialTheme.colorScheme.onSurface)
-                }
             }
+        }
+    }
+}
 
-            if (mediaTarget == com.shawnrain.sdash.MediaTarget.IPHONE) {
-                Spacer(modifier = Modifier.height(4.dp))
-                val statusText = when {
-                    !isHidSupported -> "设备硬件不支持 HID"
-                    !isHidConnected -> "iPhone 未连接 (请在设置配对)"
-                    else -> "已连接 iPhone"
-                }
-                val statusColor = when {
-                    !isHidSupported -> MaterialTheme.colorScheme.error
-                    !isHidConnected -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    else -> Color(0xFF10B981)
-                }
-                Text(
-                    text = statusText,
-                    fontSize = 9.sp,
-                    color = statusColor,
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                    textAlign = TextAlign.Center
+@Composable
+fun AnimatedMediaButton(
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String?,
+    size: androidx.compose.ui.unit.Dp,
+    isPrimary: Boolean = false
+) {
+    val haptic = LocalHapticFeedback.current
+    var isPressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.88f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "scale"
+    )
+    val alpha by animateFloatAsState(
+        targetValue = if (isPressed) 0.7f else 1f,
+        label = "alpha"
+    )
+
+    Surface(
+        onClick = { 
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            onClick() 
+        },
+        shape = CircleShape,
+        color = if (isPrimary) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent,
+        modifier = Modifier
+            .size(size)
+            .scale(scale)
+            .alpha(alpha)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        isPressed = true
+                        tryAwaitRelease()
+                        isPressed = false
+                    }
                 )
             }
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = if (isPrimary) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(size * 0.65f)
+            )
         }
     }
 }

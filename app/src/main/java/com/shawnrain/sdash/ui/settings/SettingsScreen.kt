@@ -65,6 +65,7 @@ import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.SystemUpdateAlt
 import androidx.compose.material3.*
 import androidx.compose.material.icons.filled.Check
@@ -146,6 +147,7 @@ fun SettingsScreen(
     viewModel: MainViewModel, 
     onNavigateToBms: () -> Unit, 
     onNavigateToZhikeSettings: () -> Unit,
+    onNavigateToPairing: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -508,6 +510,26 @@ fun SettingsScreen(
                         Text("电池与BMS", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     }
                     Icon(Icons.Default.ChevronRight, contentDescription = "Enter", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable { onNavigateToPairing() },
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Icon(Icons.Default.Smartphone, contentDescription = "Pairing", tint = MaterialTheme.colorScheme.onTertiaryContainer)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text("iPhone 配对 (增强模式)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                    }
+                    Icon(Icons.Default.ChevronRight, contentDescription = "Enter", tint = MaterialTheme.colorScheme.onTertiaryContainer)
                 }
             }
 

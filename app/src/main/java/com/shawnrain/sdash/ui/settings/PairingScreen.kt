@@ -156,7 +156,7 @@ fun PairingScreen(
                 val descriptionText = when {
                     isHidSubscribed -> "已通过 HID 协议与 iPhone 建立连接。\n现在你可以使用仪表盘上的媒体卡片控制音乐了。"
                     isHidConnected -> "设备已连接，正在进行 HID 握手与配对。\n如果 iPhone 弹出配对请求，务必点击「确认」。"
-                    isHogpActive -> "正在广播 SmartDash 信号...\n请在 iPhone 的「设置 - 蓝牙」中点击「SmartDash」。"
+                    isHogpActive -> "正在广播 SmartDash 遥控器...\n请在 iPhone 的「设置 - 蓝牙」中查找并点击「SmartDash」。"
                     else -> "点击下方按钮开启广播，使 iPhone 可以发现此设备进行模拟遥控配对。"
                 }
 
@@ -244,7 +244,7 @@ fun PairingScreen(
                     PairingFeatureItem(
                         icon = Icons.Default.Bluetooth,
                         title = "解决搜索不到的问题",
-                        description = "部分 iPhone 无法主动发现手机蓝牙，通过此模式可由仪表主动发起广播。"
+                        description = "现在会以更稳定的 HOGP 遥控器身份广播，并直接显示为 SmartDash，减少 iPhone 搜不到或看不到名字的情况。"
                     )
                 }
                 

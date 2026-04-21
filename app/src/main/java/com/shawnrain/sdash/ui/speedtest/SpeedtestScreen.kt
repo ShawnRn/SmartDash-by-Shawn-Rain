@@ -432,7 +432,13 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                                                     if (record == null) {
                                                         snackbarHostState.showSnackbar(loadRideRecordErrorMessage)
                                                     } else {
-                                                        context.startActivity(viewModel.createRideCsvShareIntent(record))
+                                                        runCatching { viewModel.exportRideCsvToDownloads(record) }
+                                                            .onSuccess { relativePath ->
+                                                                snackbarHostState.showSnackbar("CSV 已保存到 下载/$relativePath")
+                                                            }
+                                                            .onFailure {
+                                                                snackbarHostState.showSnackbar("保存 CSV 失败")
+                                                            }
                                                     }
                                                 }
                                             },
@@ -476,18 +482,13 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                     )
                     OutlinedButton(
                         onClick = {
-                            val targetId = selectedRideIds.singleOrNull()
-                            if (targetId == null) {
-                                scope.launch { snackbarHostState.showSnackbar("请选择 1 条行程记录后再修复") }
-                            } else {
-                                scope.launch {
-                                    val message = viewModel.repairRideHistoryRecord(targetId)
-                                    snackbarHostState.showSnackbar(message)
-                                    selectedRideIds = emptySet()
-                                }
+                            scope.launch {
+                                val message = viewModel.repairRideHistoryRecords(selectedRideIds)
+                                snackbarHostState.showSnackbar(message)
+                                selectedRideIds = emptySet()
                             }
                         },
-                        enabled = selectedRideIds.size == 1,
+                        enabled = selectedRideIds.isNotEmpty(),
                         shape = bezierPillShape()
                     ) {
                         Text("修复")
@@ -532,7 +533,13 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                     }
             },
             onExportCsv = {
-                context.startActivity(viewModel.createRideCsvShareIntent(record))
+                runCatching { viewModel.exportRideCsvToDownloads(record) }
+                    .onSuccess { relativePath ->
+                        scope.launch { snackbarHostState.showSnackbar("CSV 已保存到 下载/$relativePath") }
+                    }
+                    .onFailure {
+                        scope.launch { snackbarHostState.showSnackbar("保存 CSV 失败") }
+                    }
             }
         )
     }

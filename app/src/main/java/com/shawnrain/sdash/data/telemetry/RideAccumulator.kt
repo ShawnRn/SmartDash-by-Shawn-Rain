@@ -11,9 +11,13 @@ class RideAccumulator {
     val state: RideAccumulatorState get() = _state
 
     fun accumulate(sample: TelemetrySample) {
+        val isRecovered = sample.dataMode != SampleDataMode.RAW
         val isDuplicate = sample.quality == SampleQuality.DUPLICATE
         val isTooDense = sample.quality == SampleQuality.TOO_DENSE
-        val isOutlier = sample.quality == SampleQuality.OUTLIER || sample.quality == SampleQuality.GAP_RESET
+        val isOutlier = isRecovered ||
+            sample.quality == SampleQuality.OUTLIER ||
+            sample.quality == SampleQuality.GAP_RESET ||
+            sample.quality == SampleQuality.POWER_OFF
 
         val distanceSpeedKmh = sample.distanceSpeedKmH
             .takeIf { it.isFinite() && it > 0f }

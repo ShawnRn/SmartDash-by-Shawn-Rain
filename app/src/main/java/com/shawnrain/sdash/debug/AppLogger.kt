@@ -74,7 +74,7 @@ object AppLogger {
                 ?: File(context.filesDir, "exports")
             ).apply { mkdirs() }
         val file = File(exportDir, "smartdash-debug-${exportFileNameFormatter.format(Date(exportTime))}.log")
-        file.writeText(buildLogDump(exportTime))
+        file.writeText(exportLogText(exportTime))
         return FileProvider.getUriForFile(
             context,
             context.packageName + AUTHORITY_SUFFIX,
@@ -96,6 +96,10 @@ object AppLogger {
                 uri
             )
         }
+    }
+
+    fun exportLogText(exportTime: Long = System.currentTimeMillis()): String {
+        return buildLogDump(exportTime)
     }
 
     private fun buildLogDump(exportTime: Long): String {

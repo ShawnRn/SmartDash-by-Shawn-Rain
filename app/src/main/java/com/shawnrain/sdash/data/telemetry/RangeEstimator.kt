@@ -27,6 +27,7 @@ class RangeEstimator {
 
     // 数据质量追踪
     private val qualityWindow = ArrayDeque<SampleQuality>(20)
+    private var lastEstimate = RangeEstimate()
 
     fun reset() {
         rangeWindow.clear()
@@ -35,6 +36,7 @@ class RangeEstimator {
         lastDistanceKm = 0.0f
         lastNetWh = 0.0f
         qualityWindow.clear()
+        lastEstimate = RangeEstimate()
     }
 
     fun estimate(
@@ -46,6 +48,14 @@ class RangeEstimator {
         usableEnergyRatio: Float,
         startupEfficiencyWhKm: EfficiencyWhKm = 35.0f
     ): RangeEstimate {
+        if (sample.dataMode == SampleDataMode.POWER_OFF) {
+            rangeWindow.clear()
+            rangeWindowDistanceKm = 0.0f
+            rangeWindowEnergyWh = 0.0f
+            lastDistanceKm = accumulator.totalDistanceMeters / 1000.0f
+            lastNetWh = accumulator.netBatteryEnergyWh
+        }
+
         // 1. 更新滑动窗口 (基于 Net Wh, 即 Traction - Regen, 更贴合电池真实的能量循环)
         val currentDistanceKm = accumulator.totalDistanceMeters / 1000.0f
         val currentNetWh = accumulator.netBatteryEnergyWh
@@ -54,7 +64,7 @@ class RangeEstimator {
         // 允许负值 (Regen 贡献)，从而让窗口平均值反映真实的 Net 能耗
         val deltaNetWh = currentNetWh - lastNetWh
 
-        if (deltaDistanceKm > 0.001f) {
+        if (sample.dataMode == SampleDataMode.RAW && deltaDistanceKm > 0.001f) {
             rangeWindow.addLast(
                 RangeWindowSample(
                     distanceKm = deltaDistanceKm,
@@ -119,7 +129,9 @@ class RangeEstimator {
             averageWindowEfficiencyWhKm = avgEfficiencyWhKm,
             isWindowFresh = rangeWindowDistanceKm >= MIN_RANGE_WINDOW_DISTANCE_KM,
             confidence = confidence
-        )
+        ).also {
+            lastEstimate = it
+        }
     }
 
     private fun trimRangeWindow() {

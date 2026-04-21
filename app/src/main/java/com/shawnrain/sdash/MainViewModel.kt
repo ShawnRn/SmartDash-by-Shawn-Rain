@@ -104,6 +104,7 @@ import com.shawnrain.sdash.ui.poster.PosterRendererV2
 import com.shawnrain.sdash.ui.text.withDisplaySpacing
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -236,7 +237,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val ENERGY_INTEGRATION_MIN_CURRENT_A = 0.8f
         private const val MAX_SOC_SOURCE_DEVIATION_PERCENT = 28f
         private const val SILENT_APP_UPDATE_THROTTLE_MS = 6 * 60 * 60 * 1000L
-        private const val RIDE_HISTORY_NORMALIZATION_VERSION_CURRENT = 1
+        private const val RIDE_HISTORY_NORMALIZATION_VERSION_CURRENT = 2
     }
 
     private val bleManager = BleManager(application)
@@ -541,10 +542,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sample: TelemetrySample?
     ): VehicleMetrics {
         val accumulatorState = rideAccumulator.state
+        val controllerVoltage = sample?.voltageV ?: bleMetrics.voltage
+        val controllerCurrent = sample?.busCurrentA ?: bleMetrics.busCurrent
+        val controllerTemp = sample?.controllerTempC ?: bleMetrics.controllerTemp
+        val controllerMotorTemp = sample?.motorTempC ?: bleMetrics.mosfetTemp
         val (volt, curr) = if (bSource == DataSource.BMS) {
             bmsMetrics.totalVoltage to bmsMetrics.current
         } else {
-            bleMetrics.voltage to bleMetrics.busCurrent
+            controllerVoltage to controllerCurrent
         }
 
         val controllerSpeed = resolveControllerSpeed(
@@ -555,7 +560,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             zhikeSettings = zhikeSettings
         )
 
-        val speed = if (sSource == SpeedSource.GPS) gpsSpeed else controllerSpeed
+        val cleanedControllerSpeed = sample?.controllerSpeedKmH ?: controllerSpeed
+        val speed = if (sSource == SpeedSource.GPS) gpsSpeed else cleanedControllerSpeed
         val powerW = volt * curr
         val efficiency = if (speed > 5.0f) (powerW / speed) else 0.0f
         val currentVehicleProfile = currentVehicle.value
@@ -645,7 +651,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             voltageSag = voltageSag,
             totalPowerW = powerW,
             speedKmH = speed,
-            controllerSpeedKmH = controllerSpeed,
+            controllerSpeedKmH = cleanedControllerSpeed,
             efficiencyWhKm = efficiency,
             tripDistance = distanceKm,
             soc = displaySocPercent,
@@ -654,7 +660,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             totalEnergyWh = if (rideActive) currentTripEnergyWh else 0.0f,
             recoveredEnergyWh = if (rideActive) accumulatorState.regenEnergyWh else 0.0f,
             peakRegenPowerKw = if (rideActive) accumulatorState.peakRegenPowerKw else 0.0f,
-            maxControllerTemp = if (rideActive) accumulatorState.maxControllerTempC else bleMetrics.controllerTemp,
+            mosfetTemp = controllerMotorTemp,
+            controllerTemp = controllerTemp,
+            maxControllerTemp = if (rideActive) accumulatorState.maxControllerTempC else controllerTemp,
             gradePercent = gradePercent,
             altitudeMeters = altitudeMeters?.toFloat()?.takeIf { it.isFinite() } ?: 0f
         )
@@ -1735,7 +1743,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 )
                 _currentRpm.value = resolved.rpm.toFloat()
-                val sample = telemetryStreamProcessor.process(resolved)
+                val sample = telemetryStreamProcessor.process(
+                    rawMetrics = resolved,
+                    minValidPackVoltageV = TelemetryStreamProcessor.recommendedMinPackVoltageV(
+                        currentVehicle.value.batterySeries
+                    )
+                )
                 _latestTelemetrySample.value = sample
                 if (_isRideActive.value && !isRidePausedForStop()) {
                     rideAccumulator.accumulate(sample)
@@ -1952,14 +1965,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         if (now - _lastRideHistorySampleAtMs >= RIDE_SAMPLE_INTERVAL_MS) {
-            recordRideSample(metrics, now)
-            _lastRideHistorySampleAtMs = now
+            if (recordRideSample(metrics, _latestTelemetrySample.value, now)) {
+                _lastRideHistorySampleAtMs = now
+            }
         }
 
         maybePersistVehicleSnapshot(now)
     }
 
-    private fun recordRideSample(metrics: VehicleMetrics, timestampMs: Long) {
+    private fun recordRideSample(
+        metrics: VehicleMetrics,
+        telemetrySample: TelemetrySample?,
+        timestampMs: Long
+    ): Boolean {
+        if (telemetrySample != null && !telemetrySample.shouldPersistToHistory) {
+            return false
+        }
         val accState = rideAccumulator.state
         rideSamples.add(
             RideMetricSample(
@@ -1997,6 +2018,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 longitude = _lastRideLocation?.longitude
             )
         )
+        return true
     }
 
     fun replayRide(record: RideHistoryRecord) {
@@ -2180,7 +2202,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val shouldAppendFinalSample = rideSamples.isEmpty() ||
             rideSamples.last().timestampMs < endedAtMs
         if (shouldAppendFinalSample) {
-            recordRideSample(finalMetrics, endedAtMs)
+            recordRideSample(finalMetrics, _latestTelemetrySample.value, endedAtMs)
         }
         
         val finalTripDistanceMeters = accState.totalDistanceMeters
@@ -2230,7 +2252,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val historyRecord = normalizeRideHistoryRecord(
             record = rawHistoryRecord,
             wheelCircumferenceMm = currentVehicle.value.wheelCircumferenceMm.toFloat(),
-            polePairs = currentVehicle.value.polePairs
+            polePairs = currentVehicle.value.polePairs,
+            batterySeries = currentVehicle.value.batterySeries
         )
         val hasMeaningfulData = hasMeaningfulRideData(historyRecord, finalEnergyWh)
         val shouldPersist = if (forceSave) {
@@ -2294,7 +2317,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 normalizeRideHistoryRecord(
                     record = record,
                     wheelCircumferenceMm = wheelCircumferenceMm,
-                    polePairs = polePairs
+                    polePairs = polePairs,
+                    batterySeries = profile?.batterySeries ?: 0
                 )
             }.sortedByDescending { it.startedAtMs }
 
@@ -2317,7 +2341,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val normalized = normalizeRideHistoryRecord(
             record = record,
             wheelCircumferenceMm = profile.wheelCircumferenceMm.toFloat(),
-            polePairs = profile.polePairs
+            polePairs = profile.polePairs,
+            batterySeries = profile.batterySeries
         )
         return rideRecordNormalizer.normalize(normalized)
     }
@@ -2331,6 +2356,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ): Boolean {
         if (rideRecordNormalizer.isBroken(original)) return true
         if (candidate == original) return false
+        if (original.samples.size != candidate.samples.size) return true
+
+        val originalLastSample = original.samples.lastOrNull()
+        val candidateLastSample = candidate.samples.lastOrNull()
+        if (originalLastSample != candidateLastSample) return true
+
+        if (original.samples.zip(candidate.samples).any { (before, after) ->
+                before.timestampMs != after.timestampMs ||
+                    before.voltage != after.voltage ||
+                    before.controllerTemp != after.controllerTemp ||
+                    before.soc != after.soc ||
+                    before.distanceMeters != after.distanceMeters ||
+                    before.totalEnergyWh != after.totalEnergyWh
+            }
+        ) {
+            return true
+        }
 
         return abs(original.distanceMeters - candidate.distanceMeters) > 10f ||
             abs(original.totalEnergyWh - candidate.totalEnergyWh) > 5f ||
@@ -2356,10 +2398,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun normalizeRideHistoryRecord(
         record: RideHistoryRecord,
         wheelCircumferenceMm: Float,
-        polePairs: Int
+        polePairs: Int,
+        batterySeries: Int
     ): RideHistoryRecord {
+        val sanitizedRecord = record.copy(
+            samples = sanitizeRideMetricSamples(record.samples, batterySeries)
+        )
         val distanceNormalized = backfillRideDistanceFromSamples(
-            record = record,
+            record = sanitizedRecord,
             wheelCircumferenceMm = wheelCircumferenceMm,
             polePairs = polePairs
         )
@@ -2557,6 +2603,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 avgTractionEfficiencyWhKm = normalizedAvgTractionEfficiencyWhKm
             )
         }
+    }
+
+    private fun sanitizeRideMetricSamples(
+        samples: List<RideMetricSample>,
+        batterySeries: Int
+    ): List<RideMetricSample> {
+        if (samples.isEmpty()) return samples
+
+        val minValidVoltage = TelemetryStreamProcessor.recommendedMinPackVoltageV(batterySeries)
+        val trimmed = samples.toMutableList()
+        while (trimmed.isNotEmpty() && isDirtyZeroValueSample(trimmed.last(), minValidVoltage)) {
+            trimmed.removeAt(trimmed.lastIndex)
+        }
+        if (trimmed.size < 3) return trimmed
+
+        return trimmed.filterIndexed { index, sample ->
+            if (!isDirtyZeroValueSample(sample, minValidVoltage)) return@filterIndexed true
+            val prev = trimmed.getOrNull(index - 1)
+            val next = trimmed.getOrNull(index + 1)
+            val bridgedByValidNeighbors =
+                prev != null && next != null &&
+                    isClearlyValidRideSample(prev, minValidVoltage) &&
+                    isClearlyValidRideSample(next, minValidVoltage)
+            !bridgedByValidNeighbors
+        }
+    }
+
+    private fun isDirtyZeroValueSample(sample: RideMetricSample, minValidVoltage: Float): Boolean {
+        val voltageTooLow = sample.voltage in 0.0f..<minValidVoltage
+        val controllerTempCollapsed = sample.controllerTemp <= 1.0f
+        val mostlyIdle = sample.speedKmH <= 1.5f && abs(sample.busCurrent) <= 3.0f && sample.rpm <= 80.0f
+        return voltageTooLow && controllerTempCollapsed && mostlyIdle
+    }
+
+    private fun isClearlyValidRideSample(sample: RideMetricSample, minValidVoltage: Float): Boolean {
+        return sample.voltage >= minValidVoltage && sample.controllerTemp > 1.0f
     }
 
     private data class SampleEnergyTotals(
@@ -3366,6 +3448,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return Intent.createChooser(shareIntent, "导出行程原始数据")
     }
 
+    fun exportRideCsvToDownloads(record: RideHistoryRecord): String {
+        val presentedRecord = presentRideHistoryRecord(record)
+        val fileName = buildRideCsvFileName(presentedRecord)
+        saveTextToDownloads(
+            content = buildRideCsv(presentedRecord),
+            fileName = fileName,
+            mimeType = "text/csv",
+            relativeSubdirectory = "SmartDash/Trips"
+        )
+        AppLogger.i(TAG, "导出行程 CSV 到下载目录 file=$fileName samples=${presentedRecord.samples.size}")
+        return "SmartDash/Trips/$fileName"
+    }
+
     private fun renderRidePoster(record: RideHistoryRecord, settings: PosterSettings): android.graphics.Bitmap {
         val presentedRecord = presentRideHistoryRecord(record)
         val template = PosterTemplates.byId(settings.defaultTemplate)
@@ -3448,6 +3543,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "${getApplication<Application>().packageName}.fileprovider",
             file
         )
+    }
+
+    private fun saveTextToDownloads(
+        content: String,
+        fileName: String,
+        mimeType: String,
+        relativeSubdirectory: String
+    ): Uri {
+        val app = getApplication<Application>()
+        val resolver = app.contentResolver
+        val relativePath = "${Environment.DIRECTORY_DOWNLOADS}/$relativeSubdirectory"
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                put(MediaStore.Downloads.RELATIVE_PATH, relativePath)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: error("无法创建下载文件")
+            runCatching {
+                resolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8).use { writer ->
+                    writer?.write(content) ?: error("无法写入下载文件")
+                }
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+            }.getOrElse { throwable ->
+                resolver.delete(uri, null, null)
+                throw throwable
+            }
+            uri
+        } else {
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val targetDir = File(downloadsDir, relativeSubdirectory).apply { mkdirs() }
+            val file = File(targetDir, fileName)
+            runCatching {
+                file.writeText(content)
+            }.getOrElse { throwable ->
+                throw IOException("无法写入下载文件", throwable)
+            }
+            Uri.fromFile(file)
+        }
     }
 
     private fun buildRideCsv(record: RideHistoryRecord): String {
@@ -3667,14 +3805,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         AppLogger.clear()
         _calibrationMessage.value = "调试日志已清空"
     }
-    fun exportLogs(): Uri {
-        val uri = AppLogger.exportLogs(getApplication())
-        _calibrationMessage.value = "日志已导出，可直接分享"
-        return uri
+    fun exportLogs(): String {
+        val exportTime = System.currentTimeMillis()
+        val fileName = "smartdash-debug-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(exportTime))}.log"
+        saveTextToDownloads(
+            content = AppLogger.exportLogText(exportTime),
+            fileName = fileName,
+            mimeType = "text/plain",
+            relativeSubdirectory = "SmartDash/Log"
+        )
+        _calibrationMessage.value = "日志已保存到 下载/SmartDash/Log/$fileName"
+        return "SmartDash/Log/$fileName"
     }
     fun createLogShareIntent(): Intent {
         AppLogger.i(TAG, "用户请求分享调试日志")
         return Intent.createChooser(AppLogger.createShareIntent(getApplication()), "分享调试日志")
+    }
+
+    suspend fun repairRideHistoryRecords(ids: Set<String>): String {
+        if (ids.isEmpty()) return "请至少选择 1 条行程记录"
+
+        var repairedCount = 0
+        var unchangedCount = 0
+        ids.forEach { id ->
+            when (repairRideHistoryRecord(id)) {
+                "已按新版算法修复" -> repairedCount++
+                "当前记录无需修复" -> unchangedCount++
+            }
+        }
+        val summary = when {
+            repairedCount > 0 && unchangedCount > 0 -> "已修复 $repairedCount 条，无需修复 $unchangedCount 条"
+            repairedCount > 0 -> "已修复 $repairedCount 条历史行程"
+            else -> "所选历史行程当前无需修复"
+        }
+        _calibrationMessage.value = summary
+        return summary
     }
 
     fun startLanBackupShare(): kotlinx.coroutines.Job = viewModelScope.launch {

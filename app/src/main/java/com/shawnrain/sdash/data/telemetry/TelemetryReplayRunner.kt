@@ -45,7 +45,11 @@ class TelemetryReplayRunner() {
         sortedSamples.forEachIndexed { index, raw ->
             // 将历史样本还原为 VehicleMetrics 喂入处理器
             val metrics = toVehicleMetrics(raw)
-            val sample = processor.process(metrics, raw.timestampMs)
+            val sample = processor.process(
+                rawMetrics = metrics,
+                nowMs = raw.timestampMs,
+                minValidPackVoltageV = TelemetryStreamProcessor.recommendedMinPackVoltageV(profile.batterySeries)
+            )
             processed.add(sample)
             
             // 物理累计

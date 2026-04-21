@@ -160,6 +160,7 @@ fun SettingsScreen(
     val overlayEnabled by viewModel.overlayEnabled.collectAsState()
     val vehicleProfiles by viewModel.vehicleProfiles.collectAsState()
     val currentVehicle by viewModel.currentVehicle.collectAsState()
+    val rideHistory by viewModel.rideHistory.collectAsState()
     val gpsCalibrationState by viewModel.gpsCalibrationState.collectAsState()
     val lanBackupShare by viewModel.lanBackupShare.collectAsState()
     val lanBackupRestoring by viewModel.lanBackupRestoring.collectAsState()
@@ -188,6 +189,25 @@ fun SettingsScreen(
     var lanRestorePort by remember { mutableStateOf("") }
     var lanRestoreCode by remember { mutableStateOf("") }
     var showLanQrDialog by remember { mutableStateOf(false) }
+    val currentVehicleHistoricalDistanceKm = remember(currentVehicle.id, rideHistory) {
+        (rideHistory.sumOf { it.distanceMeters.toDouble() } / 1000.0).toFloat()
+    }
+    val currentVehicleDisplayMileageKm = remember(currentVehicle.totalMileageKm, currentVehicleHistoricalDistanceKm) {
+        maxOf(currentVehicle.totalMileageKm, currentVehicleHistoricalDistanceKm)
+    }
+    val currentVehicleHistoricalTotalEnergyWh = remember(currentVehicle.id, rideHistory) {
+        rideHistory.sumOf { it.totalEnergyWh.toDouble() }.toFloat()
+    }
+    val currentVehicleHistoricalAvgEfficiencyWhKm = remember(
+        currentVehicleHistoricalDistanceKm,
+        currentVehicleHistoricalTotalEnergyWh
+    ) {
+        if (currentVehicleHistoricalDistanceKm > 0.02f && currentVehicleHistoricalTotalEnergyWh > 0.5f) {
+            currentVehicleHistoricalTotalEnergyWh / currentVehicleHistoricalDistanceKm
+        } else {
+            0f
+        }
+    }
     var showLanScannerDialog by remember { mutableStateOf(false) }
     var showDriveSignOutConfirm by remember { mutableStateOf(false) }
     var showForceDriveUploadConfirm by remember { mutableStateOf(false) }
@@ -343,7 +363,7 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
-                                "${formatBatterySpec(currentVehicle)} · 累计 ${formatMileage(currentVehicle.totalMileageKm)}",
+                                "${formatBatterySpec(currentVehicle)} · 累计 ${formatMileage(currentVehicleDisplayMileageKm)}",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
@@ -361,12 +381,12 @@ fun SettingsScreen(
                                 )
                             }
                             Text(
-                                "电池健康度 (SOH): ${String.format(Locale.getDefault(), "%.1f", currentVehicle.sohPercent)}%",
+                                "历史累计平均能效: ${formatEfficiency(currentVehicleHistoricalAvgEfficiencyWhKm)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
                             )
                             Text(
-                                "估计可用容量: ${String.format(Locale.getDefault(), "%.1f", currentVehicle.estimatedCapacityAh)} Ah (实设 ${currentVehicle.batteryCapacityAh} Ah)",
+                                "电池健康度 / 可用容量: ${formatSohCapacity(currentVehicle)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
                             )
@@ -3311,14 +3331,9 @@ private fun VehicleEditorDialog(
                                     ) {
                                         Column {
                                             Text(
-                                                "健康度 (SOH): ${String.format(Locale.getDefault(), "%.1f", initialVehicle.sohPercent)}%",
+                                                "健康度 / 可用容量: ${formatSohCapacity(initialVehicle)}",
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                "可用容量: ${String.format(Locale.getDefault(), "%.1f", initialVehicle.estimatedCapacityAh)} Ah",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                         
@@ -3429,6 +3444,23 @@ private fun formatBatterySpec(vehicle: VehicleProfile): String {
 
 private fun formatMileage(valueKm: Float): String {
     return String.format(Locale.getDefault(), "%.1f km", valueKm)
+}
+
+private fun formatEfficiency(valueWhKm: Float): String {
+    return if (valueWhKm > 0.1f) {
+        String.format(Locale.getDefault(), "%.1f Wh/km", valueWhKm)
+    } else {
+        "--"
+    }
+}
+
+private fun formatSohCapacity(vehicle: VehicleProfile): String {
+    return String.format(
+        Locale.getDefault(),
+        "%.1f%% · %.1fAh",
+        vehicle.sohPercent,
+        vehicle.estimatedCapacityAh
+    )
 }
 
 private fun formatResistance(valueOhm: Float): String {

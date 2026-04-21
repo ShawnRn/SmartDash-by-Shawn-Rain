@@ -69,6 +69,11 @@ class BatteryStateEstimator {
             return lastBatteryState!!
         }
 
+        if (sample.dataMode != SampleDataMode.RAW && lastBatteryState != null) {
+            lastSampleId = sample.sourceFrameId
+            return lastBatteryState!!
+        }
+
         val now = sample.timestampMs
         val rawVoltage = sample.voltageV
         val rawCurrent = sample.busCurrentA
@@ -125,7 +130,11 @@ class BatteryStateEstimator {
         }
 
         val stationaryDuration = if (stationarySinceMs > 0) now - stationarySinceMs else 0L
-        val (wAh, wOcv) = getFusionWeights(abs(filteredCurrent), stationaryDuration)
+        val (wAh, wOcv) = if (sample.quality == SampleQuality.RECOVERED) {
+            1.0f to 0.0f
+        } else {
+            getFusionWeights(abs(filteredCurrent), stationaryDuration)
+        }
         
         val fusedSoc = ((socByAh * wAh) + (socByOcv * wOcv)).coerceIn(0.0f, 100.0f)
 

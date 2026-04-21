@@ -192,15 +192,42 @@ class DriveSyncCoordinator(
             // Fetch remote manifest
             val remoteManifest = manifestRepository.fetchRemoteManifest()
                 ?: return@withContext SyncRunResult.Skipped("云端尚未初始化同步状态")
+            metadataRepository.recordRemoteDiscovered(context, remoteManifest.stateVersion)
 
             if (remoteManifest.schemaVersion < SYNC_ENGINE_VERSION) {
                 _syncState.value = SyncStateV2.Idle
                 return@withContext SyncRunResult.Skipped("检测到旧版云端备份，但双向同步状态尚未初始化")
             }
 
+            val localAuthoritativeVersion = maxOf(
+                metadata.lastAppliedRemoteVersion,
+                metadata.lastPushedLocalVersion
+            )
+            if (remoteManifest.stateVersion < localAuthoritativeVersion) {
+                AppLogger.w(
+                    TAG,
+                    "Remote manifest rolled back or was reset: remoteStateVersion=${remoteManifest.stateVersion} " +
+                        "lastAppliedRemoteVersion=${metadata.lastAppliedRemoteVersion} " +
+                        "lastPushedLocalVersion=${metadata.lastPushedLocalVersion}; " +
+                        "attempting safe merge before re-upload"
+                )
+                return@withContext recoverFromRemoteRollback(
+                    remoteManifest = remoteManifest,
+                    metadata = metadata,
+                    reason = reason
+                )
+            }
+
             // Check if remote is newer than what we've applied
             if (remoteManifest.stateVersion <= metadata.lastAppliedRemoteVersion) {
                 _syncState.value = SyncStateV2.Idle
+                AppLogger.i(
+                    TAG,
+                    "Pull skipped: remote state not newer " +
+                        "remoteStateVersion=${remoteManifest.stateVersion} " +
+                        "lastAppliedRemoteVersion=${metadata.lastAppliedRemoteVersion} " +
+                        "lastKnownRemoteVersion=${metadata.lastKnownRemoteVersion}"
+                )
                 return@withContext SyncRunResult.Skipped(
                     "云端没有新内容，本地也没有待上传的变更"
                 )
@@ -394,6 +421,61 @@ class DriveSyncCoordinator(
         }
         AppLogger.i(TAG, "Pull complete: ${notes.joinToString("; ")}")
         return SyncRunResult.Success(reason = reason, notes = notes)
+    }
+
+    private suspend fun recoverFromRemoteRollback(
+        remoteManifest: DriveChangeManifest,
+        metadata: SyncMetadata,
+        reason: SyncTriggerReason
+    ): SyncRunResult {
+        val remoteStateBytes = runCatching {
+            downloadVerifiedRemoteStateBytes(remoteManifest)
+        }.getOrElse { error ->
+            AppLogger.w(
+                TAG,
+                "Rollback recovery could not download remote state safely: ${error.message}. " +
+                    "Falling back to local authoritative re-upload."
+            )
+            return runPushNow(SyncTriggerReason.NETWORK_RESTORED)
+        }
+
+        val remoteState = stateSerializer.deserialize(remoteStateBytes)
+        val localState = stateSerializer.buildCurrentState(
+            stateVersion = metadata.localStateVersion,
+            deviceId = metadata.deviceId,
+            deviceName = metadata.deviceName
+        )
+        val mergeResult = stateMerger.merge(localState, remoteState, metadata)
+
+        if (mergeResult.notes.any { it != "云端和本地都没有新的资料变更" }) {
+            applyMergedState(mergeResult)
+            AppLogger.i(
+                TAG,
+                "Rollback recovery merged remote data before re-upload: ${mergeResult.notes.joinToString("; ")}"
+            )
+        } else {
+            AppLogger.i(TAG, "Rollback recovery found no additional remote data before re-upload")
+        }
+
+        return runPushNow(SyncTriggerReason.NETWORK_RESTORED)
+    }
+
+    private suspend fun downloadVerifiedRemoteStateBytes(remoteManifest: DriveChangeManifest): ByteArray {
+        val password = deriveEncryptionPassword()
+        val encryptedStateBytes = manifestRepository.downloadCurrentState(remoteManifest.currentStateFileName).getOrElse {
+            throw it
+        }
+        val stateBytes = decryptStateBytes(encryptedStateBytes, password)
+        val expectedChecksum = remoteManifest.checksum
+        if (expectedChecksum.isNotEmpty()) {
+            val actualChecksum = stateSerializer.computeChecksum(stateBytes)
+            if (actualChecksum != expectedChecksum) {
+                throw IllegalStateException(
+                    "Checksum mismatch during rollback recovery: expected=$expectedChecksum actual=$actualChecksum"
+                )
+            }
+        }
+        return stateBytes
     }
 
     /**

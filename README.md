@@ -4,8 +4,12 @@
 
 当前正式版本：
 
-- `versionName`: `1.0.6`
-- `versionCode`: `2026040705`
+- ![Latest Release](https://img.shields.io/github/v/release/ShawnRn/SmartDash-by-Shawn-Rain?display_name=tag&label=latest%20release)
+- ![Version Name](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fgithub.com%2FShawnRn%2FSmartDash-by-Shawn-Rain%2Freleases%2Flatest%2Fdownload%2Frelease-manifest.json&query=%24.versionName&label=versionName)
+- ![Version Code](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fgithub.com%2FShawnRn%2FSmartDash-by-Shawn-Rain%2Freleases%2Flatest%2Fdownload%2Frelease-manifest.json&query=%24.versionCode&label=versionCode)
+- ![Channel](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fgithub.com%2FShawnRn%2FSmartDash-by-Shawn-Rain%2Freleases%2Flatest%2Fdownload%2Frelease-manifest.json&query=%24.channel&label=channel)
+
+版本信息直接跟随最新 GitHub release 的 `release-manifest.json` 动态展示，不再手动维护 README 里的数字。
 
 隐私政策：
 
@@ -69,7 +73,7 @@ OAuth 配置可用公开链接：
 
 - 项目规范见 [AGENTS.md](./AGENTS.md)
 - 不要提交任何签名文件或密码材料
-- 当前包名与 `applicationId` 仍为 `com.shawnrain.habe`，以保持现有签名、覆盖安装与同步兼容性
+- 当前包名与 `applicationId` 为 `com.shawnrain.sdash`
 
 ## License
 

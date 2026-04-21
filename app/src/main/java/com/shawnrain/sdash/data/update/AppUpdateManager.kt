@@ -149,7 +149,7 @@ class AppUpdateManager(
                     it.name.endsWith("-manifest.json", ignoreCase = true)
             }
             val pkg = if (manifestAsset != null) {
-                fetchManifest(manifestAsset.downloadUrl, githubRelease.assets)
+                fetchManifest(manifestAsset.downloadUrl, githubRelease.assets, githubRelease.body)
             } else {
                 parseReleaseFromAssets(githubRelease)
             }
@@ -185,7 +185,13 @@ class AppUpdateManager(
                     response.isSuccessful -> {
                         val body = response.body?.string().orEmpty()
                         val manifest = json.decodeFromString<ReleaseManifestJson>(body)
-                        val pkg = manifest.toAppUpdatePackage()
+                        val pkg = manifest.toAppUpdatePackage()?.let { pkg ->
+                            if (!pkg.releaseNotes.isNullOrBlank()) {
+                                pkg
+                            } else {
+                                enrichPackageWithGithubReleaseNotes(pkg)
+                            }
+                        }
                         if (pkg != null) {
                             AppLogger.i(TAG, "Loaded latest release from static manifest tag=${pkg.tag}")
                         }
@@ -219,7 +225,11 @@ class AppUpdateManager(
         }
     }
 
-    private suspend fun fetchManifest(url: String, assets: List<GithubReleaseAsset>): AppUpdatePackage? {
+    private suspend fun fetchManifest(
+        url: String,
+        assets: List<GithubReleaseAsset>,
+        githubReleaseBody: String? = null
+    ): AppUpdatePackage? {
         return runCatching {
             val request = Request.Builder().url(url).build()
             executeUpdateRequest(request).use { response ->
@@ -229,7 +239,7 @@ class AppUpdateManager(
                 
                 val apkAsset = assets.firstOrNull { it.name == manifest.apkName } ?: return null
                 
-                AppUpdatePackage(
+                val pkg = AppUpdatePackage(
                     tag = manifest.tag,
                     versionName = manifest.versionName,
                     versionCode = manifest.versionCode,
@@ -241,8 +251,38 @@ class AppUpdateManager(
                     publishedAt = manifest.publishedAt,
                     releaseNotes = manifest.releaseNotes
                 )
+                if (!pkg.releaseNotes.isNullOrBlank()) {
+                    pkg
+                } else {
+                    val fallbackNotes = githubReleaseBody?.trim().takeUnless { it.isNullOrBlank() }
+                    pkg.copy(releaseNotes = fallbackNotes)
+                }
             }
         }.getOrNull()
+    }
+
+    private suspend fun enrichPackageWithGithubReleaseNotes(pkg: AppUpdatePackage): AppUpdatePackage {
+        val release = fetchLatestGithubRelease().getOrNull() ?: return pkg
+        if (release.tagName != pkg.tag) return pkg
+        val fallbackNotes = release.body.trim().takeUnless { it.isBlank() } ?: return pkg
+        return pkg.copy(releaseNotes = fallbackNotes)
+    }
+
+    private suspend fun fetchLatestGithubRelease(): Result<GithubReleaseResponse> = runCatching {
+        val request = Request.Builder()
+            .url(RELEASES_LATEST_URL)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "${context.packageName}/android")
+            .build()
+
+        executeUpdateRequest(request).use { response ->
+            if (!response.isSuccessful) {
+                error("检查更新失败：HTTP ${response.code}")
+            }
+            val body = response.body?.string().orEmpty()
+            json.decodeFromString<GithubReleaseResponse>(body)
+        }
     }
 
     private fun parseReleaseFromAssets(release: GithubReleaseResponse): AppUpdatePackage? {

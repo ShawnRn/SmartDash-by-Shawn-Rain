@@ -146,7 +146,9 @@ class SyncScheduler(
     fun onAppForeground() {
         val now = System.currentTimeMillis()
         schedulerScope.launch {
+            flushPendingSettingsMutationIfNeeded(SyncTriggerReason.APP_FOREGROUND)
             ensurePayloadRefreshScheduledIfNeeded(SyncTriggerReason.APP_FOREGROUND)
+            ensureLocalPushScheduledIfNeeded(SyncTriggerReason.APP_FOREGROUND)
         }
         if (now - lastForegroundPullAtMs < FOREGROUND_PULL_COOLDOWN_MS) {
             AppLogger.d(TAG, "Skip foreground pull: still in cooldown")
@@ -169,6 +171,7 @@ class SyncScheduler(
         schedulerScope.launch {
             try {
                 AppLogger.i(TAG, "Auth success: initializing V2 sync")
+                flushPendingSettingsMutationIfNeeded(SyncTriggerReason.AUTH_SUCCESS)
 
                 val driveSyncManager = GoogleDriveSyncManager(context)
                 val rideHistoryRepository = RideHistoryRepository(context)
@@ -192,6 +195,7 @@ class SyncScheduler(
                 // Start periodic sync
                 PeriodicDriveSyncWorker.enqueuePeriodicSync(context)
                 ensurePayloadRefreshScheduledIfNeeded(SyncTriggerReason.AUTH_SUCCESS)
+                ensureLocalPushScheduledIfNeeded(SyncTriggerReason.AUTH_SUCCESS)
 
                 // Also do an immediate pull
                 DrivePullWorker.enqueuePull(context, SyncTriggerReason.AUTH_SUCCESS)
@@ -270,6 +274,16 @@ class SyncScheduler(
         return mutationRepository.hasPendingMutations()
     }
 
+    private suspend fun flushPendingSettingsMutationIfNeeded(reason: SyncTriggerReason) = withContext(Dispatchers.IO) {
+        val pendingJob = settingsDebounceJob
+        if (pendingJob?.isActive != true) return@withContext
+
+        pendingJob.cancel()
+        settingsDebounceJob = null
+        enqueueSettingsMutation(pushImmediately = true)
+        AppLogger.i(TAG, "Flushed pending settings sync before foreground/auth sync: reason=$reason")
+    }
+
     private suspend fun ensurePayloadRefreshScheduledIfNeeded(reason: SyncTriggerReason) = withContext(Dispatchers.IO) {
         val signedIn = runCatching { GoogleDriveSyncManager(context).isSignedIn() }.getOrDefault(false)
         if (!signedIn) return@withContext
@@ -286,6 +300,36 @@ class SyncScheduler(
         AppLogger.i(
             TAG,
             "Sync payload refresh scheduled: revision=$SYNC_PAYLOAD_REVISION reason=$reason"
+        )
+    }
+
+    private suspend fun ensureLocalPushScheduledIfNeeded(reason: SyncTriggerReason) = withContext(Dispatchers.IO) {
+        val signedIn = runCatching { GoogleDriveSyncManager(context).isSignedIn() }.getOrDefault(false)
+        if (!signedIn) return@withContext
+
+        val metadata = metadataRepository.getMetadata(context)
+        val hasPending = mutationRepository.hasPendingMutations()
+        val localAhead = metadata.localStateVersion > metadata.lastPushedLocalVersion
+        if (!hasPending && !localAhead) return@withContext
+
+        val remoteManifest = runCatching {
+            DriveManifestRepository(GoogleDriveSyncManager(context)).fetchRemoteManifest()
+        }.getOrNull()
+        val remoteAhead = remoteManifest?.stateVersion?.let { it > metadata.lastAppliedRemoteVersion } == true
+        if (remoteAhead) {
+            AppLogger.i(
+                TAG,
+                "Skip local recovery push: remote newer stateVersion=${remoteManifest?.stateVersion} " +
+                    "lastApplied=${metadata.lastAppliedRemoteVersion} reason=$reason"
+            )
+            return@withContext
+        }
+
+        DrivePushWorker.enqueuePush(context, reason)
+        AppLogger.i(
+            TAG,
+            "Scheduled recovery push: localVersion=${metadata.localStateVersion} " +
+                "lastPushed=${metadata.lastPushedLocalVersion} hasPending=$hasPending reason=$reason"
         )
     }
 }

@@ -69,6 +69,58 @@ private const val CLIENT_ID = "8447150714-u2k6i812nojbahgk7tkm2n0vcqa5mhi2.apps.
 - 设置：last-write-wins（远程覆盖本地）
 - 不清空本地数据
 
+## V2 同步落地检查清单
+
+新增或修改同步字段时，至少同时检查下面几层，缺一层都会出现“云端明明有，但新机装上没恢复”的问题：
+
+1. 数据模型
+- `VehicleProfile`
+- `SyncSettingsSnapshot`
+- `SyncVehicleSettingsSnapshot`
+- `SyncVehicleProfileSnapshot`
+
+2. 上传序列化
+- `DriveStateSerializer.buildCurrentState()`
+- `SettingsRepository.buildSyncVehicleSettingsSnapshots()`
+
+3. 下载落盘
+- `SettingsRepository.applyDriveSyncState()`
+- `SettingsRepository.applyVehicleSyncSettingsLocked()`
+- 当前车辆回填到全局回退键的逻辑（`LAST_CONTROLLER_*`）
+
+4. 冲突合并
+- `DriveStateMerger`
+- 旧 schema 默认值不能覆盖本地已经学到的有效值
+- `totalMileageKm`、学习值这类累计量优先做保守合并，不要简单 last-write-wins
+
+5. 自动化验证
+- 至少补一条序列化/反序列化测试
+- 至少跑一次 `compile-debug-kotlin.sh`
+- 发版前最好跑 `test-debug.sh`
+
+## 远端回退保护
+
+- 如果云端 `stateVersion` 小于本地 `lastAppliedRemoteVersion` 或 `lastPushedLocalVersion`，这通常表示云端 manifest 被重置、旧备份被重新设为当前状态、或另一台设备处于较老状态
+- **禁止**直接把本地状态盲推覆盖云端
+- 正确流程是：
+  1. 拉取云端当前状态
+  2. 与本地做并集合并
+  3. 先保留远端可能独有的车辆、行程、测速和配置
+  4. 再把合并后的完整状态上传
+
+## 新机恢复验收重点
+
+- 至少核对以下项目是否在新机首装后自动恢复：
+  - 轮径周长
+  - 轮辋尺寸 / 胎规格
+  - 电池串数 / 容量
+  - 学习内阻
+  - 学习能效
+  - 可用容量比例
+  - 累计里程
+  - 上次控制器地址 / 名称 / 协议
+  - 日志等级
+
 ## 权限范围
 
 使用 `drive.appdata`（应用数据文件夹）：

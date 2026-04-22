@@ -379,6 +379,29 @@ Release 签名约定：
 - 降级兼容：v1 设备绑定密钥（旧设备）→ v2 密码派生密钥（新设备）自动识别版本解密
 - Google Sign-In Web Client ID：`8447150714-u2k6i812nojbahgk7tkm2n0vcqa5mhi2.apps.googleusercontent.com`
 - Android 系统自动备份已关闭（`android:allowBackup="false"`）；卸载重装后的恢复入口只允许走 Google Drive 或 LAN Restore
+- V2 同步状态已经覆盖车辆档案与车辆级设置的关键字段，包括：
+  - `wheelCircumferenceMm`
+  - `wheelRimSize`
+  - `tireSpecLabel`
+  - `polePairs`
+  - `macAddress`
+  - `totalMileageKm`
+  - `learnedEfficiencyWhKm`
+  - `learnedUsableEnergyRatio`
+  - `learnedInternalResistanceOhm`
+  - `lastControllerDeviceAddress`
+  - `lastControllerDeviceName`
+  - `lastControllerProtocolId`
+  - `logLevel`
+- 新增任何车辆字段或设置字段时，**必须同步更新以下 6 处**，否则新机恢复一定会出现“有些参数没回来”：
+  - `VehicleProfile` / `SettingsRepository`
+  - `SyncSettingsSnapshot` / `SyncVehicleSettingsSnapshot` / `SyncVehicleProfileSnapshot`
+  - `DriveStateSerializer.buildCurrentState()`
+  - `DriveStateMerger`
+  - `SettingsRepository.applyDriveSyncState()`
+  - `app/src/test/java/com/shawnrain/sdash/data/sync/*`
+- 云端版本回退、manifest 被重置、或另一台设备重新初始化时，**不得直接用本地全量覆盖云端**；必须先下载远端当前状态、做并集合并，再回传合并结果，避免误删其他设备独有数据
+- 新机恢复后的当前车辆，还必须把车辆级 `lastController*` 绑定回填到全局 `LAST_CONTROLLER_*` 回退键，保证自动重连、设置页和首页状态一致
 
 ### 4.9 BLE 可靠性增强
 - `writeBytes()` 不再静默丢弃：返回 `WriteResult`，特征为 null 时记录警告
@@ -470,6 +493,12 @@ Release 签名约定：
 - Google Drive 同步依赖 Google Play Services，在无 GMS 设备（如华为鸿蒙）上不可用
 - `VehicleProfile.lastModified` 字段已添加但旧数据默认为 0L，首次合并时可能误判为较新
 - SOC / 续航显示仍可能存在一定波动（电压法 + 负载压降 + 动态恢复本质特性），后续可进一步优化平滑参数
+- DataStore 中的 `vehicle_list_json` 属于运行时热点；低端机上若在多个 `Flow` 中重复解析，会直接放大设置页、前台恢复和同步后的卡顿。后续新增配置流时，优先复用已经解析好的 `vehicleProfiles` / `currentVehicleProfile`
+- 任何“修同步”的改动都必须同时检查：
+  - 新机安装后从云端首拉是否能完整恢复车辆档案、轮径、学习值、控制器绑定
+  - 远端版本回退后是否先 merge 再 push
+  - 本地 `applyDriveSyncState()` 是否会把云端字段真正落到 DataStore 与 Room，而不是只更新内存对象
+  - 导出、UI 展示、自动连接是否仍读取到同步后的新值
 
 ## 7. 智科协议归档
 
@@ -544,6 +573,7 @@ Release 签名约定：
 - `.agents/workflows/build-dev-release.md`
 - `.agents/workflows/build-fast-dev-release.md`
 - `.agents/workflows/build-performance.md`
+- `.agents/workflows/runtime-performance.md`
 - `.agents/workflows/pro-perf-monitor.md`
 - `.agents/workflows/overlay-dialog.md`
 - `.agents/workflows/predictive-back.md`

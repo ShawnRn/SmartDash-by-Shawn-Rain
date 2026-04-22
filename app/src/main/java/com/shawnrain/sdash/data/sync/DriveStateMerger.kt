@@ -18,6 +18,7 @@ class DriveStateMerger(
 ) {
     companion object {
         private const val TAG = "DriveStateMerger"
+        private const val DEFAULT_WHEEL_RIM_SIZE = "10寸"
 
         internal fun selectRideWinner(
             localRide: SyncRideSnapshot,
@@ -78,6 +79,23 @@ class DriveStateMerger(
 
         private fun speedTestDetailScore(snapshot: SyncSpeedTestSnapshot): Int {
             return snapshot.trackPoints.size
+        }
+
+        private fun preferMeaningfulString(
+            localValue: String,
+            remoteValue: String,
+            preferRemote: Boolean,
+            remoteDefaultFallback: String? = null
+        ): String {
+            val localTrimmed = localValue.trim()
+            val remoteTrimmed = remoteValue.trim()
+            val remoteLooksDefault = remoteDefaultFallback != null && remoteTrimmed == remoteDefaultFallback
+            return when {
+                preferRemote && remoteTrimmed.isNotBlank() && !remoteLooksDefault -> remoteTrimmed
+                localTrimmed.isNotBlank() -> localTrimmed
+                remoteTrimmed.isNotBlank() -> remoteTrimmed
+                else -> localValue
+            }
         }
     }
 
@@ -181,23 +199,70 @@ class DriveStateMerger(
         for (remoteProfile in remote) {
             val localProfile = mergedMap[remoteProfile.id]
             if (localProfile == null) {
-                // New profile from remote
                 if (!remoteProfile.isDeleted) {
                     mergedMap[remoteProfile.id] = remoteProfile
                     notes.add("已新增车辆档案：${remoteProfile.name}")
                 }
-            } else {
-                // Both exist - LWW
-                if (remoteProfile.updatedAt > localProfile.updatedAt) {
-                    if (remoteProfile.isDeleted) {
-                        mergedMap.remove(remoteProfile.id)
-                        notes.add("已删除车辆档案：${remoteProfile.name}")
-                    } else {
-                        mergedMap[remoteProfile.id] = remoteProfile
-                        conflicts++
-                        notes.add("已更新车辆档案：${remoteProfile.name}")
-                    }
-                }
+                continue
+            }
+
+            if (remoteProfile.isDeleted) {
+                mergedMap.remove(remoteProfile.id)
+                notes.add("已删除车辆档案：${remoteProfile.name}")
+                continue
+            }
+
+            val preferRemote = remoteProfile.updatedAt >= localProfile.updatedAt
+            val mergedProfile = localProfile.copy(
+                name = if (preferRemote) remoteProfile.name else localProfile.name,
+                macAddress = preferMeaningfulString(
+                    localValue = localProfile.macAddress,
+                    remoteValue = remoteProfile.macAddress,
+                    preferRemote = preferRemote
+                ),
+                batteryCapacityAh = if (preferRemote && remoteProfile.batteryCapacityAh > 0f) {
+                    remoteProfile.batteryCapacityAh
+                } else {
+                    localProfile.batteryCapacityAh
+                },
+                batterySeries = if (preferRemote && remoteProfile.batterySeries > 0) {
+                    remoteProfile.batterySeries
+                } else {
+                    localProfile.batterySeries
+                },
+                wheelCircumferenceMm = if (preferRemote && remoteProfile.wheelCircumferenceMm in 500f..5000f) {
+                    remoteProfile.wheelCircumferenceMm
+                } else {
+                    localProfile.wheelCircumferenceMm
+                },
+                wheelRimSize = preferMeaningfulString(
+                    localValue = localProfile.wheelRimSize,
+                    remoteValue = remoteProfile.wheelRimSize,
+                    preferRemote = preferRemote,
+                    remoteDefaultFallback = DEFAULT_WHEEL_RIM_SIZE
+                ),
+                tireSpecLabel = preferMeaningfulString(
+                    localValue = localProfile.tireSpecLabel,
+                    remoteValue = remoteProfile.tireSpecLabel,
+                    preferRemote = preferRemote
+                ),
+                polePairs = if (preferRemote && remoteProfile.polePairs > 0) {
+                    remoteProfile.polePairs
+                } else {
+                    localProfile.polePairs
+                },
+                totalMileageKm = maxOf(localProfile.totalMileageKm, remoteProfile.totalMileageKm),
+                learnedEfficiencyWhKm = maxOf(localProfile.learnedEfficiencyWhKm, remoteProfile.learnedEfficiencyWhKm),
+                learnedUsableEnergyRatio = maxOf(localProfile.learnedUsableEnergyRatio, remoteProfile.learnedUsableEnergyRatio),
+                learnedInternalResistanceOhm = maxOf(localProfile.learnedInternalResistanceOhm, remoteProfile.learnedInternalResistanceOhm),
+                updatedAt = maxOf(localProfile.updatedAt, remoteProfile.updatedAt),
+                updatedByDeviceId = if (preferRemote) remoteProfile.updatedByDeviceId else localProfile.updatedByDeviceId
+            )
+
+            if (mergedProfile != localProfile) {
+                mergedMap[remoteProfile.id] = mergedProfile
+                conflicts++
+                notes.add("已更新车辆档案：${mergedProfile.name}")
             }
         }
 

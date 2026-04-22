@@ -120,3 +120,17 @@ open build/reports/profile/profile-*.html
 # 强制清理 configuration cache
 rm -rf .gradle/configuration-cache/
 ```
+
+## 运行时性能审计心得
+
+- SmartDash 的低端机卡顿，很多时候不是 BLE 本身，而是 `DataStore Preferences` 上层把同一份大 JSON 反复解析
+- 当前已知高频热点是 `vehicle_list_json`。如果多个 `Flow` 各自 `map { VehicleProfile.listFromJson(...) }`，前台恢复、设置页、同步后刷新时会出现明显抖动
+- 规则：
+  - 优先复用已经解析好的 `vehicleProfiles`
+  - 再从 `vehicleProfiles + currentVehicleId` 派生 `currentVehicleProfile`
+  - `wheelCircumference`、`polePairs`、`lastController*` 这类 flow 尽量基于已解析对象和少量 key 组合，不要重新解析整份车辆列表
+  - 新增运行时状态前，先想它是“单 key 热流”还是“整表重算流”；后者要非常克制
+- 如果用户反馈“低配机卡”，优先检查：
+  - `SettingsRepository` 是否新增了重复 JSON 解析
+  - 同步成功后是否触发了过多全局状态重建
+  - Compose 页面是否在收集过宽的应用级状态

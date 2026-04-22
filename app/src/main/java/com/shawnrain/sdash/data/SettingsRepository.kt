@@ -201,9 +201,14 @@ class SettingsRepository(private val context: Context) {
         loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
     }.distinctUntilChanged()
 
-    val currentVehicleId: Flow<String> = preferencesFlow.map { pref ->
-        val profiles = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
-        val storedId = pref.safeGet(CURRENT_VEHICLE_ID)
+    private val storedCurrentVehicleId: Flow<String?> = preferencesFlow.map { pref ->
+        pref.safeGet(CURRENT_VEHICLE_ID)
+    }.distinctUntilChanged()
+
+    val currentVehicleId: Flow<String> = combine(
+        vehicleProfiles,
+        storedCurrentVehicleId
+    ) { profiles, storedId ->
         profiles.firstOrNull { it.id == storedId }?.id ?: profiles.first().id
     }.distinctUntilChanged()
 
@@ -215,27 +220,23 @@ class SettingsRepository(private val context: Context) {
     }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val wheelCircumference: Flow<Float> = currentVehicleId.flatMapLatest { id ->
-        preferencesFlow.map { pref ->
-            val currentProfile = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
-                .firstOrNull { it.id == id }
-                ?: VehicleProfile.default()
-            currentProfile.wheelCircumferenceMm
+    val wheelCircumference: Flow<Float> = combine(
+        currentVehicleProfile,
+        preferencesFlow
+    ) { currentProfile, pref ->
+        currentProfile.wheelCircumferenceMm
                 .takeIf { it in 500f..5000f }
-                ?: pref.safeGet(vKeyF(id, K_WHEEL))
+                ?: pref.safeGet(vKeyF(currentProfile.id, K_WHEEL))
                 ?: 1800f
-        }
-    }
+    }.distinctUntilChanged()
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val polePairs: Flow<Int> = currentVehicleId.flatMapLatest { id ->
-        preferencesFlow.map { pref ->
-            val currentProfile = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
-                .firstOrNull { it.id == id }
-                ?: VehicleProfile.default()
-            currentProfile.polePairs.takeIf { it > 0 } ?: pref.safeGet(vKeyI(id, K_POLE)) ?: 50
-        }
-    }
+    val polePairs: Flow<Int> = combine(
+        currentVehicleProfile,
+        preferencesFlow
+    ) { currentProfile, pref ->
+        currentProfile.polePairs.takeIf { it > 0 } ?: pref.safeGet(vKeyI(currentProfile.id, K_POLE)) ?: 50
+    }.distinctUntilChanged()
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val controllerBrand: Flow<String> = currentVehicleId.flatMapLatest { id ->
@@ -336,25 +337,28 @@ class SettingsRepository(private val context: Context) {
         )
     }
 
-    val lastControllerDeviceAddress: Flow<String?> = preferencesFlow.map { pref ->
-        val profiles = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
-        val currentId = profiles.firstOrNull { it.id == pref.safeGet(CURRENT_VEHICLE_ID) }?.id ?: profiles.first().id
+    val lastControllerDeviceAddress: Flow<String?> = combine(
+        preferencesFlow,
+        currentVehicleId
+    ) { pref, currentId ->
         pref.safeGet(vKey(currentId, K_LAST_CONTROLLER_DEVICE_ADDRESS))
             ?.takeIf { it.isNotBlank() }
             ?: pref.safeGet(LAST_CONTROLLER_DEVICE_ADDRESS)?.takeIf { it.isNotBlank() }
     }.distinctUntilChanged()
 
-    val lastControllerDeviceName: Flow<String?> = preferencesFlow.map { pref ->
-        val profiles = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
-        val currentId = profiles.firstOrNull { it.id == pref.safeGet(CURRENT_VEHICLE_ID) }?.id ?: profiles.first().id
+    val lastControllerDeviceName: Flow<String?> = combine(
+        preferencesFlow,
+        currentVehicleId
+    ) { pref, currentId ->
         pref.safeGet(vKey(currentId, K_LAST_CONTROLLER_DEVICE_NAME))
             ?.takeIf { it.isNotBlank() }
             ?: pref.safeGet(LAST_CONTROLLER_DEVICE_NAME)?.takeIf { it.isNotBlank() }
     }.distinctUntilChanged()
 
-    val lastControllerProtocolId: Flow<String?> = preferencesFlow.map { pref ->
-        val profiles = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
-        val currentId = profiles.firstOrNull { it.id == pref.safeGet(CURRENT_VEHICLE_ID) }?.id ?: profiles.first().id
+    val lastControllerProtocolId: Flow<String?> = combine(
+        preferencesFlow,
+        currentVehicleId
+    ) { pref, currentId ->
         pref.safeGet(vKey(currentId, K_LAST_CONTROLLER_PROTOCOL_ID))
             ?.takeIf { it.isNotBlank() }
             ?: pref.safeGet(LAST_CONTROLLER_PROTOCOL_ID)?.takeIf { it.isNotBlank() }
@@ -614,6 +618,9 @@ class SettingsRepository(private val context: Context) {
                     readLocalModifiedAt(pref, "v_${vehicleId}_$K_WHEEL"),
                     readLocalModifiedAt(pref, "v_${vehicleId}_$K_POLE"),
                     readLocalModifiedAt(pref, "v_${vehicleId}_$K_BRAND"),
+                    readLocalModifiedAt(pref, "v_${vehicleId}_$K_LAST_CONTROLLER_DEVICE_ADDRESS"),
+                    readLocalModifiedAt(pref, "v_${vehicleId}_$K_LAST_CONTROLLER_DEVICE_NAME"),
+                    readLocalModifiedAt(pref, "v_${vehicleId}_$K_LAST_CONTROLLER_PROTOCOL_ID"),
                     readLocalModifiedAt(pref, "v_${vehicleId}_$K_DASH_ITEMS"),
                     readLocalModifiedAt(pref, "v_${vehicleId}_$K_RIDE_OVERVIEW_ITEMS")
                 ).maxOrNull() ?: 0L
@@ -628,6 +635,9 @@ class SettingsRepository(private val context: Context) {
                         ?: profile.polePairs.takeIf { it > 0 }
                         ?: 50),
                     controllerBrand = pref.safeGet(vKey(vehicleId, K_BRAND)) ?: "auto",
+                    lastControllerDeviceAddress = pref.safeGet(vKey(vehicleId, K_LAST_CONTROLLER_DEVICE_ADDRESS)).orEmpty(),
+                    lastControllerDeviceName = pref.safeGet(vKey(vehicleId, K_LAST_CONTROLLER_DEVICE_NAME)).orEmpty(),
+                    lastControllerProtocolId = pref.safeGet(vKey(vehicleId, K_LAST_CONTROLLER_PROTOCOL_ID)).orEmpty(),
                     dashboardItems = parseMetricNames(pref.safeGet(vKey(vehicleId, K_DASH_ITEMS))),
                     rideOverviewItems = parseMetricNames(pref.safeGet(vKey(vehicleId, K_RIDE_OVERVIEW_ITEMS))),
                     updatedAt = updatedAt,
@@ -660,10 +670,15 @@ class SettingsRepository(private val context: Context) {
             markSyncedAt(pref, VEHICLE_LIST.name, CURRENT_VEHICLE_ID.name)
 
             if (state.vehicleSettings.isNotEmpty()) {
-                state.vehicleSettings
+                val validVehicleSettings = state.vehicleSettings
                     .filter { snapshot -> sanitizedProfiles.any { it.id == snapshot.vehicleProfileId } }
-                    .forEach { snapshot ->
-                        applyVehicleSyncSettingsLocked(pref, snapshot)
+                validVehicleSettings.forEach { snapshot ->
+                    applyVehicleSyncSettingsLocked(pref, snapshot)
+                }
+                validVehicleSettings
+                    .firstOrNull { it.vehicleProfileId == resolvedCurrentVehicleId }
+                    ?.let { snapshot ->
+                        applyCurrentVehicleControllerSyncLocked(pref, snapshot)
                     }
                 applyGlobalSyncSettingsLocked(pref, state.settings)
             } else {
@@ -813,6 +828,21 @@ class SettingsRepository(private val context: Context) {
         pref[vKeyF(vehicleId, K_WHEEL)] = snapshot.wheelCircumferenceMm
         pref[vKeyI(vehicleId, K_POLE)] = snapshot.polePairs
         pref[vKey(vehicleId, K_BRAND)] = snapshot.controllerBrand
+        if (snapshot.lastControllerDeviceAddress.isNotBlank()) {
+            pref[vKey(vehicleId, K_LAST_CONTROLLER_DEVICE_ADDRESS)] = snapshot.lastControllerDeviceAddress
+        } else {
+            pref.remove(vKey(vehicleId, K_LAST_CONTROLLER_DEVICE_ADDRESS))
+        }
+        if (snapshot.lastControllerDeviceName.isNotBlank()) {
+            pref[vKey(vehicleId, K_LAST_CONTROLLER_DEVICE_NAME)] = snapshot.lastControllerDeviceName
+        } else {
+            pref.remove(vKey(vehicleId, K_LAST_CONTROLLER_DEVICE_NAME))
+        }
+        if (snapshot.lastControllerProtocolId.isNotBlank()) {
+            pref[vKey(vehicleId, K_LAST_CONTROLLER_PROTOCOL_ID)] = snapshot.lastControllerProtocolId
+        } else {
+            pref.remove(vKey(vehicleId, K_LAST_CONTROLLER_PROTOCOL_ID))
+        }
         pref[vKey(vehicleId, K_DASH_ITEMS)] = snapshot.dashboardItems.joinToString(",")
         pref[vKey(vehicleId, K_RIDE_OVERVIEW_ITEMS)] = snapshot.rideOverviewItems.joinToString(",")
         markSyncedAt(
@@ -822,6 +852,9 @@ class SettingsRepository(private val context: Context) {
             "v_${vehicleId}_$K_WHEEL",
             "v_${vehicleId}_$K_POLE",
             "v_${vehicleId}_$K_BRAND",
+            "v_${vehicleId}_$K_LAST_CONTROLLER_DEVICE_ADDRESS",
+            "v_${vehicleId}_$K_LAST_CONTROLLER_DEVICE_NAME",
+            "v_${vehicleId}_$K_LAST_CONTROLLER_PROTOCOL_ID",
             "v_${vehicleId}_$K_DASH_ITEMS",
             "v_${vehicleId}_$K_RIDE_OVERVIEW_ITEMS"
         )
@@ -831,6 +864,7 @@ class SettingsRepository(private val context: Context) {
         pref: androidx.datastore.preferences.core.MutablePreferences,
         snapshot: SyncSettingsSnapshot
     ) {
+        pref[LOG_LEVEL] = AppLogLevel.fromName(snapshot.logLevel).name
         pref[OVERLAY_ENABLED] = snapshot.overlayEnabled
         pref[DRIVE_BACKUP_RETENTION] = snapshot.driveBackupRetention
         pref[stringPreferencesKey(K_POSTER_TEMPLATE)] = PosterTemplates.byId(snapshot.posterTemplateId).id
@@ -841,12 +875,40 @@ class SettingsRepository(private val context: Context) {
         pref[booleanPreferencesKey(K_POSTER_SHOW_WATERMARK)] = snapshot.posterShowWatermark
         markSyncedAt(
             pref,
+            LOG_LEVEL.name,
             OVERLAY_ENABLED.name,
             DRIVE_BACKUP_RETENTION.name,
             K_POSTER_TEMPLATE,
             K_POSTER_ASPECT_RATIO,
             K_POSTER_SHOW_TRACK,
             K_POSTER_SHOW_WATERMARK
+        )
+    }
+
+    private fun applyCurrentVehicleControllerSyncLocked(
+        pref: androidx.datastore.preferences.core.MutablePreferences,
+        snapshot: SyncVehicleSettingsSnapshot
+    ) {
+        if (snapshot.lastControllerDeviceAddress.isNotBlank()) {
+            pref[LAST_CONTROLLER_DEVICE_ADDRESS] = snapshot.lastControllerDeviceAddress
+        } else {
+            pref.remove(LAST_CONTROLLER_DEVICE_ADDRESS)
+        }
+        if (snapshot.lastControllerDeviceName.isNotBlank()) {
+            pref[LAST_CONTROLLER_DEVICE_NAME] = snapshot.lastControllerDeviceName
+        } else {
+            pref.remove(LAST_CONTROLLER_DEVICE_NAME)
+        }
+        if (snapshot.lastControllerProtocolId.isNotBlank()) {
+            pref[LAST_CONTROLLER_PROTOCOL_ID] = snapshot.lastControllerProtocolId
+        } else {
+            pref.remove(LAST_CONTROLLER_PROTOCOL_ID)
+        }
+        markSyncedAt(
+            pref,
+            LAST_CONTROLLER_DEVICE_ADDRESS.name,
+            LAST_CONTROLLER_DEVICE_NAME.name,
+            LAST_CONTROLLER_PROTOCOL_ID.name
         )
     }
 
@@ -860,10 +922,14 @@ class SettingsRepository(private val context: Context) {
         VehicleProfile(
             id = id,
             name = name,
+            macAddress = macAddress,
             batterySeries = batterySeries,
             batteryCapacityAh = batteryCapacityAh,
             wheelCircumferenceMm = wheelCircumferenceMm,
+            wheelRimSize = wheelRimSize,
+            tireSpecLabel = tireSpecLabel,
             polePairs = polePairs,
+            totalMileageKm = totalMileageKm,
             learnedEfficiencyWhKm = learnedEfficiencyWhKm,
             learnedUsableEnergyRatio = learnedUsableEnergyRatio,
             learnedInternalResistanceOhm = learnedInternalResistanceOhm,

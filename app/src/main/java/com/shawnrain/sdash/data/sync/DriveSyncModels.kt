@@ -36,6 +36,8 @@ data class SyncSettingsSnapshot(
     val dashboardItems: List<String> = emptyList(),
     val rideOverviewItems: List<String> = emptyList(),
     val driveBackupRetention: String = "KEEP_ALL",
+    val autoRideStopEnabled: Boolean = true,
+    val autoRideStopDelaySeconds: Int = 75,
     val posterTemplateId: String = "performance_dark",
     val posterAspectRatio: String = "STORY_9_16",
     val posterShowTrack: Boolean = true,

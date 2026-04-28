@@ -40,12 +40,11 @@ class DriveSyncCoordinator(
         private const val TAG = "DriveSyncCoord"
         const val SYNC_ENGINE_VERSION = 2
         private const val LARGE_STATE_WARN_BYTES = 8 * 1024 * 1024
+        private val syncMutex = Mutex()
     }
 
     private val _syncState = MutableStateFlow<SyncStateV2>(SyncStateV2.Idle)
     val syncState: StateFlow<SyncStateV2> = _syncState.asStateFlow()
-    private val pushMutex = Mutex()
-
     private data class PreparedStateUpload(
         val stateVersion: Long,
         val checksum: String,
@@ -74,13 +73,15 @@ class DriveSyncCoordinator(
     /**
      * Run a full reconcile cycle.
      */
-    suspend fun runReconcileNow(reason: SyncTriggerReason): SyncRunResult {
-        val pullResult = runPullNow(reason)
-        if (pullResult is SyncRunResult.Failure) return pullResult
-        return if (mutationRepository.hasPendingMutations() || shouldForceFullStatePush(reason)) {
-            runPushNow(reason)
-        } else {
-            pullResult
+    suspend fun runReconcileNow(reason: SyncTriggerReason): SyncRunResult = withContext(Dispatchers.IO) {
+        syncMutex.withLock {
+            val pullResult = runPullNowLocked(reason)
+            if (pullResult is SyncRunResult.Failure) return@withLock pullResult
+            if (mutationRepository.hasPendingMutations() || shouldForceFullStatePush(reason)) {
+                runPushNowLocked(reason)
+            } else {
+                pullResult
+            }
         }
     }
 
@@ -96,74 +97,78 @@ class DriveSyncCoordinator(
      * 6. Mark mutations as synced
      */
     suspend fun runPushNow(reason: SyncTriggerReason): SyncRunResult = withContext(Dispatchers.IO) {
-        pushMutex.withLock {
-            try {
-                if (!driveSyncManager.isSignedIn()) {
-                    return@withContext SyncRunResult.Skipped("尚未登录 Google Drive")
-                }
+        syncMutex.withLock {
+            runPushNowLocked(reason)
+        }
+    }
 
-                _syncState.value = SyncStateV2.Pushing(reason)
-
-                val metadata = metadataRepository.getMetadata(context)
-                val pendingMutations = mutationRepository.getCoalescedPending()
-
-                if (pendingMutations.isEmpty()) {
-                    // Nothing to push, but still update current state if remote is behind
-                    val remoteManifest = manifestRepository.fetchRemoteManifest()
-                    if (remoteManifest != null && remoteManifest.stateVersion > metadata.lastPushedLocalVersion) {
-                        // Remote is ahead, skip push - let pull handle it
-                        return@withContext SyncRunResult.Skipped(
-                            reason = "检测到云端有较新的资料，已优先同步云端内容"
-                        )
-                    }
-                }
-
-                val preparedUpload = prepareStateUpload(metadata)
-                manifestRepository.uploadCurrentState(
-                    preparedUpload.stateFileName,
-                    preparedUpload.encryptedPayload
-                ).getOrElse { throw it }
-
-                // Build and upload manifest
-                val manifest = buildManifest(preparedUpload, metadata)
-                manifestRepository.uploadRemoteManifest(manifest).getOrElse { throw it }
-
-                // Mark mutations as synced
-                if (pendingMutations.isNotEmpty()) {
-                    mutationRepository.markSynced(pendingMutations.map { it.id })
-                }
-
-                // Update metadata
-                metadataRepository.recordPushSuccess(context, preparedUpload.stateVersion)
-
-                _syncState.value = SyncStateV2.Synced(System.currentTimeMillis(), reason)
-
-                AppLogger.i(
-                    TAG,
-                    "Push complete: stateVersion=${preparedUpload.stateVersion}, mutations=${pendingMutations.size}"
-                )
-                SyncRunResult.Success(
-                    reason = reason,
-                    notes = listOf(
-                        if (pendingMutations.isEmpty()) {
-                            "已将本地完整资料补传到云端"
-                        } else {
-                            "本地变更已上传到云端"
-                        }
-                    )
-                )
-            } catch (oom: OutOfMemoryError) {
-                val message = "同步状态过大，已暂停本次云端上传以避免闪退"
-                AppLogger.e(TAG, message, oom)
-                metadataRepository.recordSyncError(context, message)
-                _syncState.value = SyncStateV2.Error(message, reason)
-                SyncRunResult.Failure(reason, oom)
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Push failed", e)
-                metadataRepository.recordSyncError(context, e.message ?: "Unknown error")
-                _syncState.value = SyncStateV2.Error(e.message ?: "Push failed", reason)
-                SyncRunResult.Failure(reason, e)
+    private suspend fun runPushNowLocked(reason: SyncTriggerReason): SyncRunResult {
+        return try {
+            if (!driveSyncManager.isSignedIn()) {
+                return SyncRunResult.Skipped("尚未登录 Google Drive")
             }
+
+            _syncState.value = SyncStateV2.Pushing(reason)
+
+            val metadata = metadataRepository.getMetadata(context)
+            val pendingMutations = mutationRepository.getCoalescedPending()
+
+            if (pendingMutations.isEmpty()) {
+                // Nothing to push, but still update current state if remote is behind
+                val remoteManifest = manifestRepository.fetchRemoteManifest()
+                if (remoteManifest != null && remoteManifest.stateVersion > metadata.lastPushedLocalVersion) {
+                    // Remote is ahead, skip push - let pull handle it
+                    return SyncRunResult.Skipped(
+                        reason = "检测到云端有较新的资料，已优先同步云端内容"
+                    )
+                }
+            }
+
+            val preparedUpload = prepareStateUpload(metadata)
+            manifestRepository.uploadCurrentState(
+                preparedUpload.stateFileName,
+                preparedUpload.encryptedPayload
+            ).getOrElse { throw it }
+
+            // Build and upload manifest
+            val manifest = buildManifest(preparedUpload, metadata)
+            manifestRepository.uploadRemoteManifest(manifest).getOrElse { throw it }
+
+            // Mark mutations as synced
+            if (pendingMutations.isNotEmpty()) {
+                mutationRepository.markSynced(pendingMutations.map { it.id })
+            }
+
+            // Update metadata
+            metadataRepository.recordPushSuccess(context, preparedUpload.stateVersion)
+
+            _syncState.value = SyncStateV2.Synced(System.currentTimeMillis(), reason)
+
+            AppLogger.i(
+                TAG,
+                "Push complete: stateVersion=${preparedUpload.stateVersion}, mutations=${pendingMutations.size}"
+            )
+            SyncRunResult.Success(
+                reason = reason,
+                notes = listOf(
+                    if (pendingMutations.isEmpty()) {
+                        "已将本地完整资料补传到云端"
+                    } else {
+                        "本地变更已上传到云端"
+                    }
+                )
+            )
+        } catch (oom: OutOfMemoryError) {
+            val message = "同步状态过大，已暂停本次云端上传以避免闪退"
+            AppLogger.e(TAG, message, oom)
+            metadataRepository.recordSyncError(context, message)
+            _syncState.value = SyncStateV2.Error(message, reason)
+            SyncRunResult.Failure(reason, oom)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Push failed", e)
+            metadataRepository.recordSyncError(context, e.message ?: "Unknown error")
+            _syncState.value = SyncStateV2.Error(e.message ?: "Push failed", reason)
+            SyncRunResult.Failure(reason, e)
         }
     }
 
@@ -180,9 +185,15 @@ class DriveSyncCoordinator(
      * 7. If local has pending mutations, trigger push after pull
      */
     suspend fun runPullNow(reason: SyncTriggerReason): SyncRunResult = withContext(Dispatchers.IO) {
-        try {
+        syncMutex.withLock {
+            runPullNowLocked(reason)
+        }
+    }
+
+    private suspend fun runPullNowLocked(reason: SyncTriggerReason): SyncRunResult {
+        return try {
             if (!driveSyncManager.isSignedIn()) {
-                return@withContext SyncRunResult.Skipped("尚未登录 Google Drive")
+                return SyncRunResult.Skipped("尚未登录 Google Drive")
             }
 
             _syncState.value = SyncStateV2.Pulling(reason)
@@ -191,12 +202,12 @@ class DriveSyncCoordinator(
 
             // Fetch remote manifest
             val remoteManifest = manifestRepository.fetchRemoteManifest()
-                ?: return@withContext SyncRunResult.Skipped("云端尚未初始化同步状态")
+                ?: return SyncRunResult.Skipped("云端尚未初始化同步状态")
             metadataRepository.recordRemoteDiscovered(context, remoteManifest.stateVersion)
 
             if (remoteManifest.schemaVersion < SYNC_ENGINE_VERSION) {
                 _syncState.value = SyncStateV2.Idle
-                return@withContext SyncRunResult.Skipped("检测到旧版云端备份，但双向同步状态尚未初始化")
+                return SyncRunResult.Skipped("检测到旧版云端备份，但双向同步状态尚未初始化")
             }
 
             val localAuthoritativeVersion = maxOf(
@@ -211,7 +222,7 @@ class DriveSyncCoordinator(
                         "lastPushedLocalVersion=${metadata.lastPushedLocalVersion}; " +
                         "attempting safe merge before re-upload"
                 )
-                return@withContext recoverFromRemoteRollback(
+                return recoverFromRemoteRollback(
                     remoteManifest = remoteManifest,
                     metadata = metadata,
                     reason = reason
@@ -228,7 +239,7 @@ class DriveSyncCoordinator(
                         "lastAppliedRemoteVersion=${metadata.lastAppliedRemoteVersion} " +
                         "lastKnownRemoteVersion=${metadata.lastKnownRemoteVersion}"
                 )
-                return@withContext SyncRunResult.Skipped(
+                return SyncRunResult.Skipped(
                     "云端没有新内容，本地也没有待上传的变更"
                 )
             }
@@ -239,7 +250,7 @@ class DriveSyncCoordinator(
             // Download current state
             val encryptedStateBytes = manifestRepository.downloadCurrentState(remoteManifest.currentStateFileName).getOrElse {
                 _syncState.value = SyncStateV2.Idle
-                return@withContext SyncRunResult.Skipped(it.message ?: "云端缺少当前同步状态文件")
+                return SyncRunResult.Skipped(it.message ?: "云端缺少当前同步状态文件")
             }
 
             // Decrypt
@@ -272,7 +283,7 @@ class DriveSyncCoordinator(
                                 "Checksum mismatch: expected=${refreshedManifest.checksum}, actual=$retriedChecksum"
                             )
                         }
-                        return@withContext applyPulledState(
+                        return applyPulledState(
                             remoteManifest = refreshedManifest,
                             stateBytes = retriedStateBytes,
                             metadata = metadata,
@@ -406,7 +417,7 @@ class DriveSyncCoordinator(
 
         if (mutationRepository.hasPendingMutations()) {
             AppLogger.i(TAG, "Local pending mutations remain after pull, scheduling follow-up push")
-            runPushNow(SyncTriggerReason.NETWORK_RESTORED)
+            runPushNowLocked(SyncTriggerReason.NETWORK_RESTORED)
         }
 
         _syncState.value = SyncStateV2.Synced(System.currentTimeMillis(), reason)
@@ -436,7 +447,7 @@ class DriveSyncCoordinator(
                 "Rollback recovery could not download remote state safely: ${error.message}. " +
                     "Falling back to local authoritative re-upload."
             )
-            return runPushNow(SyncTriggerReason.NETWORK_RESTORED)
+            return runPushNowLocked(SyncTriggerReason.NETWORK_RESTORED)
         }
 
         val remoteState = stateSerializer.deserialize(remoteStateBytes)
@@ -457,7 +468,7 @@ class DriveSyncCoordinator(
             AppLogger.i(TAG, "Rollback recovery found no additional remote data before re-upload")
         }
 
-        return runPushNow(SyncTriggerReason.NETWORK_RESTORED)
+        return runPushNowLocked(SyncTriggerReason.NETWORK_RESTORED)
     }
 
     private suspend fun downloadVerifiedRemoteStateBytes(remoteManifest: DriveChangeManifest): ByteArray {
@@ -509,12 +520,18 @@ class DriveSyncCoordinator(
      * Initialize V2 sync for the first time.
      */
     suspend fun initializeV2Sync(): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
+        syncMutex.withLock {
+            initializeV2SyncLocked()
+        }
+    }
+
+    private suspend fun initializeV2SyncLocked(): Result<Unit> {
+        return try {
             val metadata = metadataRepository.getMetadata(context)
             if (metadata.migrationVersion >= SYNC_ENGINE_VERSION &&
                 (metadata.lastPushedLocalVersion > 0L || metadata.lastKnownRemoteVersion > 0L)
             ) {
-                return@withContext Result.success(Unit) // Already initialized
+                return Result.success(Unit) // Already initialized
             }
 
             val remoteManifest = manifestRepository.fetchRemoteManifest()
@@ -524,7 +541,7 @@ class DriveSyncCoordinator(
                     TAG,
                     "V2 sync already exists remotely, skip local bootstrap and pull remote stateVersion=${remoteManifest.stateVersion}"
                 )
-                return@withContext Result.success(Unit)
+                return Result.success(Unit)
             }
 
             // Build and upload initial state

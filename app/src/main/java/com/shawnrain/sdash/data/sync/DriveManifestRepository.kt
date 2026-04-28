@@ -33,15 +33,17 @@ class DriveManifestRepository(
      */
     suspend fun fetchRemoteManifest(): DriveChangeManifest? = withContext(Dispatchers.IO) {
         try {
-            val manifestJsonStr = driveSyncManager.downloadTextFileByName(MANIFEST_FILE_NAME).getOrNull()
-            if (manifestJsonStr != null) {
-                return@withContext manifestJson.decodeFromString<DriveChangeManifest>(manifestJsonStr)
+            val manifestJsonStr = driveSyncManager.downloadTextFileByName(MANIFEST_FILE_NAME).getOrElse { error ->
+                if (error.message?.startsWith("File not found:") == true) {
+                    AppLogger.i(TAG, "No V2 manifest found in Drive appDataFolder")
+                    return@withContext null
+                }
+                throw error
             }
-            AppLogger.i(TAG, "No V2 manifest found in Drive appDataFolder")
-            null
+            manifestJson.decodeFromString<DriveChangeManifest>(manifestJsonStr)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to fetch remote manifest", e)
-            null
+            throw e
         }
     }
 

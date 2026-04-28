@@ -60,6 +60,8 @@ class DriveStateSerializer(
             dashboardItems = settingsRepository.dashboardItems.first().map { it.name },
             rideOverviewItems = settingsRepository.rideOverviewItems.first().map { it.name },
             driveBackupRetention = settingsRepository.driveBackupRetentionPolicy.first().name,
+            autoRideStopEnabled = settingsRepository.autoRideStopEnabled.first(),
+            autoRideStopDelaySeconds = settingsRepository.autoRideStopDelaySeconds.first(),
             posterTemplateId = posterSettings.defaultTemplate,
             posterAspectRatio = posterSettings.defaultAspectRatio.name,
             posterShowTrack = posterSettings.showTrack,

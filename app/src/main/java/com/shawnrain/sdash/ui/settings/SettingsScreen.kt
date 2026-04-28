@@ -158,6 +158,8 @@ fun SettingsScreen(
     val battDataSource by viewModel.battDataSource.collectAsState()
     val logLevel by viewModel.logLevel.collectAsState()
     val overlayEnabled by viewModel.overlayEnabled.collectAsState()
+    val autoRideStopEnabled by viewModel.autoRideStopEnabled.collectAsState()
+    val autoRideStopDelaySeconds by viewModel.autoRideStopDelaySeconds.collectAsState()
     val vehicleProfiles by viewModel.vehicleProfiles.collectAsState()
     val currentVehicle by viewModel.currentVehicle.collectAsState()
     val rideHistory by viewModel.rideHistory.collectAsState()
@@ -215,6 +217,10 @@ fun SettingsScreen(
     var showAppUpdateSheet by remember { mutableStateOf(false) }
     var showAboutSmartDashSheet by remember { mutableStateOf(false) }
     var selectedDriveHistoryFileId by rememberSaveable { mutableStateOf<String?>(null) }
+    var autoRideStopDelayDraft by remember { mutableFloatStateOf(autoRideStopDelaySeconds.toFloat()) }
+    LaunchedEffect(autoRideStopDelaySeconds) {
+        autoRideStopDelayDraft = autoRideStopDelaySeconds.toFloat()
+    }
     val qrPayload = remember(lanBackupShare) { viewModel.currentLanBackupQrPayload() }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -629,6 +635,53 @@ fun SettingsScreen(
                                 expandBattSource = false
                             }
                         )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("停车结束记录", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("停稳后自动结束行程", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                if (autoRideStopEnabled) {
+                                    "当前阈值 ${autoRideStopDelaySeconds} 秒"
+                                } else {
+                                    "关闭后只会手动结束，断连保护仍会保留"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = autoRideStopEnabled,
+                            onCheckedChange = { enabled -> viewModel.saveAutoRideStopEnabled(enabled) }
+                        )
+                    }
+                    Slider(
+                        value = autoRideStopDelayDraft,
+                        onValueChange = { value -> autoRideStopDelayDraft = value },
+                        onValueChangeFinished = {
+                            viewModel.saveAutoRideStopDelaySeconds(autoRideStopDelayDraft.toInt())
+                        },
+                        enabled = autoRideStopEnabled,
+                        valueRange = 15f..300f,
+                        steps = 18
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("15 秒", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("5 分钟", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }

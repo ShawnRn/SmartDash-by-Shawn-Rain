@@ -71,10 +71,66 @@ shell_quote() {
 }
 
 ssh_base_opts() {
-  printf '%s\n' \
+  local opts=(
     "-o" "BatchMode=yes" \
     "-o" "ConnectTimeout=5" \
     "-o" "StrictHostKeyChecking=accept-new"
+  )
+  if [[ "${SMARTDASH_SSH_VIA_TAILSCALE_NC:-0}" == "1" ]]; then
+    opts+=("-o" "ProxyCommand=tailscale nc %h %p")
+  fi
+  printf '%s\n' "${opts[@]}"
+}
+
+smartdash_ssh() {
+  local target="$1"
+  shift
+  local opts=(
+    "-o" "BatchMode=yes"
+    "-o" "ConnectTimeout=5"
+    "-o" "StrictHostKeyChecking=accept-new"
+  )
+  if [[ "${SMARTDASH_SSH_VIA_TAILSCALE_NC:-0}" == "1" ]]; then
+    opts+=("-o" "ProxyCommand=tailscale nc %h %p")
+    ssh "${opts[@]}" "$target" "$@"
+    return $?
+  fi
+  if ssh "${opts[@]}" "$target" "$@"; then
+    return 0
+  fi
+  if command -v tailscale >/dev/null 2>&1; then
+    opts+=("-o" "ProxyCommand=tailscale nc %h %p")
+    ssh "${opts[@]}" "$target" "$@"
+    return $?
+  fi
+  return 1
+}
+
+smartdash_tailscale_proxy_script() {
+  local target="$1"
+  local safe_target
+  safe_target="$(printf '%s' "$target" | tr -c 'A-Za-z0-9_.-' '_')"
+  local proxy_script="/tmp/smartdash-tailscale-nc-${safe_target}.sh"
+  cat > "$proxy_script" <<EOF
+#!/usr/bin/env bash
+exec tailscale nc $(shell_quote "$target") 22
+EOF
+  chmod 700 "$proxy_script"
+  printf '%s\n' "$proxy_script"
+}
+
+smartdash_rsync_ssh_command() {
+  local target="$1"
+  local opts=(
+    "ssh"
+    "-o" "BatchMode=yes"
+    "-o" "ConnectTimeout=5"
+    "-o" "StrictHostKeyChecking=accept-new"
+  )
+  if [[ "${SMARTDASH_SSH_VIA_TAILSCALE_NC:-0}" == "1" ]] || command -v tailscale >/dev/null 2>&1; then
+    opts+=("-o" "ProxyCommand=$(smartdash_tailscale_proxy_script "$target")")
+  fi
+  printf '%q ' "${opts[@]}"
 }
 
 ensure_remote_build_tools() {
@@ -102,11 +158,23 @@ resolve_remote_ssh_target() {
 
   local candidate
   for candidate in "${candidates[@]}"; do
-    if ssh $(ssh_base_opts) "$candidate" "exit 0" >/dev/null 2>&1; then
+    if smartdash_ssh "$candidate" "exit 0" >/dev/null 2>&1; then
       printf '%s\n' "$candidate"
       return 0
     fi
   done
+
+  if command -v tailscale >/dev/null 2>&1; then
+    for candidate in "${candidates[@]}"; do
+      export SMARTDASH_SSH_VIA_TAILSCALE_NC=1
+      if smartdash_ssh "$candidate" "exit 0" >/dev/null 2>&1; then
+        export SMARTDASH_SSH_VIA_TAILSCALE_NC=1
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+      unset SMARTDASH_SSH_VIA_TAILSCALE_NC
+    done
+  fi
 
   echo "Unable to reach the primary build host over SSH. Tried: ${candidates[*]}" >&2
   echo "Set SMARTDASH_REMOTE_SSH_TARGET explicitly after confirming Tailscale SSH is available." >&2
@@ -140,7 +208,7 @@ run_remote_script_capture() {
   env_content+="export ANDROID_HOME=$(shell_quote "$ANDROID_HOME")"$'\n'
 
   # 将环境变量写入远端文件
-  ssh $(ssh_base_opts) "$target" "cat <<EOF > $(shell_quote "$env_file")
+  smartdash_ssh "$target" "cat <<EOF > $(shell_quote "$env_file")
 $env_content
 EOF"
 
@@ -154,7 +222,7 @@ bash $(shell_quote "$script_rel")
 EOF
   )
 
-  ssh $(ssh_base_opts) "$target" "bash -lc $(shell_quote "$remote_cmd")" 2>&1 | tee "$output_file"
+  smartdash_ssh "$target" "bash -lc $(shell_quote "$remote_cmd")" 2>&1 | tee "$output_file"
   local status=${PIPESTATUS[0]}
   return "$status"
 }
@@ -189,10 +257,10 @@ sync_workspace_to_remote() {
   local remote_rsync_path
   remote_rsync_path="$(shell_quote "$SMARTDASH_REMOTE_PROJECT_ROOT/")"
 
-  ssh $(ssh_base_opts) "$target" "mkdir -p $remote_root_quoted"
+  smartdash_ssh "$target" "mkdir -p $remote_root_quoted"
 
   rsync -az --delete \
-    -e "ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new" \
+    -e "$(smartdash_rsync_ssh_command "$target")" \
     --exclude '.git/' \
     --exclude '.gradle/' \
     --exclude 'build/' \
@@ -220,7 +288,7 @@ copy_remote_file_to_local() {
   local local_path="$3"
 
   mkdir -p "$(dirname "$local_path")"
-  ssh $(ssh_base_opts) "$target" "cat $(shell_quote "$remote_path")" > "$local_path"
+  smartdash_ssh "$target" "cat $(shell_quote "$remote_path")" > "$local_path"
 }
 
 ensure_dirs() {

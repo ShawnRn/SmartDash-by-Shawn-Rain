@@ -115,6 +115,8 @@ class SettingsRepository(private val context: Context) {
         val LOG_LEVEL = stringPreferencesKey("log_level")
         val OVERLAY_ENABLED = booleanPreferencesKey("overlay_enabled")
         val DRIVE_BACKUP_RETENTION = stringPreferencesKey("drive_backup_retention")
+        val AUTO_RIDE_STOP_ENABLED = booleanPreferencesKey("auto_ride_stop_enabled")
+        val AUTO_RIDE_STOP_DELAY_SECONDS = intPreferencesKey("auto_ride_stop_delay_seconds")
         val RIDE_HISTORY_NORMALIZATION_VERSION = intPreferencesKey("ride_history_normalization_version")
         val RIDE_HISTORY_STORAGE_MIGRATION_VERSION = intPreferencesKey("ride_history_storage_migration_version")
 
@@ -316,6 +318,14 @@ class SettingsRepository(private val context: Context) {
         BackupRetentionPolicy.fromName(pref.safeGet(DRIVE_BACKUP_RETENTION))
     }.distinctUntilChanged()
 
+    val autoRideStopEnabled: Flow<Boolean> = preferencesFlow.map { pref ->
+        pref.safeGet(AUTO_RIDE_STOP_ENABLED) ?: true
+    }.distinctUntilChanged()
+
+    val autoRideStopDelaySeconds: Flow<Int> = preferencesFlow.map { pref ->
+        (pref.safeGet(AUTO_RIDE_STOP_DELAY_SECONDS) ?: 75).coerceIn(15, 600)
+    }.distinctUntilChanged()
+
     val rideHistoryNormalizationVersion: Flow<Int> = preferencesFlow.map { pref ->
         pref.safeGet(RIDE_HISTORY_NORMALIZATION_VERSION) ?: 0
     }.distinctUntilChanged()
@@ -498,6 +508,20 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit {
             it[DRIVE_BACKUP_RETENTION] = policy.name
             markSyncedAt(it, DRIVE_BACKUP_RETENTION.name)
+        }
+    }
+
+    suspend fun saveAutoRideStopEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[AUTO_RIDE_STOP_ENABLED] = enabled
+            markSyncedAt(it, AUTO_RIDE_STOP_ENABLED.name)
+        }
+    }
+
+    suspend fun saveAutoRideStopDelaySeconds(seconds: Int) {
+        context.dataStore.edit {
+            it[AUTO_RIDE_STOP_DELAY_SECONDS] = seconds.coerceIn(15, 600)
+            markSyncedAt(it, AUTO_RIDE_STOP_DELAY_SECONDS.name)
         }
     }
 
@@ -867,6 +891,8 @@ class SettingsRepository(private val context: Context) {
         pref[LOG_LEVEL] = AppLogLevel.fromName(snapshot.logLevel).name
         pref[OVERLAY_ENABLED] = snapshot.overlayEnabled
         pref[DRIVE_BACKUP_RETENTION] = snapshot.driveBackupRetention
+        pref[AUTO_RIDE_STOP_ENABLED] = snapshot.autoRideStopEnabled
+        pref[AUTO_RIDE_STOP_DELAY_SECONDS] = snapshot.autoRideStopDelaySeconds.coerceIn(15, 600)
         pref[stringPreferencesKey(K_POSTER_TEMPLATE)] = PosterTemplates.byId(snapshot.posterTemplateId).id
         pref[stringPreferencesKey(K_POSTER_ASPECT_RATIO)] =
             runCatching { PosterAspectRatio.valueOf(snapshot.posterAspectRatio) }.getOrNull()?.name
@@ -878,6 +904,8 @@ class SettingsRepository(private val context: Context) {
             LOG_LEVEL.name,
             OVERLAY_ENABLED.name,
             DRIVE_BACKUP_RETENTION.name,
+            AUTO_RIDE_STOP_ENABLED.name,
+            AUTO_RIDE_STOP_DELAY_SECONDS.name,
             K_POSTER_TEMPLATE,
             K_POSTER_ASPECT_RATIO,
             K_POSTER_SHOW_TRACK,

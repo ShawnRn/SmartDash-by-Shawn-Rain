@@ -8,6 +8,36 @@ class SyncVehicleProfileSnapshotTest {
     private val json = Json { ignoreUnknownKeys = true }
 
     @Test
+    fun syncSettingsSnapshotRoundTripsAutoRideStopFields() {
+        val snapshot = SyncSettingsSnapshot(
+            autoRideStopEnabled = false,
+            autoRideStopDelaySeconds = 180
+        )
+
+        val encoded = json.encodeToString(SyncSettingsSnapshot.serializer(), snapshot)
+        val decoded = json.decodeFromString(SyncSettingsSnapshot.serializer(), encoded)
+
+        assertEquals(false, decoded.autoRideStopEnabled)
+        assertEquals(180, decoded.autoRideStopDelaySeconds)
+    }
+
+    @Test
+    fun syncSettingsSnapshotDefaultsAutoRideStopFieldsForOlderPayloads() {
+        val decoded = json.decodeFromString(
+            SyncSettingsSnapshot.serializer(),
+            """
+            {
+              "speedSource": "CONTROLLER",
+              "battDataSource": "CONTROLLER"
+            }
+            """.trimIndent()
+        )
+
+        assertEquals(true, decoded.autoRideStopEnabled)
+        assertEquals(75, decoded.autoRideStopDelaySeconds)
+    }
+
+    @Test
     fun syncVehicleProfileSnapshotRoundTripsExtendedVehicleFields() {
         val snapshot = SyncVehicleProfileSnapshot(
             id = "vehicle-1",

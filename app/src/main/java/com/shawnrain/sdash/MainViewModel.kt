@@ -208,7 +208,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val AUTO_RIDE_STOP_SPEED_KMH = 0.9f
         private const val AUTO_RIDE_STOP_CURRENT_A = 2.5f
         private const val AUTO_RIDE_STOP_RPM = 120f
-        private const val AUTO_RIDE_STOP_DELAY_MS = 75_000L
         private const val AUTO_RIDE_STOP_COUNTDOWN_MS = 15_000L
         private const val AUTO_DISCONNECT_STOP_COUNTDOWN_MS = 4000L
         private const val RIDE_SAMPLE_INTERVAL_MS = 1000L
@@ -371,6 +370,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope,
         SharingStarted.Eagerly,
         BackupRetentionPolicy.KEEP_ALL
+    )
+    val autoRideStopEnabled = settingsRepository.autoRideStopEnabled.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        true
+    )
+    val autoRideStopDelaySeconds = settingsRepository.autoRideStopDelaySeconds.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        75
     )
     val vehicleProfiles = settingsRepository.vehicleProfiles.stateIn(
         viewModelScope,
@@ -1702,6 +1711,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             AppLogger.setMinLevel(level)
         }.launchIn(viewModelScope)
 
+        settingsRepository.autoRideStopEnabled.onEach { enabled ->
+            if (!enabled) {
+                _rideStopCandidateAtMs = null
+                if (pendingRideStopReason == RideStopReason.PARKED) {
+                    cancelPendingRideStop("停车结束记录已关闭，继续记录本次行程")
+                }
+            }
+        }.launchIn(viewModelScope)
+
         settingsRepository.speedTestHistory.onEach { history ->
             _speedTestHistory.value = history
         }.launchIn(viewModelScope)
@@ -1950,11 +1968,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             abs(metrics.busCurrent) <= AUTO_RIDE_STOP_CURRENT_A &&
             abs(metrics.rpm) <= AUTO_RIDE_STOP_RPM &&
             !metrics.isReverse
-        if (nearParkedState) {
+        if (nearParkedState && autoRideStopEnabled.value) {
             val stopCandidate = _rideStopCandidateAtMs
             if (stopCandidate == null) {
                 _rideStopCandidateAtMs = now
-            } else if (now - stopCandidate >= AUTO_RIDE_STOP_DELAY_MS) {
+            } else if (now - stopCandidate >= autoRideStopDelaySeconds.value * 1000L) {
                 beginPendingRideStop(
                     reason = RideStopReason.PARKED,
                     cutoffAtMs = now
@@ -3801,6 +3819,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "后台画中画仪表已关闭"
         }
     }
+
+    fun saveAutoRideStopEnabled(enabled: Boolean): kotlinx.coroutines.Job = viewModelScope.launch {
+        settingsRepository.saveAutoRideStopEnabled(enabled)
+        syncScheduler.onSettingsChanged()
+        _calibrationMessage.value = if (enabled) "停车结束记录已开启" else "停车结束记录已关闭"
+    }
+
+    fun saveAutoRideStopDelaySeconds(seconds: Int): kotlinx.coroutines.Job = viewModelScope.launch {
+        val safeSeconds = seconds.coerceIn(15, 600)
+        settingsRepository.saveAutoRideStopDelaySeconds(safeSeconds)
+        _rideStopCandidateAtMs = null
+        syncScheduler.onSettingsChanged()
+        _calibrationMessage.value = "停车结束阈值已设为 ${safeSeconds} 秒"
+    }
+
     fun clearLogs() {
         AppLogger.clear()
         _calibrationMessage.value = "调试日志已清空"

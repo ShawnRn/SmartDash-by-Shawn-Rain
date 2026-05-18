@@ -3481,8 +3481,10 @@ private fun RideOverviewMetricCard(
                     unit = card.value.unit,
                     valueColor = MaterialTheme.colorScheme.onSurface,
                     unitColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    valueFontSize = 24.sp,
-                    unitFontSize = 11.sp,
+                    valueFontSize = 22.sp,
+                    unitFontSize = 22.sp,
+                    unitFontWeight = FontWeight.Bold,
+                    unitMatchesValueStyle = true,
                     singleLine = true
                 )
             Text(

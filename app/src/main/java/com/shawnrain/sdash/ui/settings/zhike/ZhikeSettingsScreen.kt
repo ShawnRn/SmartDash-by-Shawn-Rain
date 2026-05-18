@@ -205,6 +205,9 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     }
 
     Scaffold(
+        snackbarHost = {
+            SnackbarHost(hostState = snackbarHostState)
+        },
         topBar = {
             SecondaryScreenTopBar(
                 title = "智科调校",
@@ -246,7 +249,7 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             )
         },
         bottomBar = {
-            if (isDirty || true) {
+            if (isDirty) {
                 Surface(tonalElevation = 8.dp) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                         // Write step progress indicator
@@ -292,8 +295,7 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                                             Text(
                                                 text = step.second,
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = color,
-                                                fontSize = androidx.compose.ui.unit.TextUnit(6f, androidx.compose.ui.unit.TextUnitType.Sp)
+                                                color = color
                                             )
                                         }
                                         if (index < steps.lastIndex) {
@@ -486,7 +488,7 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
         }
     }
 
-    SnackbarHost(hostState = snackbarHostState)
+
 
     // 自学习电机警告弹窗
     if (showSelfLearningWarning) {

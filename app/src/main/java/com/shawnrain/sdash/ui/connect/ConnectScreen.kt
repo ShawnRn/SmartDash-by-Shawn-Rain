@@ -344,6 +344,7 @@ fun ConnectionQuickSheet(
     val rememberedAddress by viewModel.lastControllerDeviceAddress.collectAsState()
     val rememberedName by viewModel.lastControllerDeviceName.collectAsState()
     val connectedDevice = (connectionState as? ConnectionState.Connected)?.device
+    var deviceToConnect by remember { mutableStateOf<BluetoothDevice?>(null) }
     val deviceItems = remember(scannedDevices, rememberedAddress, rememberedName, connectedDevice) {
         buildConnectItems(scannedDevices, rememberedAddress, rememberedName, connectedDevice)
     }
@@ -393,6 +394,38 @@ fun ConnectionQuickSheet(
 
     LaunchedEffect(Unit) {
         isSheetVisible = true
+    }
+
+    if (deviceToConnect != null) {
+        BlurredAlertDialog(
+            onDismissRequest = { deviceToConnect = null },
+            title = { Text("连接到当前车辆？") },
+            text = {
+                Text("绑定后会作为当前车辆的控制器自动重连。仅本次连接不会保存，也不会影响当前车辆资料。")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        deviceToConnect?.let { viewModel.connectAndBindController(it) }
+                        deviceToConnect = null
+                        requestDismiss()
+                    }
+                ) {
+                    Text("绑定并连接")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        deviceToConnect?.let { viewModel.connectTemporaryController(it) }
+                        deviceToConnect = null
+                        requestDismiss()
+                    }
+                ) {
+                    Text("仅本次")
+                }
+            }
+        )
     }
 
     BlurredModalBottomSheet(onDismissRequest = ::requestDismiss) {
@@ -450,12 +483,34 @@ fun ConnectionQuickSheet(
                                 Text(address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             if (connectedDevice?.address == address) {
-                                OutlinedButton(onClick = { viewModel.disconnect() }, shape = bezierPillShape()) {
-                                    Text("断开")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(onClick = { viewModel.disconnect() }, shape = bezierPillShape()) {
+                                        Text("断开")
+                                    }
+                                    TextButton(
+                                        onClick = {
+                                            viewModel.forgetRememberedController()
+                                            requestDismiss()
+                                        },
+                                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                    ) {
+                                        Text("忘记")
+                                    }
                                 }
                             } else {
-                                FilledTonalButton(onClick = { viewModel.connectRememberedController() }, shape = bezierPillShape()) {
-                                    Text("连接")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FilledTonalButton(onClick = { viewModel.connectRememberedController() }, shape = bezierPillShape()) {
+                                        Text("连接")
+                                    }
+                                    TextButton(
+                                        onClick = {
+                                            viewModel.forgetRememberedController()
+                                            requestDismiss()
+                                        },
+                                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                    ) {
+                                        Text("忘记")
+                                    }
                                 }
                             }
                         }
@@ -487,8 +542,7 @@ fun ConnectionQuickSheet(
                                     onClick = {
                                         item.device?.let { device ->
                                             viewModel.stopScan()
-                                            viewModel.connect(device)
-                                            requestDismiss()
+                                            deviceToConnect = device
                                         }
                                     }
                                 )

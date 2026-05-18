@@ -56,6 +56,8 @@ import com.shawnrain.sdash.data.RideSession
 import com.shawnrain.sdash.data.VehicleProfile
 import com.shawnrain.sdash.data.migration.LanBackupQrPayload
 import com.shawnrain.sdash.data.migration.LanBackupTransfer
+import com.shawnrain.sdash.data.transfer.SmartDashPackageReader
+import com.shawnrain.sdash.data.transfer.SmartDashPackageWriter
 import com.shawnrain.sdash.data.sync.GoogleDriveSyncManager
 import com.shawnrain.sdash.data.sync.BackupMetadata
 import com.shawnrain.sdash.data.sync.BackupPreview
@@ -63,11 +65,13 @@ import com.shawnrain.sdash.data.sync.BackupRetentionPolicy
 import com.shawnrain.sdash.data.sync.DriveManifestRepository
 import com.shawnrain.sdash.data.sync.DriveStateMerger
 import com.shawnrain.sdash.data.sync.DriveStateSerializer
-import com.shawnrain.sdash.data.sync.DriveSyncCoordinator
 import com.shawnrain.sdash.data.sync.PendingMutationRepository
 import com.shawnrain.sdash.data.sync.SyncState
 import com.shawnrain.sdash.data.sync.SyncMetadataRepository
-import com.shawnrain.sdash.data.sync.SyncTriggerReason
+import com.shawnrain.sdash.data.sync.v3.DriveEntityStore
+import com.shawnrain.sdash.data.sync.v3.DriveV3Coordinator
+import com.shawnrain.sdash.data.sync.v3.DriveV3LegacyMigrator
+import com.shawnrain.sdash.data.sync.v3.DriveV3PublishResult
 import com.shawnrain.sdash.data.update.AppUpdateManager
 import com.shawnrain.sdash.data.update.AppUpdatePackage
 import com.shawnrain.sdash.data.update.AppUpdatePreferences
@@ -134,6 +138,7 @@ import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 data class PendingRideStopUiState(
     val title: String,
@@ -202,6 +207,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         DISCONNECTED
     }
 
+    private enum class ControllerConnectIntent {
+        TEMPORARY,
+        BIND_CONFIRMED,
+        REMEMBERED
+    }
+
     companion object {
         private const val TAG = "MainViewModel"
         private const val AUTO_RIDE_START_SPEED_KMH = 4f
@@ -220,6 +231,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val AUTO_RECONNECT_SCAN_WINDOW_MS = 5000L
         private const val AUTO_RECONNECT_SCAN_COOLDOWN_MS = 12000L
         private const val AUTO_RECONNECT_SUPPRESS_MS = 180000L
+        private const val CONTROLLER_IGNORE_MS = 30 * 60 * 1000L
         private const val GPS_FRESH_TIMEOUT_MS = 3000L
         private const val MIN_VALID_EFFICIENCY_WH_KM = 5.0f
         private const val MAX_VALID_EFFICIENCY_WH_KM = 120.0f
@@ -244,6 +256,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val settingsRepository = SettingsRepository(application)
     private val rideHistoryRepository = RideHistoryRepository(application)
     private val lanBackupTransfer = LanBackupTransfer()
+    private val smartDashPackageWriter = SmartDashPackageWriter(settingsRepository, rideHistoryRepository)
+    private val smartDashPackageReader = SmartDashPackageReader(settingsRepository, rideHistoryRepository)
     private val driveSyncManager = GoogleDriveSyncManager(application)
     private val syncScheduler = com.shawnrain.sdash.data.sync.SyncScheduler(application, settingsRepository)
     private val syncMetadataRepository = SyncMetadataRepository(application)
@@ -251,16 +265,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val driveStateSerializer = DriveStateSerializer(application, settingsRepository, rideHistoryRepository)
     private val driveStateMerger = DriveStateMerger(application, settingsRepository)
     private val driveManifestRepository = DriveManifestRepository(driveSyncManager)
-    private val driveSyncCoordinator = DriveSyncCoordinator(
+    private val driveEntityStore = DriveEntityStore(driveSyncManager)
+    private val driveV3Coordinator = DriveV3Coordinator(
         context = application,
-        driveSyncManager = driveSyncManager,
         settingsRepository = settingsRepository,
         rideHistoryRepository = rideHistoryRepository,
+        driveSyncManager = driveSyncManager,
+        metadataRepository = syncMetadataRepository,
+        mutationRepository = pendingMutationRepository,
+        entityStore = driveEntityStore
+    )
+    private val driveV3Migrator = DriveV3LegacyMigrator(
+        context = application,
+        settingsRepository = settingsRepository,
+        rideHistoryRepository = rideHistoryRepository,
+        driveSyncManager = driveSyncManager,
+        metadataRepository = syncMetadataRepository,
+        legacyManifestRepository = driveManifestRepository,
         stateSerializer = driveStateSerializer,
         stateMerger = driveStateMerger,
-        manifestRepository = driveManifestRepository,
-        metadataRepository = syncMetadataRepository,
-        mutationRepository = pendingMutationRepository
+        entityStore = driveEntityStore,
+        v3Coordinator = driveV3Coordinator
     )
     private val appUpdateManager = AppUpdateManager(application)
     private val updatePreferences = AppUpdatePreferences(application)
@@ -295,6 +320,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var autoReconnectSuppressedUntilMs = 0L
     private var autoReconnectScanActive = false
     private var autoReconnectWatchdogJob: Job? = null
+    private var pendingControllerConnectIntent: ControllerConnectIntent = ControllerConnectIntent.TEMPORARY
+    private val ignoredControllerAddresses = mutableMapOf<String, Long>()
     private val _latestTelemetrySample = MutableStateFlow<TelemetrySample?>(null)
     val latestTelemetrySample: StateFlow<TelemetrySample?> = _latestTelemetrySample.asStateFlow()
     private var _lastRideHistorySampleAtMs = 0L
@@ -315,6 +342,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var pendingRideStopCutoffAtMs = 0L
     private var pendingRideStopSnapshot: PendingRideStopSnapshot? = null
     private var pendingRideStopJob: Job? = null
+    private var rideElapsedTickerJob: Job? = null
     private var _speedTestLastLocation: Location? = null
     private var _speedTestStartedAtMs = 0L
     private var _speedTestLastSampleAtMs = 0L
@@ -332,6 +360,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
  
     private val _isRideActive = MutableStateFlow(false)
     val isRideActive: StateFlow<Boolean> = _isRideActive.asStateFlow()
+    private val _rideElapsedMs = MutableStateFlow(0L)
+    val rideElapsedMs: StateFlow<Long> = _rideElapsedMs.asStateFlow()
  
     private val _isZhikeController = MutableStateFlow(false)
     val isZhikeController = _isZhikeController.asStateFlow()
@@ -651,6 +681,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             tripDistanceKm = distanceKm,
             rideActive = rideActive
         )
+        val avgBusCurrentA = if (rideActive && accumulatorState.busCurrentSampleCount > 0) {
+            accumulatorState.totalBusCurrentAbsSum / accumulatorState.busCurrentSampleCount
+        } else {
+            0.0f
+        }
 
         // Statistics are now handled by RideAccumulator
 
@@ -658,6 +693,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             voltage = volt,
             busCurrent = curr,
             voltageSag = voltageSag,
+            maxVoltageSag = if (rideActive) accumulatorState.maxVoltageSagV else voltageSag.coerceAtLeast(0f),
             totalPowerW = powerW,
             speedKmH = speed,
             controllerSpeedKmH = cleanedControllerSpeed,
@@ -668,6 +704,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             avgEfficiencyWhKm = avgEff,
             totalEnergyWh = if (rideActive) currentTripEnergyWh else 0.0f,
             recoveredEnergyWh = if (rideActive) accumulatorState.regenEnergyWh else 0.0f,
+            avgBusCurrent = avgBusCurrentA,
             peakRegenPowerKw = if (rideActive) accumulatorState.peakRegenPowerKw else 0.0f,
             mosfetTemp = controllerMotorTemp,
             controllerTemp = controllerTemp,
@@ -983,6 +1020,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * User manually connects to a specific device.
      */
     fun connectToDevice(address: String, name: String? = null, protocolId: String? = null) {
+        pendingControllerConnectIntent = ControllerConnectIntent.REMEMBERED
+        autoReconnectSuppressedUntilMs = 0L
         autoConnectManager.connectTo(address)
     }
 
@@ -990,6 +1029,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * User manually disconnects.
      */
     fun disconnectDevice() {
+        pendingControllerConnectIntent = ControllerConnectIntent.TEMPORARY
+        suppressAutoReconnect(Long.MAX_VALUE)
         autoConnectManager.stop()
         bleManager.disconnect()
     }
@@ -1063,65 +1104,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun syncDriveNow(): kotlinx.coroutines.Job = viewModelScope.launch {
-        if (!driveSyncCoordinator.isV2Initialized()) {
-            driveSyncCoordinator.initializeV2Sync().onFailure { error ->
-                _driveSyncState.value = SyncState.Error(error.message ?: "初始化 Google Drive 同步失败")
-                _driveSyncMessage.value = "初始化失败：${error.message ?: "未知错误"}"
-                return@launch
-            }
-        }
-        runDriveV2SyncNow(
-            reason = SyncTriggerReason.MANUAL_SYNC,
-            showState = true,
-            showMessage = true
-        )
+        publishDriveV3Snapshot("同步完成")
     }
 
     fun forceUploadCurrentDeviceData(): kotlinx.coroutines.Job = viewModelScope.launch {
-        if (!driveSyncCoordinator.isV2Initialized()) {
-            driveSyncCoordinator.initializeV2Sync().onFailure { error ->
-                _driveSyncState.value = SyncState.Error(error.message ?: "初始化 Google Drive 同步失败")
-                _driveSyncMessage.value = "初始化失败：${error.message ?: "未知错误"}"
-                return@launch
-            }
-        }
-        _driveSyncState.value = SyncState.Syncing
-        _driveSyncMessage.value = "正在强制上传当前设备数据…"
-        syncScheduler.forceUploadCurrentDeviceData()
+        publishDriveV3Snapshot("强制上传完成")
     }
 
     fun uploadToDrive(): kotlinx.coroutines.Job = viewModelScope.launch {
+        publishDriveV3Snapshot("备份已上传")
+    }
+
+    private suspend fun publishDriveV3Snapshot(successPrefix: String) {
+        if (!driveSyncManager.isSignedIn()) {
+            _driveSyncState.value = SyncState.SignedOut
+            _driveSyncMessage.value = "请先登录 Google 账号"
+            return
+        }
         _driveSyncState.value = SyncState.Syncing
-        try {
-            val backupJson = settingsRepository.exportBackupJson(rideHistoryRepository)
-            val result = driveSyncManager.uploadBackup(backupJson)
-            result.fold(
-                onSuccess = {
-                    val deletedCount = pruneExpiredDriveBackups()
-                    val currentState = _driveSyncState.value
-                    if (currentState is SyncState.SignedIn) {
-                        _driveSyncState.value = currentState.copy(
-                            lastSyncTime = System.currentTimeMillis()
-                        )
-                    }
-                    _driveSyncState.value = SyncState.Synced(uploaded = true, downloaded = false)
-                    _driveSyncMessage.value = if (deletedCount > 0) {
-                        "备份已上传，并清理 $deletedCount 个过期历史版本"
-                    } else {
-                        "备份已上传到 Google Drive"
-                    }
-                    loadDriveBackups()
-                },
-                onFailure = { error ->
-                    _driveSyncState.value = SyncState.Error(error.message ?: "上传失败")
-                    _driveSyncMessage.value = "上传失败：${error.message}"
-                }
-            )
-        } catch (e: Exception) {
-            _driveSyncState.value = SyncState.Error(e.message ?: "上传异常")
-            _driveSyncMessage.value = "上传异常：${e.message}"
+        _driveSyncMessage.value = "正在同步 V3 分片资料…"
+        runCatching {
+            withTimeout(4 * 60 * 1000L) {
+                driveV3Migrator.reconcileAndPublish()
+            }
+        }.onSuccess { result ->
+            _driveSyncState.value = SyncState.Synced(uploaded = true, downloaded = true)
+            _driveSyncMessage.value = formatDriveV3PublishMessage(successPrefix, result)
+            loadDriveBackups()
+        }.onFailure { error ->
+            _driveSyncState.value = SyncState.Error(error.message ?: "Google Drive 上传失败")
+            _driveSyncMessage.value = "上传失败：${error.message ?: "未知错误"}"
         }
     }
+
+    private fun formatDriveV3PublishMessage(prefix: String, result: DriveV3PublishResult): String =
+        "$prefix：已分片上传 ${result.vehicleProfileCount} 个车辆、" +
+            "${result.controllerBindingCount} 个控制器绑定、${result.rideCount} 条行程"
 
     fun downloadFromDrive(fileId: String): kotlinx.coroutines.Job = viewModelScope.launch {
         _driveSyncState.value = SyncState.Syncing
@@ -1262,72 +1280,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!force && hasAutoSyncedThisSession) return
         if (autoSyncJob?.isActive == true) return
         autoSyncJob = viewModelScope.launch {
-            if (!driveSyncCoordinator.isV2Initialized()) {
-                driveSyncCoordinator.initializeV2Sync()
-            }
-            runDriveV2SyncNow(
-                reason = SyncTriggerReason.APP_FOREGROUND,
-                showState = false,
-                showMessage = false
-            )
-        }
-    }
-
-    private suspend fun runDriveV2SyncNow(
-        reason: SyncTriggerReason,
-        showState: Boolean,
-        showMessage: Boolean
-    ) {
-        if (!driveSyncManager.isSignedIn()) {
-            _driveSyncState.value = SyncState.SignedOut
-            if (showMessage) {
-                _driveSyncMessage.value = "请先登录 Google 账号"
-            }
-            return
-        }
-
-        val email = currentDriveEmail()
-        if (showState) {
-            _driveSyncState.value = SyncState.Syncing
-        }
-
-        when (val result = driveSyncCoordinator.runReconcileNow(reason)) {
-            is com.shawnrain.sdash.data.sync.SyncRunResult.Success -> {
+            runCatching {
+                driveV3Migrator.reconcileAndPublish()
+            }.onSuccess {
                 hasAutoSyncedThisSession = true
                 loadDriveBackups()
-                val backups = (driveSyncState.value as? SyncState.SignedIn)?.availableBackups.orEmpty()
-                _driveSyncState.value = SyncState.SignedIn(
-                    email = email,
-                    lastSyncTime = resolveLastDriveSyncTime(System.currentTimeMillis()),
-                    availableBackups = backups,
-                    hasRemoteUpdate = false,
-                    remoteDeviceName = backups.firstOrNull()?.deviceName
+            }.onFailure { error ->
+                syncMetadataRepository.recordSyncError(
+                    getApplication(),
+                    error.message ?: "V3 foreground sync failed"
                 )
-                if (showMessage) {
-                    _driveSyncMessage.value = formatDriveSyncMessage(result.notes)
-                }
+                AppLogger.w(TAG, "V3 foreground sync failed: ${error.message}")
             }
-            is com.shawnrain.sdash.data.sync.SyncRunResult.Skipped -> {
-                loadDriveBackups()
-                val currentState = _driveSyncState.value as? SyncState.SignedIn
-                _driveSyncState.value = SyncState.SignedIn(
-                    email = email,
-                    lastSyncTime = resolveLastDriveSyncTime(currentState?.lastSyncTime),
-                    availableBackups = currentState?.availableBackups.orEmpty(),
-                    hasRemoteUpdate = false,
-                    remoteDeviceName = currentState?.remoteDeviceName
-                )
-                if (showMessage) {
-                    _driveSyncMessage.value = result.reason
-                }
-            }
-            is com.shawnrain.sdash.data.sync.SyncRunResult.Failure -> {
-                _driveSyncState.value = SyncState.Error(result.error.message ?: "Google Drive 同步失败")
-                if (showMessage) {
-                    _driveSyncMessage.value = "同步失败：${result.error.message}"
-                }
-            }
-            else -> Unit
         }
     }
 
@@ -1371,9 +1335,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun checkForRemoteUpdates() {
         viewModelScope.launch {
             try {
-                val manifest = driveManifestRepository.fetchRemoteManifest() ?: return@launch
+                val manifest = driveEntityStore.fetchManifest() ?: return@launch
                 val metadata = syncMetadataRepository.getMetadata(getApplication())
-                val hasNewUpdate = manifest.stateVersion > metadata.lastAppliedRemoteVersion
+                val hasNewUpdate = manifest.updatedAt > metadata.lastAppliedRemoteVersion
                 lastKnownRemoteTimestamp = maxOf(lastKnownRemoteTimestamp, manifest.updatedAt)
                 if (hasNewUpdate) {
                     val currentState = _driveSyncState.value
@@ -1638,20 +1602,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bleManager.connectionState.onEach { state ->
             when (state) {
                 is ConnectionState.Connected -> {
-                    autoConnectManager.onConnected(
-                        address = state.device.address,
-                        name = safeBluetoothDeviceName(state.device)
-                    )
+                    if (state.device.address == lastControllerDeviceAddress.value) {
+                        autoConnectManager.onConnected(
+                            address = state.device.address,
+                            name = safeBluetoothDeviceName(state.device)
+                        )
+                    }
                 }
                 is ConnectionState.Disconnected -> {
                     val lastAddress = lastControllerDeviceAddress.value
-                    if (lastAddress != null) {
+                    if (lastAddress != null && isAutoReconnectAllowed(lastAddress)) {
                         autoConnectManager.onDisconnected(lastAddress)
                     }
                 }
                 is ConnectionState.Error -> {
                     val lastAddress = lastControllerDeviceAddress.value
-                    if (lastAddress != null) {
+                    if (lastAddress != null && isAutoReconnectAllowed(lastAddress)) {
                         autoConnectManager.onDisconnected(lastAddress)
                     }
                 }
@@ -1660,31 +1626,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }.launchIn(viewModelScope)
 
         // Check for remote updates on app start (one-time, no polling)
-        settingsRepository.currentVehicleId.onEach { _ ->
+        settingsRepository.currentVehicleId.onEach { vehicleId ->
+            if (settingsRepository.ensureElapsedTimeDashboardCard(vehicleId)) {
+                syncScheduler.onSettingsChanged()
+            }
             if (driveSyncManager.isSignedIn()) {
                 checkDriveSignInStatus()
             }
         }.launchIn(viewModelScope)
 
         settingsRepository.dashboardItems.onEach { items ->
-            // 如果列表不为空但缺少媒体控制，则根据本次重大更新需求，自动将其注入（仅注入一次）
-            val finalItems = if (items.isEmpty()) {
-                listOf(
-                    com.shawnrain.sdash.data.MetricType.SPEED,
-                    com.shawnrain.sdash.data.MetricType.POWER,
-                    com.shawnrain.sdash.data.MetricType.EFFICIENCY,
-                    com.shawnrain.sdash.data.MetricType.MEDIA_CONTROL
-                )
-            } else if (com.shawnrain.sdash.data.MetricType.MEDIA_CONTROL !in items) {
-                // 如果用户已经配置过仪表盘但没有媒体，则将其加在末尾
-                items + com.shawnrain.sdash.data.MetricType.MEDIA_CONTROL
-            } else items
-
-            if (_dashboardItems.value != finalItems) {
-                _dashboardItems.value = finalItems
+            if (_dashboardItems.value != items) {
+                _dashboardItems.value = items
                 AppLogger.i(
                     TAG,
-                    "仪表排列已更新：${finalItems.joinToString(",") { it.name }}"
+                    "仪表排列已更新：${items.joinToString(",") { it.name }}"
                 )
             }
         }.launchIn(viewModelScope)
@@ -1824,11 +1780,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     cancelPendingRideStop("控制器已恢复连接，继续记录本次行程")
                 }
                 viewModelScope.launch {
-                    settingsRepository.saveLastControllerProfile(
-                        address = state.device.address,
-                        name = state.device.safeNameOrNull() ?: lastControllerDeviceName.value,
-                        protocolId = activeProtocolId.value ?: lastControllerProtocolId.value
-                    )
+                    val intent = pendingControllerConnectIntent
+                    val rememberedAddress = lastControllerDeviceAddress.value
+                    if (intent == ControllerConnectIntent.BIND_CONFIRMED ||
+                        intent == ControllerConnectIntent.REMEMBERED ||
+                        rememberedAddress == state.device.address
+                    ) {
+                        settingsRepository.saveLastControllerProfile(
+                            address = state.device.address,
+                            name = state.device.safeNameOrNull() ?: lastControllerDeviceName.value,
+                            protocolId = activeProtocolId.value ?: lastControllerProtocolId.value
+                        )
+                    } else {
+                        AppLogger.i(TAG, "临时连接未写入车辆控制器绑定 address=${state.device.address}")
+                    }
                 }
             }
             if (state is ConnectionState.Disconnected && _isRideActive.value) {
@@ -1855,16 +1820,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val connected = bleManager.connectionState.value as? ConnectionState.Connected ?: return@onEach
             if (protocolId.isNullOrBlank()) return@onEach
             viewModelScope.launch {
-                settingsRepository.saveLastControllerProfile(
-                    address = connected.device.address,
-                    name = connected.device.safeNameOrNull() ?: lastControllerDeviceName.value,
-                    protocolId = protocolId
-                )
+                val intent = pendingControllerConnectIntent
+                if (intent == ControllerConnectIntent.BIND_CONFIRMED ||
+                    intent == ControllerConnectIntent.REMEMBERED ||
+                    lastControllerDeviceAddress.value == connected.device.address
+                ) {
+                    settingsRepository.saveLastControllerProfile(
+                        address = connected.device.address,
+                        name = connected.device.safeNameOrNull() ?: lastControllerDeviceName.value,
+                        protocolId = protocolId
+                    )
+                }
             }
         }.launchIn(viewModelScope)
 
         settingsRepository.lastControllerDeviceAddress.onEach { address ->
             if (!address.isNullOrBlank()) {
+                autoConnectManager.registerController(
+                    address = address,
+                    name = lastControllerDeviceName.value,
+                    protocolId = lastControllerProtocolId.value,
+                    lastConnectedAt = System.currentTimeMillis()
+                )
                 tryAutoReconnect(address, reason = "startup")
                 startAutoReconnectWatchdog(address, reason = "startup")
             }
@@ -2203,6 +2180,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         telemetryStreamProcessor.reset()
         
         _isRideActive.value = true
+        startRideElapsedTicker()
+    }
+
+    private fun startRideElapsedTicker() {
+        rideElapsedTickerJob?.cancel()
+        _rideElapsedMs.value = 0L
+        rideElapsedTickerJob = viewModelScope.launch {
+            while (_isRideActive.value) {
+                _rideElapsedMs.value = (System.currentTimeMillis() - _sessionStartTime)
+                    .coerceAtLeast(0L)
+                delay(1000L)
+            }
+        }
+    }
+
+    private fun stopRideElapsedTicker() {
+        rideElapsedTickerJob?.cancel()
+        rideElapsedTickerJob = null
+        _rideElapsedMs.value = 0L
     }
 
     fun startRide() {
@@ -2216,6 +2212,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val finalMetrics = metrics.value
         val accState = rideAccumulator.state
         _isRideActive.value = false
+        stopRideElapsedTicker()
         
         val shouldAppendFinalSample = rideSamples.isEmpty() ||
             rideSamples.last().timestampMs < endedAtMs
@@ -3886,7 +3883,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _lanBackupShare.value = LanBackupShareUiState()
                     _lanBackupMessage.value = "新设备恢复成功，已自动停止发送"
                 }
-            ) { settingsRepository.exportBackupJson(rideHistoryRepository) }
+            ) { smartDashPackageWriter.buildPackageBytes() }
         }.onSuccess { offer ->
             _lanBackupShare.value = LanBackupShareUiState(
                 isSharing = true,
@@ -3936,9 +3933,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         try {
             val count = withContext(Dispatchers.IO) {
                 val payload = lanBackupTransfer.pull(cleanHost, port, cleanCode)
-                val importedCount = settingsRepository.importBackupJson(payload, rideHistoryRepository)
+                val result = smartDashPackageReader.importPackageBytes(payload)
                 runCatching { lanBackupTransfer.notifyRestoreApplied(cleanHost, port, cleanCode) }
-                importedCount
+                result.settingsImported + result.ridesImported
             }
             _lanBackupMessage.value = "恢复完成：已应用 $count 项资料"
             autoReconnectAttemptedAddress = null
@@ -3952,12 +3949,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (isForeground) {
             // App 回到前台：立即尝试直连最后设备
             lastControllerDeviceAddress.value?.let { address ->
-                autoConnectManager.onAppForeground()
-                tryAutoReconnect(address, reason = "app-foreground")
+                if (isAutoReconnectAllowed(address)) {
+                    autoConnectManager.onAppForeground()
+                    tryAutoReconnect(address, reason = "app-foreground")
+                }
             }
         } else {
             // App 进入后台：启动低功耗后台扫描
-            autoConnectManager.onAppBackground()
+            lastControllerDeviceAddress.value
+                ?.takeIf { isAutoReconnectAllowed(it) }
+                ?.let { autoConnectManager.onAppBackground() }
         }
     }
 
@@ -4031,8 +4032,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bleManager.stopScan()
     }
     fun connect(device: android.bluetooth.BluetoothDevice) {
+        connectAndBindController(device)
+    }
+
+    fun connectAndBindController(device: android.bluetooth.BluetoothDevice) {
         autoReconnectSuppressedUntilMs = 0L
         stopAutoReconnectWatchdog()
+        pendingControllerConnectIntent = ControllerConnectIntent.BIND_CONFIRMED
         viewModelScope.launch {
             settingsRepository.saveLastControllerProfile(
                 address = device.address,
@@ -4043,10 +4049,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         autoReconnectAttemptedAddress = device.address
         bleManager.connect(device)
     }
+
+    fun connectTemporaryController(device: android.bluetooth.BluetoothDevice) {
+        autoReconnectSuppressedUntilMs = Long.MAX_VALUE
+        stopAutoReconnectWatchdog()
+        pendingControllerConnectIntent = ControllerConnectIntent.TEMPORARY
+        autoReconnectAttemptedAddress = null
+        bleManager.connect(device)
+    }
+
     fun connectRememberedController() {
         val address = lastControllerDeviceAddress.value ?: return
         autoReconnectSuppressedUntilMs = 0L
         stopAutoReconnectWatchdog()
+        pendingControllerConnectIntent = ControllerConnectIntent.REMEMBERED
         autoReconnectAttemptedAddress = address
         bleManager.connect(
             address = address,
@@ -4056,20 +4072,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun forgetRememberedController() {
         val rememberedAddress = lastControllerDeviceAddress.value
-        suppressAutoReconnect()
+        pendingControllerConnectIntent = ControllerConnectIntent.TEMPORARY
+        if (!rememberedAddress.isNullOrBlank()) {
+            ignoredControllerAddresses[rememberedAddress] = System.currentTimeMillis() + CONTROLLER_IGNORE_MS
+            autoConnectManager.removeController(rememberedAddress)
+        }
+        suppressAutoReconnect(Long.MAX_VALUE)
         stopAutoReconnectWatchdog()
+        bleManager.stopScan()
         viewModelScope.launch {
             settingsRepository.clearLastControllerDevice()
+            syncScheduler.onSettingsChanged()
             if (connectionState.value is ConnectionState.Connected &&
                 (connectionState.value as ConnectionState.Connected).device.address == rememberedAddress
             ) {
                 bleManager.disconnect()
             }
+            _calibrationMessage.value = if (rememberedAddress.isNullOrBlank()) {
+                "当前车辆没有已绑定控制器"
+            } else {
+                "已忘记当前车辆控制器"
+            }
         }
     }
     fun connectBms(device: android.bluetooth.BluetoothDevice): Unit = bmsBleManager.connect(device)
     fun disconnect(): Unit {
-        suppressAutoReconnect()
+        pendingControllerConnectIntent = ControllerConnectIntent.TEMPORARY
+        suppressAutoReconnect(Long.MAX_VALUE)
         stopAutoReconnectWatchdog()
         bleManager.disconnect()
     }
@@ -4082,7 +4111,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun isAutoReconnectAllowed(address: String): Boolean {
         if (address.isBlank()) return false
         if (System.currentTimeMillis() < autoReconnectSuppressedUntilMs) return false
+        if (isControllerAddressIgnored(address)) return false
         return bleManager.connectionState.value is ConnectionState.Disconnected
+    }
+
+    private fun isControllerAddressIgnored(address: String): Boolean {
+        val until = ignoredControllerAddresses[address] ?: return false
+        if (System.currentTimeMillis() <= until) return true
+        ignoredControllerAddresses.remove(address)
+        return false
     }
 
     private fun startAutoReconnectWatchdog(address: String, reason: String) {

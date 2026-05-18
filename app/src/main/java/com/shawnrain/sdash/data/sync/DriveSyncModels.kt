@@ -59,6 +59,8 @@ data class SyncVehicleSettingsSnapshot(
     val lastControllerDeviceAddress: String = "",
     val lastControllerDeviceName: String = "",
     val lastControllerProtocolId: String = "",
+    val controllerAutoConnectEnabled: Boolean = true,
+    val controllerUserConfirmed: Boolean = true,
     val dashboardItems: List<String> = emptyList(),
     val rideOverviewItems: List<String> = emptyList(),
     val updatedAt: Long = 0L,

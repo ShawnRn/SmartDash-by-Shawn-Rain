@@ -150,6 +150,8 @@ struct SyncVehicleSettingsSnapshot: Codable, Equatable {
     var lastControllerDeviceAddress: String = ""
     var lastControllerDeviceName: String = ""
     var lastControllerProtocolId: String = ""
+    var controllerAutoConnectEnabled: Bool = true
+    var controllerUserConfirmed: Bool = true
     var dashboardItems: [String] = []
     var rideOverviewItems: [String] = []
     var updatedAt: Int64 = 0
@@ -165,6 +167,8 @@ struct SyncVehicleSettingsSnapshot: Codable, Equatable {
         lastControllerDeviceAddress: String = "",
         lastControllerDeviceName: String = "",
         lastControllerProtocolId: String = "",
+        controllerAutoConnectEnabled: Bool = true,
+        controllerUserConfirmed: Bool = true,
         dashboardItems: [String] = [],
         rideOverviewItems: [String] = [],
         updatedAt: Int64 = 0,
@@ -179,6 +183,8 @@ struct SyncVehicleSettingsSnapshot: Codable, Equatable {
         self.lastControllerDeviceAddress = lastControllerDeviceAddress
         self.lastControllerDeviceName = lastControllerDeviceName
         self.lastControllerProtocolId = lastControllerProtocolId
+        self.controllerAutoConnectEnabled = controllerAutoConnectEnabled
+        self.controllerUserConfirmed = controllerUserConfirmed
         self.dashboardItems = dashboardItems
         self.rideOverviewItems = rideOverviewItems
         self.updatedAt = updatedAt
@@ -196,6 +202,8 @@ struct SyncVehicleSettingsSnapshot: Codable, Equatable {
         lastControllerDeviceAddress = c.decodeDefault(String.self, forKey: .lastControllerDeviceAddress, default: "")
         lastControllerDeviceName = c.decodeDefault(String.self, forKey: .lastControllerDeviceName, default: "")
         lastControllerProtocolId = c.decodeDefault(String.self, forKey: .lastControllerProtocolId, default: "")
+        controllerAutoConnectEnabled = c.decodeDefault(Bool.self, forKey: .controllerAutoConnectEnabled, default: true)
+        controllerUserConfirmed = c.decodeDefault(Bool.self, forKey: .controllerUserConfirmed, default: true)
         dashboardItems = c.decodeDefault([String].self, forKey: .dashboardItems, default: [])
         rideOverviewItems = c.decodeDefault([String].self, forKey: .rideOverviewItems, default: [])
         updatedAt = c.decodeDefault(Int64.self, forKey: .updatedAt, default: 0)
@@ -615,6 +623,33 @@ struct EntityCounters: Codable, Equatable {
     var rideCount: Int = 0
     var speedTestCount: Int = 0
     var vehicleProfileCount: Int = 0
+}
+
+struct DriveV3Manifest: Codable, Equatable {
+    var schemaVersion: Int = 3
+    var updatedAt: Int64
+    var updatedByDeviceId: String
+    var updatedByDeviceName: String
+    var settingsEntry: String = "v3/settings/current.json.enc"
+    var entities: [DriveV3EntityRef] = []
+    var counters: DriveV3Counters = .init()
+}
+
+struct DriveV3EntityRef: Codable, Equatable {
+    var type: String
+    var id: String
+    var vehicleId: String = ""
+    var entryName: String
+    var updatedAt: Int64
+    var fingerprint: String = ""
+    var deletedAt: Int64 = 0
+}
+
+struct DriveV3Counters: Codable, Equatable {
+    var vehicleProfileCount: Int = 0
+    var controllerBindingCount: Int = 0
+    var rideCount: Int = 0
+    var speedTestCount: Int = 0
 }
 
 struct EncryptedBackup: Codable, Equatable {

@@ -35,8 +35,11 @@ class RideAccumulator {
         if (!isDuplicate && !isTooDense && !isOutlier) {
             _state = _state.copy(
                 maxSpeedKmh = maxOf(_state.maxSpeedKmh, distanceSpeedKmh),
+                maxVoltageSagV = maxOf(_state.maxVoltageSagV, sample.voltageSagV.coerceAtLeast(0f)),
                 maxControllerTempC = maxOf(_state.maxControllerTempC, sample.controllerTempC),
-                maxMotorTempC = maxOf(_state.maxMotorTempC, sample.motorTempC)
+                maxMotorTempC = maxOf(_state.maxMotorTempC, sample.motorTempC),
+                totalBusCurrentAbsSum = _state.totalBusCurrentAbsSum + abs(sample.busCurrentA),
+                busCurrentSampleCount = _state.busCurrentSampleCount + 1
             )
         }
 

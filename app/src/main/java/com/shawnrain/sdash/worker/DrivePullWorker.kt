@@ -15,11 +15,13 @@ import com.shawnrain.sdash.data.history.RideHistoryRepository
 import com.shawnrain.sdash.data.sync.DriveManifestRepository
 import com.shawnrain.sdash.data.sync.DriveStateMerger
 import com.shawnrain.sdash.data.sync.DriveStateSerializer
-import com.shawnrain.sdash.data.sync.DriveSyncCoordinator
 import com.shawnrain.sdash.data.sync.GoogleDriveSyncManager
 import com.shawnrain.sdash.data.sync.PendingMutationRepository
 import com.shawnrain.sdash.data.sync.SyncMetadataRepository
 import com.shawnrain.sdash.data.sync.SyncTriggerReason
+import com.shawnrain.sdash.data.sync.v3.DriveEntityStore
+import com.shawnrain.sdash.data.sync.v3.DriveV3Coordinator
+import com.shawnrain.sdash.data.sync.v3.DriveV3LegacyMigrator
 import com.shawnrain.sdash.debug.AppLogger
 import java.util.concurrent.TimeUnit
 
@@ -73,17 +75,30 @@ class DrivePullWorker(
     private val stateSerializer by lazy { DriveStateSerializer(applicationContext, settingsRepository, rideHistoryRepository) }
     private val stateMerger by lazy { DriveStateMerger(applicationContext, settingsRepository) }
     private val manifestRepository by lazy { DriveManifestRepository(driveSyncManager) }
-    private val coordinator by lazy {
-        DriveSyncCoordinator(
+    private val entityStore by lazy { DriveEntityStore(driveSyncManager) }
+    private val v3Coordinator by lazy {
+        DriveV3Coordinator(
             context = applicationContext,
-            driveSyncManager = driveSyncManager,
             settingsRepository = settingsRepository,
             rideHistoryRepository = rideHistoryRepository,
+            driveSyncManager = driveSyncManager,
+            metadataRepository = metadataRepository,
+            mutationRepository = mutationRepository,
+            entityStore = entityStore
+        )
+    }
+    private val v3Migrator by lazy {
+        DriveV3LegacyMigrator(
+            context = applicationContext,
+            settingsRepository = settingsRepository,
+            rideHistoryRepository = rideHistoryRepository,
+            driveSyncManager = driveSyncManager,
+            metadataRepository = metadataRepository,
+            legacyManifestRepository = manifestRepository,
             stateSerializer = stateSerializer,
             stateMerger = stateMerger,
-            manifestRepository = manifestRepository,
-            metadataRepository = metadataRepository,
-            mutationRepository = mutationRepository
+            entityStore = entityStore,
+            v3Coordinator = v3Coordinator
         )
     }
 
@@ -98,26 +113,22 @@ class DrivePullWorker(
         AppLogger.i(TAG, "Worker started: reason=$reason")
 
         return try {
-            val result = coordinator.runPullNow(reason)
-            when (result) {
-                is com.shawnrain.sdash.data.sync.SyncRunResult.Success -> {
-                    AppLogger.i(TAG, "Worker success: ${result.notes.joinToString("; ")}")
-                    Result.success()
-                }
-                is com.shawnrain.sdash.data.sync.SyncRunResult.Skipped -> {
-                    AppLogger.i(TAG, "Worker skipped: ${result.reason}")
-                    Result.success()
-                }
-                is com.shawnrain.sdash.data.sync.SyncRunResult.Failure -> {
-                    AppLogger.w(TAG, "Worker failed: ${result.error.message}")
-                    if (runAttemptCount < 3) {
-                        Result.retry()
-                    } else {
-                        Result.failure()
-                    }
-                }
-                else -> Result.success()
+            val result = v3Migrator.pullOrMigrate()
+            if (result != null) {
+                AppLogger.i(
+                    TAG,
+                    "Worker success: V3 pulled settingsMerged=${result.settingsMerged} " +
+                        "ridesMerged=${result.ridesMerged} ridesSkipped=${result.ridesSkipped}"
+                )
+                return Result.success()
             }
+            val publish = v3Coordinator.publishFullSnapshot()
+            AppLogger.i(
+                TAG,
+                "Worker migrated legacy sync to V3: entities=${publish.uploadedEntityCount} " +
+                    "rides=${publish.rideCount} speedTests=${publish.speedTestCount}"
+            )
+            Result.success()
         } catch (e: Exception) {
             AppLogger.e(TAG, "Worker exception", e)
             if (runAttemptCount < 3) {

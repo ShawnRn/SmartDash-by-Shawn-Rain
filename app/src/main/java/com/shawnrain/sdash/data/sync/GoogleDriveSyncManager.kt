@@ -5,6 +5,8 @@ import android.os.Build
 import androidx.core.content.pm.PackageInfoCompat
 import com.shawnrain.sdash.debug.AppLogger
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -35,6 +37,7 @@ class GoogleDriveSyncManager(private val context: Context) {
         private const val METADATA_FILE_NAME = "habe_metadata.json"
         private const val BACKUP_MIME_TYPE = "application/octet-stream"
         private const val MANIFEST_MIME_TYPE = "application/json"
+        private val appDataMutationMutex = Mutex()
     }
 
     private val auth = GoogleDriveAuth(context)
@@ -360,6 +363,10 @@ class GoogleDriveSyncManager(private val context: Context) {
         val response = client.newCall(
             okhttp3.Request.Builder().url(url).delete().build()
         ).execute()
+        if (response.code == 404) {
+            AppLogger.d(TAG, "Drive file already gone during delete: $fileId")
+            return@withContext
+        }
         if (!response.isSuccessful) {
             throw IllegalStateException("Delete failed: ${response.code}")
         }
@@ -428,21 +435,23 @@ class GoogleDriveSyncManager(private val context: Context) {
         mimeType: String = MANIFEST_MIME_TYPE
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val client = createAuthenticatedClient()
-            val existingFiles = findFilesByName(client, fileName)
-            existingFiles.forEach { existing ->
-                deleteFileById(client, existing.id)
+            val fileId = appDataMutationMutex.withLock {
+                val client = createAuthenticatedClient()
+                val existingFiles = findFilesByName(client, fileName)
+                existingFiles.forEach { existing ->
+                    deleteFileById(client, existing.id)
+                }
+                if (existingFiles.isNotEmpty()) {
+                    AppLogger.i(TAG, "Removed ${existingFiles.size} stale Drive file(s) before upload: $fileName")
+                }
+                uploadFile(
+                    client = client,
+                    fileName = fileName,
+                    content = content,
+                    description = "SmartDash Drive Sync - $fileName",
+                    mimeType = mimeType
+                )
             }
-            if (existingFiles.isNotEmpty()) {
-                AppLogger.i(TAG, "Removed ${existingFiles.size} stale Drive file(s) before upload: $fileName")
-            }
-            val fileId = uploadFile(
-                client = client,
-                fileName = fileName,
-                content = content,
-                description = "SmartDash V2 Sync - $fileName",
-                mimeType = mimeType
-            )
             if (fileId != null) {
                 Result.success(fileId)
             } else {

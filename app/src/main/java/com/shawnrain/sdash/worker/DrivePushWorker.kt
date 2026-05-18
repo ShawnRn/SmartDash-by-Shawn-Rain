@@ -15,11 +15,13 @@ import com.shawnrain.sdash.data.history.RideHistoryRepository
 import com.shawnrain.sdash.data.sync.DriveManifestRepository
 import com.shawnrain.sdash.data.sync.DriveStateMerger
 import com.shawnrain.sdash.data.sync.DriveStateSerializer
-import com.shawnrain.sdash.data.sync.DriveSyncCoordinator
 import com.shawnrain.sdash.data.sync.GoogleDriveSyncManager
 import com.shawnrain.sdash.data.sync.PendingMutationRepository
 import com.shawnrain.sdash.data.sync.SyncMetadataRepository
 import com.shawnrain.sdash.data.sync.SyncTriggerReason
+import com.shawnrain.sdash.data.sync.v3.DriveEntityStore
+import com.shawnrain.sdash.data.sync.v3.DriveV3Coordinator
+import com.shawnrain.sdash.data.sync.v3.DriveV3LegacyMigrator
 import com.shawnrain.sdash.debug.AppLogger
 import java.util.concurrent.TimeUnit
 
@@ -75,17 +77,30 @@ class DrivePushWorker(
     private val stateSerializer by lazy { DriveStateSerializer(applicationContext, settingsRepository, rideHistoryRepository) }
     private val stateMerger by lazy { DriveStateMerger(applicationContext, settingsRepository) }
     private val manifestRepository by lazy { DriveManifestRepository(driveSyncManager) }
-    private val coordinator by lazy {
-        DriveSyncCoordinator(
+    private val entityStore by lazy { DriveEntityStore(driveSyncManager) }
+    private val v3Coordinator by lazy {
+        DriveV3Coordinator(
             context = applicationContext,
-            driveSyncManager = driveSyncManager,
             settingsRepository = settingsRepository,
             rideHistoryRepository = rideHistoryRepository,
+            driveSyncManager = driveSyncManager,
+            metadataRepository = metadataRepository,
+            mutationRepository = mutationRepository,
+            entityStore = entityStore
+        )
+    }
+    private val v3Migrator by lazy {
+        DriveV3LegacyMigrator(
+            context = applicationContext,
+            settingsRepository = settingsRepository,
+            rideHistoryRepository = rideHistoryRepository,
+            driveSyncManager = driveSyncManager,
+            metadataRepository = metadataRepository,
+            legacyManifestRepository = manifestRepository,
             stateSerializer = stateSerializer,
             stateMerger = stateMerger,
-            manifestRepository = manifestRepository,
-            metadataRepository = metadataRepository,
-            mutationRepository = mutationRepository
+            entityStore = entityStore,
+            v3Coordinator = v3Coordinator
         )
     }
 
@@ -100,29 +115,16 @@ class DrivePushWorker(
         AppLogger.i(TAG, "Worker started: reason=$reason")
 
         return try {
-            val result = coordinator.runPushNow(reason)
-            when (result) {
-                is com.shawnrain.sdash.data.sync.SyncRunResult.Success -> {
-                    AppLogger.i(TAG, "Worker success: ${result.notes.joinToString("; ")}")
-                    Result.success()
-                }
-                is com.shawnrain.sdash.data.sync.SyncRunResult.Skipped -> {
-                    AppLogger.i(TAG, "Worker skipped: ${result.reason}")
-                    Result.success() // Not a failure
-                }
-                is com.shawnrain.sdash.data.sync.SyncRunResult.Failure -> {
-                    AppLogger.w(TAG, "Worker failed: ${result.error.message}")
-                    // Retry with exponential backoff
-                    if (runAttemptCount < 3) {
-                        Result.retry()
-                    } else {
-                        Result.failure()
-                    }
-                }
-                else -> {
-                    Result.success()
-                }
-            }
+            val result = v3Migrator.reconcileAndPublish()
+            AppLogger.i(
+                TAG,
+                "Worker success: V3 reconciled and uploaded entities=${result.uploadedEntityCount} " +
+                    "rides=${result.rideCount} speedTests=${result.speedTestCount}"
+            )
+            Result.success()
+        } catch (oom: OutOfMemoryError) {
+            AppLogger.e(TAG, "Worker stopped: V3 snapshot OOM", oom)
+            Result.failure()
         } catch (e: Exception) {
             AppLogger.e(TAG, "Worker exception", e)
             if (runAttemptCount < 3) {

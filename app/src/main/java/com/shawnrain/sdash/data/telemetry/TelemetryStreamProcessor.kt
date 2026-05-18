@@ -47,6 +47,7 @@ class TelemetryStreamProcessor {
         val hasNonFinite = !rawMetrics.voltage.isFinite() ||
                 !rawMetrics.busCurrent.isFinite() ||
                 !rawMetrics.phaseCurrent.isFinite() ||
+                !rawMetrics.voltageSag.isFinite() ||
                 !rawMetrics.rpm.isFinite() ||
                 !resolvedControllerSpeed.isFinite() ||
                 !displaySpeed.isFinite()
@@ -114,6 +115,7 @@ class TelemetryStreamProcessor {
             controllerTempC = rawMetrics.controllerTemp,
             braking = rawMetrics.isBraking,
             cruise = rawMetrics.isCruise,
+            voltageSagV = rawMetrics.voltageSag.coerceAtLeast(0f),
             quality = quality,
             dataMode = SampleDataMode.RAW,
             dtMs = dtMs,

@@ -39,6 +39,7 @@ data class TelemetrySample(
     val controllerTempC: Float,
     val braking: Boolean,
     val cruise: Boolean,
+    val voltageSagV: Float = 0.0f,
     val quality: SampleQuality,
     val dataMode: SampleDataMode = SampleDataMode.RAW,
     val dtMs: Long,

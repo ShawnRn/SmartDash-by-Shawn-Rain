@@ -13,6 +13,7 @@ import com.shawnrain.sdash.data.sync.DriveManifestRepository
 import com.shawnrain.sdash.data.sync.GoogleDriveSyncManager
 import com.shawnrain.sdash.data.sync.SyncMetadataRepository
 import com.shawnrain.sdash.data.sync.SyncTriggerReason
+import com.shawnrain.sdash.data.sync.v3.DriveEntityStore
 import com.shawnrain.sdash.debug.AppLogger
 import java.util.concurrent.TimeUnit
 
@@ -68,6 +69,7 @@ class PeriodicDriveSyncWorker(
     private val driveSyncManager by lazy { GoogleDriveSyncManager(applicationContext) }
     private val metadataRepository by lazy { SyncMetadataRepository(applicationContext) }
     private val manifestRepository by lazy { DriveManifestRepository(driveSyncManager) }
+    private val v3EntityStore by lazy { DriveEntityStore(driveSyncManager) }
 
     override suspend fun doWork(): Result {
         AppLogger.d(TAG, "Periodic sync check started")
@@ -79,15 +81,26 @@ class PeriodicDriveSyncWorker(
             }
 
             val metadata = metadataRepository.getMetadata(applicationContext)
+            val v3Manifest = v3EntityStore.fetchManifest()
+            if (v3Manifest != null) {
+                if (v3Manifest.updatedAt > metadata.lastAppliedRemoteVersion) {
+                    AppLogger.i(
+                        TAG,
+                        "Periodic sync check: V3 remote is newer (${v3Manifest.updatedAt} > ${metadata.lastAppliedRemoteVersion})"
+                    )
+                    DrivePullWorker.enqueuePull(applicationContext, SyncTriggerReason.PERIODIC_CHECK)
+                } else {
+                    AppLogger.d(TAG, "Periodic sync check: V3 remote already applied")
+                }
+                return Result.success()
+            }
 
-            // Only check manifest, don't download full state
-            val remoteManifest = manifestRepository.fetchRemoteManifest()
-            if (remoteManifest != null && remoteManifest.stateVersion > metadata.lastAppliedRemoteVersion) {
-                AppLogger.i(TAG, "Periodic sync check: remote is newer (${remoteManifest.stateVersion} > ${metadata.lastAppliedRemoteVersion})")
-                // Enqueue a pull worker
+            val legacyManifest = manifestRepository.fetchRemoteManifest()
+            if (legacyManifest != null) {
+                AppLogger.i(TAG, "Periodic sync check: legacy V2 state found, enqueue V3 migration")
                 DrivePullWorker.enqueuePull(applicationContext, SyncTriggerReason.PERIODIC_CHECK)
             } else {
-                AppLogger.d(TAG, "Periodic sync check: no new updates")
+                AppLogger.d(TAG, "Periodic sync check: no V3 or legacy state found")
             }
 
             Result.success()

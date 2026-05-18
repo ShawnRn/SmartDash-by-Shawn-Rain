@@ -3,6 +3,9 @@ package com.shawnrain.sdash.data.sync
 import android.content.Context
 import com.shawnrain.sdash.data.SettingsRepository
 import com.shawnrain.sdash.data.history.RideHistoryRepository
+import com.shawnrain.sdash.data.sync.v3.DriveEntityStore
+import com.shawnrain.sdash.data.sync.v3.DriveV3Coordinator
+import com.shawnrain.sdash.data.sync.v3.DriveV3LegacyMigrator
 import com.shawnrain.sdash.debug.AppLogger
 import com.shawnrain.sdash.worker.DrivePullWorker
 import com.shawnrain.sdash.worker.DrivePushWorker
@@ -24,9 +27,9 @@ import kotlinx.coroutines.withContext
  * - Speed test complete → enqueue mutation + schedule push
  * - Settings change → enqueue mutation + schedule push (debounced)
  * - Vehicle profile change → enqueue mutation + schedule push
- * - App foreground → schedule pull
- * - Auth success → schedule pull + periodic sync
- * - Manual sync → reconcile (pull then push)
+ * - App foreground → schedule V3 pull/migration
+ * - Auth success → reconcile to V3 + periodic sync
+ * - Manual sync → V3 reconcile (pull then push)
  */
 class SyncScheduler(
     private val context: Context,
@@ -165,42 +168,49 @@ class SyncScheduler(
 
     /**
      * Call this when user signs in to Google Drive.
-     * Initializes V2 sync and starts periodic sync.
+     * Initializes V3 sync and starts periodic sync.
      */
     fun onAuthSuccess() {
         schedulerScope.launch {
             try {
-                AppLogger.i(TAG, "Auth success: initializing V2 sync")
+                AppLogger.i(TAG, "Auth success: reconciling V3 sync snapshot")
                 flushPendingSettingsMutationIfNeeded(SyncTriggerReason.AUTH_SUCCESS)
 
                 val driveSyncManager = GoogleDriveSyncManager(context)
                 val rideHistoryRepository = RideHistoryRepository(context)
                 val stateSerializer = DriveStateSerializer(context, settingsRepository, rideHistoryRepository)
-                val stateMerger = DriveStateMerger(context, settingsRepository)
                 val manifestRepository = DriveManifestRepository(driveSyncManager)
-                val coordinator = DriveSyncCoordinator(
+                val entityStore = DriveEntityStore(driveSyncManager)
+                val coordinator = DriveV3Coordinator(
                     context = context,
-                    driveSyncManager = driveSyncManager,
                     settingsRepository = settingsRepository,
                     rideHistoryRepository = rideHistoryRepository,
-                    stateSerializer = stateSerializer,
-                    stateMerger = stateMerger,
-                    manifestRepository = manifestRepository,
+                    driveSyncManager = driveSyncManager,
                     metadataRepository = metadataRepository,
-                    mutationRepository = mutationRepository
+                    mutationRepository = mutationRepository,
+                    entityStore = entityStore
+                )
+                val migrator = DriveV3LegacyMigrator(
+                    context = context,
+                    settingsRepository = settingsRepository,
+                    rideHistoryRepository = rideHistoryRepository,
+                    driveSyncManager = driveSyncManager,
+                    metadataRepository = metadataRepository,
+                    legacyManifestRepository = manifestRepository,
+                    stateSerializer = stateSerializer,
+                    stateMerger = DriveStateMerger(context, settingsRepository),
+                    entityStore = entityStore,
+                    v3Coordinator = coordinator
                 )
 
-                coordinator.initializeV2Sync()
+                migrator.reconcileAndPublish()
 
                 // Start periodic sync
                 PeriodicDriveSyncWorker.enqueuePeriodicSync(context)
                 ensurePayloadRefreshScheduledIfNeeded(SyncTriggerReason.AUTH_SUCCESS)
                 ensureLocalPushScheduledIfNeeded(SyncTriggerReason.AUTH_SUCCESS)
-
-                // Also do an immediate pull
-                DrivePullWorker.enqueuePull(context, SyncTriggerReason.AUTH_SUCCESS)
             } catch (e: Exception) {
-                AppLogger.w(TAG, "Failed to initialize V2 sync on auth: ${e.message}")
+                AppLogger.w(TAG, "Failed to initialize V3 sync on auth: ${e.message}")
             }
         }
     }
@@ -312,23 +322,10 @@ class SyncScheduler(
         val localAhead = metadata.localStateVersion > metadata.lastPushedLocalVersion
         if (!hasPending && !localAhead) return@withContext
 
-        val remoteManifest = runCatching {
-            DriveManifestRepository(GoogleDriveSyncManager(context)).fetchRemoteManifest()
-        }.getOrNull()
-        val remoteAhead = remoteManifest?.stateVersion?.let { it > metadata.lastAppliedRemoteVersion } == true
-        if (remoteAhead) {
-            AppLogger.i(
-                TAG,
-                "Skip local recovery push: remote newer stateVersion=${remoteManifest?.stateVersion} " +
-                    "lastApplied=${metadata.lastAppliedRemoteVersion} reason=$reason"
-            )
-            return@withContext
-        }
-
         DrivePushWorker.enqueuePush(context, reason)
         AppLogger.i(
             TAG,
-            "Scheduled recovery push: localVersion=${metadata.localStateVersion} " +
+            "Scheduled V3 recovery push: localVersion=${metadata.localStateVersion} " +
                 "lastPushed=${metadata.lastPushedLocalVersion} hasPending=$hasPending reason=$reason"
         )
     }

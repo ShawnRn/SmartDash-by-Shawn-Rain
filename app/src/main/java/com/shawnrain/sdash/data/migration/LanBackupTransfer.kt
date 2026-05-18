@@ -33,7 +33,7 @@ class LanBackupTransfer(
         private const val TAG = "LanBackupTransfer"
         private const val MAGIC = "HABE_LAN_BACKUP_V1"
         private const val ACK_MAGIC = "HABE_LAN_BACKUP_ACK_V1"
-        private const val MAX_BACKUP_BYTES = 24 * 1024 * 1024
+        private const val MAX_BACKUP_BYTES = 64 * 1024 * 1024
     }
 
     private var serverSocket: ServerSocket? = null
@@ -43,7 +43,7 @@ class LanBackupTransfer(
         scope: CoroutineScope,
         code: String,
         onRestoreApplied: (() -> Unit)? = null,
-        payloadProvider: suspend () -> String
+        payloadProvider: suspend () -> ByteArray
     ): LanBackupOffer {
         stop()
         val socket = withContext(ioDispatcher) { ServerSocket(0) }
@@ -95,7 +95,7 @@ class LanBackupTransfer(
         port: Int,
         code: String,
         timeoutMs: Int = 8000
-    ): String = withContext(ioDispatcher) {
+    ): ByteArray = withContext(ioDispatcher) {
         val socket = Socket()
         socket.connect(InetSocketAddress(host, port), timeoutMs)
         socket.soTimeout = timeoutMs
@@ -117,7 +117,7 @@ class LanBackupTransfer(
             }
             val bytes = ByteArray(size)
             input.readFully(bytes)
-            bytes.toString(Charsets.UTF_8)
+            bytes
         }
     }
 
@@ -143,7 +143,7 @@ class LanBackupTransfer(
     private suspend fun serveClient(
         socket: Socket,
         expectedCode: String,
-        payloadProvider: suspend () -> String,
+        payloadProvider: suspend () -> ByteArray,
         onRestoreApplied: (() -> Unit)? = null
     ): Boolean {
         val input = DataInputStream(BufferedInputStream(socket.getInputStream()))
@@ -171,7 +171,7 @@ class LanBackupTransfer(
             output.flush()
             return false
         }
-        val payload = payloadProvider().toByteArray(Charsets.UTF_8)
+        val payload = payloadProvider()
         output.writeBoolean(true)
         output.writeInt(payload.size)
         output.write(payload)

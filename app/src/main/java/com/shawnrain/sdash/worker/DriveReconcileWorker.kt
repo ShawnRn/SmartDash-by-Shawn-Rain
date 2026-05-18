@@ -13,6 +13,9 @@ import androidx.work.WorkerParameters
 import androidx.work.BackoffPolicy
 import androidx.work.workDataOf
 import com.shawnrain.sdash.data.sync.SyncTriggerReason
+import com.shawnrain.sdash.data.sync.v3.DriveEntityStore
+import com.shawnrain.sdash.data.sync.v3.DriveV3Coordinator
+import com.shawnrain.sdash.data.sync.v3.DriveV3LegacyMigrator
 import com.shawnrain.sdash.debug.AppLogger
 import java.util.concurrent.TimeUnit
 
@@ -61,17 +64,30 @@ class DriveReconcileWorker(
     private val stateSerializer by lazy { com.shawnrain.sdash.data.sync.DriveStateSerializer(applicationContext, settingsRepository, rideHistoryRepository) }
     private val stateMerger by lazy { com.shawnrain.sdash.data.sync.DriveStateMerger(applicationContext, settingsRepository) }
     private val manifestRepository by lazy { com.shawnrain.sdash.data.sync.DriveManifestRepository(driveSyncManager) }
-    private val coordinator by lazy {
-        com.shawnrain.sdash.data.sync.DriveSyncCoordinator(
+    private val entityStore by lazy { DriveEntityStore(driveSyncManager) }
+    private val v3Coordinator by lazy {
+        DriveV3Coordinator(
             context = applicationContext,
-            driveSyncManager = driveSyncManager,
             settingsRepository = settingsRepository,
             rideHistoryRepository = rideHistoryRepository,
+            driveSyncManager = driveSyncManager,
+            metadataRepository = metadataRepository,
+            mutationRepository = mutationRepository,
+            entityStore = entityStore
+        )
+    }
+    private val v3Migrator by lazy {
+        DriveV3LegacyMigrator(
+            context = applicationContext,
+            settingsRepository = settingsRepository,
+            rideHistoryRepository = rideHistoryRepository,
+            driveSyncManager = driveSyncManager,
+            metadataRepository = metadataRepository,
+            legacyManifestRepository = manifestRepository,
             stateSerializer = stateSerializer,
             stateMerger = stateMerger,
-            manifestRepository = manifestRepository,
-            metadataRepository = metadataRepository,
-            mutationRepository = mutationRepository
+            entityStore = entityStore,
+            v3Coordinator = v3Coordinator
         )
     }
 
@@ -86,9 +102,16 @@ class DriveReconcileWorker(
         AppLogger.i(TAG, "Worker started: reason=$reason")
 
         return try {
-            val result = coordinator.runReconcileNow(reason)
-            AppLogger.i(TAG, "Reconcile finished: $result")
+            val result = v3Migrator.reconcileAndPublish()
+            AppLogger.i(
+                TAG,
+                "Reconcile finished with V3 publish: entities=${result.uploadedEntityCount} " +
+                    "rides=${result.rideCount} speedTests=${result.speedTestCount}"
+            )
             Result.success()
+        } catch (oom: OutOfMemoryError) {
+            AppLogger.e(TAG, "Worker stopped: V3 reconcile OOM", oom)
+            Result.failure()
         } catch (e: Exception) {
             AppLogger.e(TAG, "Worker exception", e)
             if (runAttemptCount < 3) {

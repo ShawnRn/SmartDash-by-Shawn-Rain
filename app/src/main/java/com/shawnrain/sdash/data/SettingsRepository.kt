@@ -17,6 +17,7 @@ import com.shawnrain.sdash.data.history.RideHistoryRepository
 import com.shawnrain.sdash.data.history.RideMetricSample
 import com.shawnrain.sdash.data.history.RideMetricSampleSchema
 import com.shawnrain.sdash.data.history.RideTrackPoint
+import com.shawnrain.sdash.data.controller.ControllerBinding
 import com.shawnrain.sdash.data.speedtest.SpeedTestRecord
 import com.shawnrain.sdash.data.speedtest.SpeedTestTrackPoint
 import com.shawnrain.sdash.data.sync.BackupPreview
@@ -46,26 +47,37 @@ import kotlinx.coroutines.flow.map
 
 val Context.dataStore by preferencesDataStore(name = "habe_settings")
 
-enum class MetricType(val title: String, val unit: String) {
-    SPEED("速度", "km/h"),
-    GRADE("坡度", "%"),
-    ALTITUDE("海拔高度", "m"),
-    VOLTAGE("电压", "V"),
-    VOLTAGE_SAG("压降", "V"),
-    BUS_CURRENT("母线电流", "A"),
-    PHASE_CURRENT("相电流", "A"),
-    POWER("实时功率", "kW"),
-    TEMP("控制器温度", "°C"),
-    MAX_CONTROLLER_TEMP("控制器最高温度", "°C"),
-    SOC("电量 (预估)", "%"),
-    RANGE("剩余续航", "km"),
-    RPM("转速", "rpm"),
-    EFFICIENCY("平均能耗", "Wh/km"),
-    TRIP_DISTANCE("本次里程", "km"),
-    TOTAL_ENERGY("总能耗", "Wh"),
-    PEAK_REGEN_POWER("最大回收功率", "W"),
-    RECOVERED_ENERGY("总回收能量", "Wh"),
-    MEDIA_CONTROL("媒体控制", "")
+enum class MetricCategory {
+    ELECTRICAL,
+    POWER,
+    THERMAL,
+    DISTANCE,
+    BATTERY,
+    TIME,
+    MEDIA
+}
+
+enum class MetricType(val title: String, val unit: String, val category: MetricCategory) {
+    SPEED("速度", "km/h", MetricCategory.DISTANCE),
+    GRADE("坡度", "%", MetricCategory.DISTANCE),
+    ALTITUDE("海拔高度", "m", MetricCategory.DISTANCE),
+    VOLTAGE("电压", "V", MetricCategory.ELECTRICAL),
+    VOLTAGE_SAG("压降", "V", MetricCategory.ELECTRICAL),
+    BUS_CURRENT("母线电流", "A", MetricCategory.ELECTRICAL),
+    PHASE_CURRENT("相电流", "A", MetricCategory.ELECTRICAL),
+    POWER("实时功率", "kW", MetricCategory.POWER),
+    TEMP("控制器温度", "°C", MetricCategory.THERMAL),
+    MAX_CONTROLLER_TEMP("控制器最高温度", "°C", MetricCategory.THERMAL),
+    SOC("电量 (预估)", "%", MetricCategory.BATTERY),
+    RANGE("剩余续航", "km", MetricCategory.BATTERY),
+    RPM("转速", "rpm", MetricCategory.POWER),
+    EFFICIENCY("平均能耗", "Wh/km", MetricCategory.POWER),
+    TRIP_DISTANCE("本次里程", "km", MetricCategory.DISTANCE),
+    ELAPSED_TIME("用时", "", MetricCategory.TIME),
+    TOTAL_ENERGY("总能耗", "Wh", MetricCategory.BATTERY),
+    PEAK_REGEN_POWER("最大回收功率", "W", MetricCategory.BATTERY),
+    RECOVERED_ENERGY("总回收能量", "Wh", MetricCategory.BATTERY),
+    MEDIA_CONTROL("媒体控制", "", MetricCategory.MEDIA)
 }
 
 enum class SpeedSource(val title: String) {
@@ -102,12 +114,14 @@ class SettingsRepository(private val context: Context) {
         const val K_SPEED_SRC = "speed_src"
         const val K_BATT_SRC = "batt_src"
         const val K_DASH_ITEMS = "dash_items"
+        const val K_DASH_ELAPSED_TIME_ADDED = "dash_elapsed_time_added"
         const val K_RIDE_OVERVIEW_ITEMS = "ride_overview_items"
         const val K_SPEEDTEST_HISTORY = "speedtest_history"
         const val K_RIDE_HISTORY = "ride_history"
         const val K_LAST_CONTROLLER_DEVICE_ADDRESS = "last_controller_device_address"
         const val K_LAST_CONTROLLER_DEVICE_NAME = "last_controller_device_name"
         const val K_LAST_CONTROLLER_PROTOCOL_ID = "last_controller_protocol_id"
+        const val K_CONTROLLER_BINDING = "controller_binding"
         const val K_POSTER_TEMPLATE = "poster_template"
         const val K_POSTER_ASPECT_RATIO = "poster_aspect_ratio"
         const val K_POSTER_SHOW_TRACK = "poster_show_track"
@@ -147,6 +161,35 @@ class SettingsRepository(private val context: Context) {
         pref: Preferences,
         name: String
     ): Long = pref.safeGet(syncMetaKey(name)) ?: 0L
+
+    private fun readControllerBinding(
+        pref: Preferences,
+        vehicleId: String
+    ): ControllerBinding? {
+        val stored = ControllerBinding.fromJson(pref.safeGet(vKey(vehicleId, K_CONTROLLER_BINDING)))
+        if (stored != null) return stored
+
+        val vehicleProfile = loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
+            .firstOrNull { it.id == vehicleId }
+        val legacyAddress = pref.safeGet(vKey(vehicleId, K_LAST_CONTROLLER_DEVICE_ADDRESS))
+            ?.takeIf { it.isNotBlank() }
+            ?: vehicleProfile?.macAddress?.takeIf { it.isNotBlank() }
+            ?: pref.safeGet(LAST_CONTROLLER_DEVICE_ADDRESS)?.takeIf { it.isNotBlank() }
+        val observedAt = listOf(
+            readLocalModifiedAt(pref, "v_${vehicleId}_$K_CONTROLLER_BINDING"),
+            readLocalModifiedAt(pref, "v_${vehicleId}_$K_LAST_CONTROLLER_DEVICE_ADDRESS"),
+            vehicleProfile?.lastModified ?: 0L
+        ).maxOrNull() ?: 0L
+        return ControllerBinding.fromLegacy(
+            vehicleId = vehicleId,
+            macAddress = legacyAddress,
+            deviceName = pref.safeGet(vKey(vehicleId, K_LAST_CONTROLLER_DEVICE_NAME))
+                ?: pref.safeGet(LAST_CONTROLLER_DEVICE_NAME),
+            protocolId = pref.safeGet(vKey(vehicleId, K_LAST_CONTROLLER_PROTOCOL_ID))
+                ?: pref.safeGet(LAST_CONTROLLER_PROTOCOL_ID),
+            now = observedAt
+        )
+    }
 
     private fun remoteModifiedAt(
         remoteEntriesByName: Map<String, BackupEntry>,
@@ -266,11 +309,19 @@ class SettingsRepository(private val context: Context) {
         preferencesFlow.map { pref ->
             val raw = pref.safeGet(vKey(id, K_DASH_ITEMS))
             val resolved = if (raw.isNullOrEmpty()) {
-                listOf(MetricType.SOC, MetricType.RANGE, MetricType.POWER, MetricType.MEDIA_CONTROL)
+                listOf(
+                    MetricType.SOC,
+                    MetricType.RANGE,
+                    MetricType.POWER,
+                    MetricType.ELAPSED_TIME,
+                    MetricType.MEDIA_CONTROL
+                )
             } else {
                 raw.split(",").mapNotNull { try { MetricType.valueOf(it) } catch (e: Exception) { null } }
             }
-            resolved.ifEmpty { listOf(MetricType.SOC, MetricType.RANGE, MetricType.POWER, MetricType.EFFICIENCY) }
+            resolved.ifEmpty {
+                listOf(MetricType.SOC, MetricType.RANGE, MetricType.POWER, MetricType.ELAPSED_TIME)
+            }
         }
     }
 
@@ -347,11 +398,22 @@ class SettingsRepository(private val context: Context) {
         )
     }
 
+    val currentControllerBinding: Flow<ControllerBinding?> = combine(
+        preferencesFlow,
+        currentVehicleId
+    ) { pref, currentId ->
+        readControllerBinding(pref, currentId)
+    }.distinctUntilChanged()
+
     val lastControllerDeviceAddress: Flow<String?> = combine(
         preferencesFlow,
         currentVehicleId
     ) { pref, currentId ->
-        pref.safeGet(vKey(currentId, K_LAST_CONTROLLER_DEVICE_ADDRESS))
+        readControllerBinding(pref, currentId)
+            ?.takeIf { it.canAutoConnect }
+            ?.macAddress
+            ?.takeIf { it.isNotBlank() }
+            ?: pref.safeGet(vKey(currentId, K_LAST_CONTROLLER_DEVICE_ADDRESS))
             ?.takeIf { it.isNotBlank() }
             ?: pref.safeGet(LAST_CONTROLLER_DEVICE_ADDRESS)?.takeIf { it.isNotBlank() }
     }.distinctUntilChanged()
@@ -360,7 +422,11 @@ class SettingsRepository(private val context: Context) {
         preferencesFlow,
         currentVehicleId
     ) { pref, currentId ->
-        pref.safeGet(vKey(currentId, K_LAST_CONTROLLER_DEVICE_NAME))
+        readControllerBinding(pref, currentId)
+            ?.takeIf { it.canAutoConnect }
+            ?.deviceName
+            ?.takeIf { it.isNotBlank() }
+            ?: pref.safeGet(vKey(currentId, K_LAST_CONTROLLER_DEVICE_NAME))
             ?.takeIf { it.isNotBlank() }
             ?: pref.safeGet(LAST_CONTROLLER_DEVICE_NAME)?.takeIf { it.isNotBlank() }
     }.distinctUntilChanged()
@@ -369,7 +435,11 @@ class SettingsRepository(private val context: Context) {
         preferencesFlow,
         currentVehicleId
     ) { pref, currentId ->
-        pref.safeGet(vKey(currentId, K_LAST_CONTROLLER_PROTOCOL_ID))
+        readControllerBinding(pref, currentId)
+            ?.takeIf { it.canAutoConnect }
+            ?.protocolId
+            ?.takeIf { it.isNotBlank() }
+            ?: pref.safeGet(vKey(currentId, K_LAST_CONTROLLER_PROTOCOL_ID))
             ?.takeIf { it.isNotBlank() }
             ?: pref.safeGet(LAST_CONTROLLER_PROTOCOL_ID)?.takeIf { it.isNotBlank() }
     }.distinctUntilChanged()
@@ -502,6 +572,32 @@ class SettingsRepository(private val context: Context) {
             it[vKey(id, K_DASH_ITEMS)] = items.joinToString(",") { item -> item.name }
             markSyncedAt(it, "v_${id}_$K_DASH_ITEMS")
         }
+    }
+
+    suspend fun ensureElapsedTimeDashboardCard(vehicleId: String): Boolean {
+        var changed = false
+        context.dataStore.edit { pref ->
+            val migrationKey = vKey(vehicleId, K_DASH_ELAPSED_TIME_ADDED)
+            if (pref.safeGet(migrationKey) == "true") {
+                return@edit
+            }
+            val raw = pref.safeGet(vKey(vehicleId, K_DASH_ITEMS))
+            val currentItems = if (raw.isNullOrEmpty()) {
+                listOf(MetricType.SOC, MetricType.RANGE, MetricType.POWER, MetricType.ELAPSED_TIME, MetricType.MEDIA_CONTROL)
+            } else {
+                raw.split(",").mapNotNull { token ->
+                    runCatching { MetricType.valueOf(token) }.getOrNull()
+                }
+            }
+            if (MetricType.ELAPSED_TIME !in currentItems) {
+                pref[vKey(vehicleId, K_DASH_ITEMS)] = (currentItems + MetricType.ELAPSED_TIME)
+                    .joinToString(",") { item -> item.name }
+                markSyncedAt(pref, "v_${vehicleId}_$K_DASH_ITEMS")
+                changed = true
+            }
+            pref[migrationKey] = "true"
+        }
+        return changed
     }
 
     suspend fun saveDriveBackupRetentionPolicy(policy: BackupRetentionPolicy) {
@@ -642,12 +738,14 @@ class SettingsRepository(private val context: Context) {
                     readLocalModifiedAt(pref, "v_${vehicleId}_$K_WHEEL"),
                     readLocalModifiedAt(pref, "v_${vehicleId}_$K_POLE"),
                     readLocalModifiedAt(pref, "v_${vehicleId}_$K_BRAND"),
+                    readLocalModifiedAt(pref, "v_${vehicleId}_$K_CONTROLLER_BINDING"),
                     readLocalModifiedAt(pref, "v_${vehicleId}_$K_LAST_CONTROLLER_DEVICE_ADDRESS"),
                     readLocalModifiedAt(pref, "v_${vehicleId}_$K_LAST_CONTROLLER_DEVICE_NAME"),
                     readLocalModifiedAt(pref, "v_${vehicleId}_$K_LAST_CONTROLLER_PROTOCOL_ID"),
                     readLocalModifiedAt(pref, "v_${vehicleId}_$K_DASH_ITEMS"),
                     readLocalModifiedAt(pref, "v_${vehicleId}_$K_RIDE_OVERVIEW_ITEMS")
                 ).maxOrNull() ?: 0L
+                val binding = readControllerBinding(pref, vehicleId)
                 SyncVehicleSettingsSnapshot(
                     vehicleProfileId = vehicleId,
                     speedSource = (pref.safeGet(vKey(vehicleId, K_SPEED_SRC)) ?: SpeedSource.CONTROLLER.name),
@@ -659,15 +757,30 @@ class SettingsRepository(private val context: Context) {
                         ?: profile.polePairs.takeIf { it > 0 }
                         ?: 50),
                     controllerBrand = pref.safeGet(vKey(vehicleId, K_BRAND)) ?: "auto",
-                    lastControllerDeviceAddress = pref.safeGet(vKey(vehicleId, K_LAST_CONTROLLER_DEVICE_ADDRESS)).orEmpty(),
-                    lastControllerDeviceName = pref.safeGet(vKey(vehicleId, K_LAST_CONTROLLER_DEVICE_NAME)).orEmpty(),
-                    lastControllerProtocolId = pref.safeGet(vKey(vehicleId, K_LAST_CONTROLLER_PROTOCOL_ID)).orEmpty(),
+                    lastControllerDeviceAddress = binding?.macAddress
+                        ?: pref.safeGet(vKey(vehicleId, K_LAST_CONTROLLER_DEVICE_ADDRESS)).orEmpty(),
+                    lastControllerDeviceName = binding?.deviceName
+                        ?: pref.safeGet(vKey(vehicleId, K_LAST_CONTROLLER_DEVICE_NAME)).orEmpty(),
+                    lastControllerProtocolId = binding?.protocolId
+                        ?: pref.safeGet(vKey(vehicleId, K_LAST_CONTROLLER_PROTOCOL_ID)).orEmpty(),
+                    controllerAutoConnectEnabled = binding?.autoConnectEnabled ?: true,
+                    controllerUserConfirmed = binding?.userConfirmed ?: false,
                     dashboardItems = parseMetricNames(pref.safeGet(vKey(vehicleId, K_DASH_ITEMS))),
                     rideOverviewItems = parseMetricNames(pref.safeGet(vKey(vehicleId, K_RIDE_OVERVIEW_ITEMS))),
                     updatedAt = updatedAt,
                     updatedByDeviceId = deviceId
                 )
             }
+    }
+
+    suspend fun vehicleProfilesSnapshot(): List<VehicleProfile> =
+        vehicleProfiles.first()
+
+    suspend fun controllerBindingsSnapshot(): List<ControllerBinding> {
+        val pref = preferencesFlow.first()
+        return loadVehicleProfiles(pref.safeGet(VEHICLE_LIST))
+            .mapNotNull { profile -> readControllerBinding(pref, profile.id) }
+            .filter { it.macAddress.isNotBlank() }
     }
 
     suspend fun applyDriveSyncState(state: DriveCurrentState) {
@@ -748,24 +861,53 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun saveLastControllerProfile(address: String, name: String?, protocolId: String?) {
+        saveControllerBinding(
+            macAddress = address,
+            deviceName = name,
+            protocolId = protocolId,
+            userConfirmed = true,
+            autoConnectEnabled = true
+        )
+    }
+
+    suspend fun saveControllerBinding(
+        macAddress: String,
+        deviceName: String?,
+        protocolId: String?,
+        userConfirmed: Boolean,
+        autoConnectEnabled: Boolean
+    ) {
         val id = currentVehicleId.first()
+        val now = System.currentTimeMillis()
+        val binding = ControllerBinding(
+            vehicleId = id,
+            macAddress = macAddress.trim(),
+            deviceName = deviceName?.trim().orEmpty(),
+            protocolId = protocolId?.trim().orEmpty(),
+            verifiedAt = if (userConfirmed) now else 0L,
+            lastConnectedAt = now,
+            autoConnectEnabled = autoConnectEnabled,
+            userConfirmed = userConfirmed
+        )
         context.dataStore.edit {
-            it[vKey(id, K_LAST_CONTROLLER_DEVICE_ADDRESS)] = address
-            it[LAST_CONTROLLER_DEVICE_ADDRESS] = address
-            updateVehicleMacAddressLocked(it, id, address)
+            it[vKey(id, K_CONTROLLER_BINDING)] = binding.toJson().toString()
+            it[vKey(id, K_LAST_CONTROLLER_DEVICE_ADDRESS)] = binding.macAddress
+            it[LAST_CONTROLLER_DEVICE_ADDRESS] = binding.macAddress
+            updateVehicleMacAddressLocked(it, id, binding.macAddress)
             val touchedKeys = mutableListOf(
+                "v_${id}_$K_CONTROLLER_BINDING",
                 "v_${id}_$K_LAST_CONTROLLER_DEVICE_ADDRESS",
                 LAST_CONTROLLER_DEVICE_ADDRESS.name
             )
-            if (!name.isNullOrBlank()) {
-                it[vKey(id, K_LAST_CONTROLLER_DEVICE_NAME)] = name
-                it[LAST_CONTROLLER_DEVICE_NAME] = name
+            if (binding.deviceName.isNotBlank()) {
+                it[vKey(id, K_LAST_CONTROLLER_DEVICE_NAME)] = binding.deviceName
+                it[LAST_CONTROLLER_DEVICE_NAME] = binding.deviceName
                 touchedKeys += "v_${id}_$K_LAST_CONTROLLER_DEVICE_NAME"
                 touchedKeys += LAST_CONTROLLER_DEVICE_NAME.name
             }
-            if (!protocolId.isNullOrBlank()) {
-                it[vKey(id, K_LAST_CONTROLLER_PROTOCOL_ID)] = protocolId
-                it[LAST_CONTROLLER_PROTOCOL_ID] = protocolId
+            if (binding.protocolId.isNotBlank()) {
+                it[vKey(id, K_LAST_CONTROLLER_PROTOCOL_ID)] = binding.protocolId
+                it[LAST_CONTROLLER_PROTOCOL_ID] = binding.protocolId
                 touchedKeys += "v_${id}_$K_LAST_CONTROLLER_PROTOCOL_ID"
                 touchedKeys += LAST_CONTROLLER_PROTOCOL_ID.name
             }
@@ -776,17 +918,21 @@ class SettingsRepository(private val context: Context) {
     suspend fun clearLastControllerDevice() {
         val id = currentVehicleId.first()
         context.dataStore.edit {
+            it.remove(vKey(id, K_CONTROLLER_BINDING))
             it.remove(vKey(id, K_LAST_CONTROLLER_DEVICE_ADDRESS))
             it.remove(vKey(id, K_LAST_CONTROLLER_DEVICE_NAME))
             it.remove(vKey(id, K_LAST_CONTROLLER_PROTOCOL_ID))
             it.remove(LAST_CONTROLLER_DEVICE_ADDRESS)
             it.remove(LAST_CONTROLLER_DEVICE_NAME)
             it.remove(LAST_CONTROLLER_PROTOCOL_ID)
+            updateVehicleMacAddressLocked(it, id, "")
             markSyncedAt(
                 it,
                 "v_${id}_$K_LAST_CONTROLLER_DEVICE_ADDRESS",
                 "v_${id}_$K_LAST_CONTROLLER_DEVICE_NAME",
                 "v_${id}_$K_LAST_CONTROLLER_PROTOCOL_ID",
+                "v_${id}_$K_CONTROLLER_BINDING",
+                VEHICLE_LIST.name,
                 LAST_CONTROLLER_DEVICE_ADDRESS.name,
                 LAST_CONTROLLER_DEVICE_NAME.name,
                 LAST_CONTROLLER_PROTOCOL_ID.name
@@ -797,7 +943,11 @@ class SettingsRepository(private val context: Context) {
     suspend fun getLastControllerDeviceAddress(): String? {
         val currentId = currentVehicleId.first()
         val pref = preferencesFlow.first()
-        return pref.safeGet(vKey(currentId, K_LAST_CONTROLLER_DEVICE_ADDRESS))?.takeIf { it.isNotBlank() }
+        return readControllerBinding(pref, currentId)
+            ?.takeIf { it.canAutoConnect }
+            ?.macAddress
+            ?.takeIf { it.isNotBlank() }
+            ?: pref.safeGet(vKey(currentId, K_LAST_CONTROLLER_DEVICE_ADDRESS))?.takeIf { it.isNotBlank() }
             ?: pref.safeGet(LAST_CONTROLLER_DEVICE_ADDRESS)?.takeIf { it.isNotBlank() }
     }
 
@@ -853,8 +1003,20 @@ class SettingsRepository(private val context: Context) {
         pref[vKeyI(vehicleId, K_POLE)] = snapshot.polePairs
         pref[vKey(vehicleId, K_BRAND)] = snapshot.controllerBrand
         if (snapshot.lastControllerDeviceAddress.isNotBlank()) {
+            val binding = ControllerBinding(
+                vehicleId = vehicleId,
+                macAddress = snapshot.lastControllerDeviceAddress,
+                deviceName = snapshot.lastControllerDeviceName,
+                protocolId = snapshot.lastControllerProtocolId,
+                verifiedAt = snapshot.updatedAt,
+                lastConnectedAt = snapshot.updatedAt,
+                autoConnectEnabled = snapshot.controllerAutoConnectEnabled,
+                userConfirmed = snapshot.controllerUserConfirmed
+            )
+            pref[vKey(vehicleId, K_CONTROLLER_BINDING)] = binding.toJson().toString()
             pref[vKey(vehicleId, K_LAST_CONTROLLER_DEVICE_ADDRESS)] = snapshot.lastControllerDeviceAddress
         } else {
+            pref.remove(vKey(vehicleId, K_CONTROLLER_BINDING))
             pref.remove(vKey(vehicleId, K_LAST_CONTROLLER_DEVICE_ADDRESS))
         }
         if (snapshot.lastControllerDeviceName.isNotBlank()) {
@@ -876,6 +1038,7 @@ class SettingsRepository(private val context: Context) {
             "v_${vehicleId}_$K_WHEEL",
             "v_${vehicleId}_$K_POLE",
             "v_${vehicleId}_$K_BRAND",
+            "v_${vehicleId}_$K_CONTROLLER_BINDING",
             "v_${vehicleId}_$K_LAST_CONTROLLER_DEVICE_ADDRESS",
             "v_${vehicleId}_$K_LAST_CONTROLLER_DEVICE_NAME",
             "v_${vehicleId}_$K_LAST_CONTROLLER_PROTOCOL_ID",
@@ -1107,9 +1270,30 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun exportBackupJson(rideHistoryRepository: RideHistoryRepository): String {
+        val prefs = buildPreferencesBackupJson(excludeLegacyRideHistory = false)
+        encodeRideHistoryBackupEntries(prefs, rideHistoryRepository)
+        return JSONObject()
+            .put("schema", 1)
+            .put("exportedAt", System.currentTimeMillis())
+            .put("prefs", prefs)
+            .toString()
+    }
+
+    suspend fun exportSettingsBackupJson(excludeLegacyRideHistory: Boolean = true): String {
+        val prefs = buildPreferencesBackupJson(excludeLegacyRideHistory = excludeLegacyRideHistory)
+        return JSONObject()
+            .put("schema", 2)
+            .put("exportedAt", System.currentTimeMillis())
+            .put("prefs", prefs)
+            .toString()
+    }
+
+    private suspend fun buildPreferencesBackupJson(excludeLegacyRideHistory: Boolean): JSONObject {
         val snapshot = preferencesFlow.first().asMap()
         val prefs = JSONObject()
         snapshot.forEach { (key, value) ->
+            val name = key.name
+            if (excludeLegacyRideHistory && isLegacyRideHistoryKey(name)) return@forEach
             val encoded = when (value) {
                 is String -> JSONObject().put("type", "string").put("value", value)
                 is Int -> JSONObject().put("type", "int").put("value", value)
@@ -1123,15 +1307,10 @@ class SettingsRepository(private val context: Context) {
                 else -> null
             }
             if (encoded != null) {
-                prefs.put(key.name, encoded)
+                prefs.put(name, encoded)
             }
         }
-        encodeRideHistoryBackupEntries(prefs, rideHistoryRepository)
-        return JSONObject()
-            .put("schema", 1)
-            .put("exportedAt", System.currentTimeMillis())
-            .put("prefs", prefs)
-            .toString()
+        return prefs
     }
 
     private enum class BackupValueKind {
@@ -1915,6 +2094,7 @@ class SettingsRepository(private val context: Context) {
             name.endsWith("_$K_RIDE_OVERVIEW_ITEMS") -> BackupValueKind.STRING
             name.endsWith("_$K_SPEEDTEST_HISTORY") -> BackupValueKind.STRING
             name.endsWith("_$K_RIDE_HISTORY") -> BackupValueKind.STRING
+            name.endsWith("_$K_CONTROLLER_BINDING") -> BackupValueKind.STRING
             name.endsWith("_$K_LAST_CONTROLLER_DEVICE_ADDRESS") -> BackupValueKind.STRING
             name.endsWith("_$K_LAST_CONTROLLER_DEVICE_NAME") -> BackupValueKind.STRING
             name.endsWith("_$K_LAST_CONTROLLER_PROTOCOL_ID") -> BackupValueKind.STRING

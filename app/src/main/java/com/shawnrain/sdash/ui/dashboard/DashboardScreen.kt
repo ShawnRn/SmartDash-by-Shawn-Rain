@@ -43,7 +43,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -85,6 +84,16 @@ import kotlin.math.roundToInt
 
 private const val DRAG_LOG_TAG = "DashboardDrag"
 
+// ── Dashboard Design Tokens ──
+private val CardCornerRadius = 20.dp
+private val CardHeight = 110.dp
+private val CardInnerPadding = 16.dp
+private val CardSpacing = 12.dp
+private val PageHorizontalPadding = 20.dp
+private val SpeedAreaHeight = 152.dp
+private val SpeedAreaCornerRadius = 22.dp
+private val SectionSpacing = 12.dp
+
 private fun Offset.toLogString(): String = "(%.1f, %.1f)".format(x, y)
 
 private fun Rect.toLogString(): String = "[l=%.1f t=%.1f r=%.1f b=%.1f]".format(left, top, right, bottom)
@@ -105,7 +114,7 @@ private fun shouldSwapWithTarget(
     }
 }
 
-fun formatMetricValue(type: MetricType, metrics: VehicleMetrics): String {
+fun formatMetricValue(type: MetricType, metrics: VehicleMetrics, rideElapsedMs: Long = 0L): String {
     return when (type) {
         MetricType.SPEED -> String.format("%.1f", metrics.speedKmH)
         MetricType.GRADE -> String.format("%+.1f", metrics.gradePercent)
@@ -122,10 +131,37 @@ fun formatMetricValue(type: MetricType, metrics: VehicleMetrics): String {
         MetricType.RPM -> String.format("%.0f", metrics.rpm)
         MetricType.EFFICIENCY -> String.format("%.1f", metrics.avgEfficiencyWhKm)
         MetricType.TRIP_DISTANCE -> String.format("%.2f", metrics.tripDistance)
+        MetricType.ELAPSED_TIME -> formatElapsedTime(rideElapsedMs)
         MetricType.TOTAL_ENERGY -> String.format("%.1f", metrics.totalEnergyWh)
         MetricType.PEAK_REGEN_POWER -> String.format("%.0f", metrics.peakRegenPowerKw * 1000f)
         MetricType.RECOVERED_ENERGY -> String.format("%.1f", metrics.recoveredEnergyWh)
         MetricType.MEDIA_CONTROL -> ""
+    }
+}
+
+private fun formatElapsedTime(durationMs: Long): String {
+    val totalSeconds = (durationMs / 1000L).coerceAtLeast(0L)
+    val hours = totalSeconds / 3600L
+    val minutes = (totalSeconds % 3600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) {
+        "%d:%02d:%02d".format(hours, minutes, seconds)
+    } else {
+        "%02d:%02d".format(minutes, seconds)
+    }
+}
+
+private fun dashboardSecondaryLine(type: MetricType, metrics: VehicleMetrics, rideElapsedMs: Long): String {
+    return when (type) {
+        MetricType.TEMP -> "最高 ${String.format("%.1f", metrics.maxControllerTemp)} °C"
+        MetricType.VOLTAGE_SAG -> "最高 ${String.format("%.1f", metrics.maxVoltageSag)} V"
+        MetricType.BUS_CURRENT -> "平均 ${String.format("%.1f", metrics.avgBusCurrent)} A"
+        MetricType.POWER -> "峰值 ${String.format("%.1f", metrics.peakRegenPowerKw * 1000f)} W 回收"
+        MetricType.SOC -> "续航 ${String.format("%.1f", metrics.estimatedRangeKm)} km"
+        MetricType.TRIP_DISTANCE -> "用时 ${formatElapsedTime(rideElapsedMs)}"
+        MetricType.TOTAL_ENERGY -> "回收 ${String.format("%.1f", metrics.recoveredEnergyWh)} Wh"
+        MetricType.RECOVERED_ENERGY -> "峰值 ${String.format("%.0f", metrics.peakRegenPowerKw * 1000f)} W"
+        else -> ""
     }
 }
 
@@ -144,6 +180,7 @@ fun DashboardScreen(
     val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
     val autoConnectState by viewModel.autoConnectState.collectAsStateWithLifecycle()
     val isRideActive by viewModel.isRideActive.collectAsStateWithLifecycle()
+    val rideElapsedMs by viewModel.rideElapsedMs.collectAsStateWithLifecycle()
     val rideDirectionLabel by viewModel.rideDirectionLabel.collectAsStateWithLifecycle()
     
     val mediaTarget by viewModel.mediaTarget.collectAsStateWithLifecycle()
@@ -168,8 +205,9 @@ fun DashboardScreen(
     val displayedDashboardItems = remember { mutableStateListOf<MetricType>() }
     val gridItems = if (isEditMode || draggingItem != null) displayedDashboardItems else dashboardItems
 
-    LaunchedEffect(dashboardItems, draggingItem, isEditMode) {
-        if ((isEditMode || draggingItem != null) && draggingItem == null) {
+    // Only sync from ViewModel when ENTERING edit mode (not on every dashboardItems change)
+    LaunchedEffect(isEditMode) {
+        if (isEditMode) {
             displayedDashboardItems.clear()
             displayedDashboardItems.addAll(dashboardItems)
         }
@@ -250,7 +288,7 @@ fun DashboardScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp)
+                    .padding(horizontal = PageHorizontalPadding)
             ) {
                 DashboardTopSection(
                     isEditMode = isEditMode,
@@ -264,8 +302,8 @@ fun DashboardScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp, bottom = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(top = 8.dp, bottom = SectionSpacing),
+                    verticalArrangement = Arrangement.spacedBy(SectionSpacing)
                 ) {
                     DashboardStatusStrip(
                         metrics = metrics,
@@ -289,13 +327,14 @@ fun DashboardScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(CardSpacing),
+                    verticalArrangement = Arrangement.spacedBy(CardSpacing),
                     contentPadding = PaddingValues(top = 4.dp, bottom = 48.dp)
                 ) {
                     dashboardItemsGridContent(
                         items = gridItems,
                         metrics = metrics,
+                        rideElapsedMs = rideElapsedMs,
                         isEditMode = isEditMode,
                         draggingItem = draggingItem,
                         shakeAngle = angle,
@@ -374,8 +413,9 @@ fun DashboardScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(bottom = 10.dp),
-                                    shape = bezierRoundedShape(20.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                    shape = bezierRoundedShape(CardCornerRadius),
+                                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                    tonalElevation = 0.5.dp,
                                     onClick = {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         displayedDashboardItems.add(type)
@@ -404,6 +444,7 @@ fun DashboardScreen(
         if (draggedType != null && startBounds != null) {
             StatCardWrap(
                 metrics = metrics,
+                rideElapsedMs = rideElapsedMs,
                 type = draggedType,
                 isEditMode = false,
                 shakeAngle = 0f,
@@ -480,6 +521,7 @@ private fun DashboardTopSection(
 private fun androidx.compose.foundation.lazy.grid.LazyGridScope.dashboardItemsGridContent(
     items: List<MetricType>,
     metrics: VehicleMetrics,
+    rideElapsedMs: Long,
     isEditMode: Boolean,
     draggingItem: MetricType?,
     shakeAngle: Float,
@@ -505,6 +547,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.dashboardItemsGr
         
         StatCardWrap(
             metrics = metrics,
+            rideElapsedMs = rideElapsedMs,
             type = type,
             isEditMode = isEditMode,
             shakeAngle = shake,
@@ -646,13 +689,24 @@ fun DashboardHeader(
                     Icon(Icons.Default.Add, contentDescription = "Add", tint = MaterialTheme.colorScheme.primary)
                 }
             } else {
-                TextButton(
+                Surface(
                     onClick = onRideToggle,
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                    shape = bezierPillShape(),
+                    color = if (isRideActive) {
+                        MaterialTheme.colorScheme.errorContainer
+                    } else {
+                        MaterialTheme.colorScheme.primaryContainer
+                    }
                 ) {
                     Text(
                         text = if (isRideActive) "结束" else "开始",
-                        color = if (isRideActive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        color = if (isRideActive) {
+                            MaterialTheme.colorScheme.onErrorContainer
+                        } else {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        },
+                        style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -677,6 +731,7 @@ fun DashboardHeader(
                     )
                     Text(
                         text = rideDirectionLabel,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1
@@ -698,6 +753,7 @@ fun DashboardHeader(
 @Composable
 fun StatCardWrap(
     metrics: VehicleMetrics,
+    rideElapsedMs: Long = 0L,
     type: MetricType,
     isEditMode: Boolean,
     shakeAngle: Float,
@@ -712,7 +768,7 @@ fun StatCardWrap(
     onToggleDiscoverable: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (type == MetricType.MEDIA_CONTROL && !isEditMode) {
+    if (type == MetricType.MEDIA_CONTROL) {
         MediaControlCard(
             mediaTarget = mediaTarget,
             isHidConnected = isHidConnected,
@@ -723,39 +779,60 @@ fun StatCardWrap(
             onSetMediaTarget = onSetMediaTarget,
             onToggleDiscoverable = onToggleDiscoverable,
             shakeAngle = shakeAngle,
+            isEditMode = isEditMode,
+            onRemove = onRemove,
             modifier = modifier
         )
         return
     }
 
-    val valueStr = remember(metrics, type) {
-        formatMetricValue(type, metrics)
+    val valueStr = remember(metrics, type, rideElapsedMs) {
+        formatMetricValue(type, metrics, rideElapsedMs)
+    }
+    val secondaryText = remember(metrics, type, rideElapsedMs) {
+        dashboardSecondaryLine(type, metrics, rideElapsedMs)
     }
 
     Box(
         modifier = modifier
-            .graphicsLayer {
-                rotationZ = shakeAngle
-            }
+            .graphicsLayer { rotationZ = shakeAngle }
     ) {
-        Box(
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(105.dp)
-                .clip(bezierRoundedShape(16.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(14.dp)
+                .height(CardHeight),
+            shape = bezierRoundedShape(CardCornerRadius),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            tonalElevation = 0.5.dp
         ) {
-            Column(horizontalAlignment = Alignment.Start) {
-                Text(text = type.title, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(modifier = Modifier.weight(1f))
+            Column(
+                modifier = Modifier.padding(CardInnerPadding),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = type.title,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium
+                )
                 BaselineMetricValue(
                     value = valueStr,
                     unit = type.unit,
                     valueColor = MaterialTheme.colorScheme.onSurface,
                     unitColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    valueFontSize = 26.sp,
-                    unitFontSize = 13.sp
+                    valueFontSize = 24.sp,
+                    unitFontSize = 24.sp,
+                    valueFontWeight = FontWeight.Bold,
+                    unitFontWeight = FontWeight.Bold,
+                    singleLine = true,
+                    unitSpacing = 3.dp
+                )
+                Text(
+                    text = secondaryText.ifBlank { " " },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -764,14 +841,19 @@ fun StatCardWrap(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(8.dp)
-                    .size(24.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFB77A81))
+                    .padding(6.dp)
+                    .size(22.dp)
+                    .clip(bezierRoundedShape(7.dp))
+                    .background(MaterialTheme.colorScheme.errorContainer)
                     .clickable { onRemove() },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Remove, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(16.dp))
+                Icon(
+                    Icons.Default.Remove,
+                    contentDescription = "Remove",
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(14.dp)
+                )
             }
         }
     }
@@ -794,12 +876,16 @@ private fun DashboardStatusStrip(
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
             CompactTelemetryBadge(
                 label = "SOC",
-                value = String.format("%.0f%%", metrics.soc)
+                value = if (isControllerConnected) {
+                    String.format("%.0f%%", metrics.soc)
+                } else {
+                    "--"
+                }
             )
         }
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
             ConnectionStatusBadge(
-                label = connectionStatusLabel,
+                label = if (isControllerConnected) connectionStatusLabel else "点击连接",
                 isConnected = isControllerConnected,
                 onClick = onConnectionClick,
                 onTuningClick = onTuningClick
@@ -808,7 +894,7 @@ private fun DashboardStatusStrip(
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
             CompactTelemetryBadge(
                 label = "续航",
-                value = if (metrics.estimatedRangeKm > 0.1f) {
+                value = if (isControllerConnected && metrics.estimatedRangeKm > 0.1f) {
                     String.format("%.1f km", metrics.estimatedRangeKm)
                 } else {
                     "--"
@@ -823,88 +909,97 @@ fun SquareSpeedIndicator(
     metrics: VehicleMetrics,
     color: Color
 ) {
-    Box(
+    val animatedSpeed by animateFloatAsState(
+        targetValue = metrics.speedKmH,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "speed_anim"
+    )
+
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(160.dp) // Increased from 130
-            .clip(bezierRoundedShape(20.dp)) // Rounder
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(2.dp)
-            .clip(bezierRoundedShape(18.dp))
-            .background(MaterialTheme.colorScheme.surface),
-        contentAlignment = Alignment.Center
+            .height(SpeedAreaHeight),
+        shape = bezierRoundedShape(SpeedAreaCornerRadius),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 0.5.dp
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            // Left: Real-time Power
-            Column(
-                modifier = Modifier.weight(0.8f),
-                horizontalAlignment = Alignment.CenterHorizontally
+        Column {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = PageHorizontalPadding),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = String.format("%.2f", metrics.totalPowerW / 1000f),
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "功率 kW",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
+                // Left: Real-time Power
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = String.format("%.2f", metrics.totalPowerW / 1000f),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "功率 kW",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // Center: Speed
+                Column(
+                    modifier = Modifier.weight(1.6f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    BaselineMetricValue(
+                        value = String.format("%.0f", animatedSpeed),
+                        unit = "",
+                        valueColor = color,
+                        unitColor = Color.Transparent,
+                        valueFontSize = 64.sp,
+                        unitFontSize = 14.sp,
+                        valueFontWeight = FontWeight.Black,
+                        valueLineHeight = 64.sp,
+                        horizontalArrangement = Arrangement.Center,
+                        textAlign = TextAlign.Center,
+                        singleLine = true
+                    )
+                }
+
+                // Right: Avg Efficiency
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = String.format("%.1f", metrics.avgEfficiencyWhKm),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "平均 Wh/km",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
-            // Center: Speed
-            Column(
-                modifier = Modifier.weight(1.5f), // Slightly more weight for speed
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                BaselineMetricValue(
-                    value = String.format("%.0f", metrics.speedKmH),
-                    unit = "",
-                    valueColor = color,
-                    unitColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    valueFontSize = 74.sp,
-                    unitFontSize = 14.sp,
-                    valueFontWeight = FontWeight.Black,
-                    unitFontWeight = FontWeight.Bold,
-                    valueLineHeight = 74.sp,
-                    horizontalArrangement = Arrangement.Center,
-                    textAlign = TextAlign.Center,
-                    singleLine = true
-                )
-            }
-
-            // Right: Avg Efficiency
-            Column(
-                modifier = Modifier.weight(0.8f),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = String.format("%.1f", metrics.avgEfficiencyWhKm),
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "平均 Wh/km",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
-            }
+            PowerBalanceBar(
+                powerKw = metrics.totalPowerW / 1000f,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = CardInnerPadding, vertical = 8.dp)
+                    .height(6.dp)
+            )
         }
-        
-        PowerBalanceBar(
-            powerKw = metrics.totalPowerW / 1000f,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(horizontal = 2.dp, vertical = 0.dp)
-                .height(7.dp)
-        )
     }
 }
 
@@ -915,18 +1010,18 @@ private fun CompactTelemetryBadge(label: String, value: String) {
         shape = bezierPillShape()
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = label,
-                fontSize = 10.sp,
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
                 text = value,
-                fontSize = 11.sp,
+                style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -951,8 +1046,8 @@ private fun ConnectionStatusBadge(
         onClick = onClick
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -1434,7 +1529,7 @@ private fun ImmersiveHighlightCard(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(text = label, style = TextStyle(fontSize = 12.sp), color = Color.White.copy(alpha = 0.56f))
+            Text(text = label, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.56f))
             Spacer(modifier = Modifier.height(6.dp))
             BaselineMetricValue(
                 value = value,
@@ -1500,8 +1595,11 @@ fun BaselineMetricValue(
     horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
     textAlign: TextAlign? = null,
     singleLine: Boolean = false,
-    unitSpacing: androidx.compose.ui.unit.Dp = 4.dp
+    unitSpacing: androidx.compose.ui.unit.Dp = 4.dp,
+    unitMatchesValueStyle: Boolean = false
 ) {
+    val resolvedUnitFontSize = if (unitMatchesValueStyle) valueFontSize else unitFontSize
+    val resolvedUnitFontWeight = if (unitMatchesValueStyle) valueFontWeight else unitFontWeight
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.Bottom,
@@ -1524,8 +1622,8 @@ fun BaselineMetricValue(
             Text(
                 text = unit,
                 color = unitColor,
-                fontSize = unitFontSize,
-                fontWeight = unitFontWeight,
+                fontSize = resolvedUnitFontSize,
+                fontWeight = resolvedUnitFontWeight,
                 textAlign = textAlign,
                 maxLines = 1,
                 overflow = TextOverflow.Visible,
@@ -1554,38 +1652,43 @@ fun MediaControlCard(
     onSetMediaTarget: (com.shawnrain.sdash.MediaTarget) -> Unit,
     onToggleDiscoverable: () -> Unit,
     shakeAngle: Float,
+    isEditMode: Boolean = false,
+    onRemove: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
             .graphicsLayer { rotationZ = shakeAngle }
     ) {
-        Box(
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(105.dp)
-                .clip(bezierRoundedShape(16.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(12.dp),
-            contentAlignment = Alignment.Center
+                .height(CardHeight),
+            shape = bezierRoundedShape(CardCornerRadius),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            tonalElevation = 0.5.dp
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     AnimatedMediaButton(
                         onClick = { onMediaAction(com.shawnrain.sdash.MediaAction.PREVIOUS) },
                         icon = Icons.Default.SkipPrevious,
                         contentDescription = "上一个",
-                        size = 36.dp
+                        size = 30.dp
                     )
                     
                     AnimatedMediaButton(
                         onClick = { onMediaAction(com.shawnrain.sdash.MediaAction.PLAY_PAUSE) },
-                        icon = Icons.Default.PlayArrow, // TODO: Update based on actual state if available
+                        icon = Icons.Default.PlayArrow,
                         contentDescription = "播放暂停",
-                        size = 48.dp,
+                        size = 40.dp,
                         isPrimary = true
                     )
 
@@ -1593,12 +1696,10 @@ fun MediaControlCard(
                         onClick = { onMediaAction(com.shawnrain.sdash.MediaAction.NEXT) },
                         icon = Icons.Default.SkipNext,
                         contentDescription = "下一个",
-                        size = 36.dp
+                        size = 30.dp
                     )
                 }
-                
-                Spacer(modifier = Modifier.height(6.dp))
-                
+
                 // Device Switcher
                 Surface(
                     onClick = {
@@ -1608,36 +1709,56 @@ fun MediaControlCard(
                             else com.shawnrain.sdash.MediaTarget.SYSTEM
                         )
                     },
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+                    shape = bezierPillShape(),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(
                             imageVector = if (mediaTarget == com.shawnrain.sdash.MediaTarget.SYSTEM)
                                 Icons.Default.SettingsInputAntenna else Icons.Default.BluetoothConnected,
                             contentDescription = null,
-                            modifier = Modifier.size(12.dp),
+                            modifier = Modifier.size(11.dp),
                             tint = if (mediaTarget == com.shawnrain.sdash.MediaTarget.REMOTE && isHidSubscribed)
                                 Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = when {
                                 mediaTarget == com.shawnrain.sdash.MediaTarget.SYSTEM -> "控制: 手机转发"
                                 isHidSubscribed -> "控制: 模拟遥控"
-                                isHidConnected -> "控制: 模拟遥控 (配对中...)"
-                                else -> "控制: 模拟遥控 (等待...)"
+                                isHidConnected -> "控制: 配对中..."
+                                else -> "控制: 等待..."
                             },
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
                             color = if (mediaTarget == com.shawnrain.sdash.MediaTarget.REMOTE && isHidSubscribed)
                                 Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
                         )
                     }
                 }
+            }
+        }
+
+        if (isEditMode) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(22.dp)
+                    .clip(bezierRoundedShape(7.dp))
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .clickable { onRemove() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Remove,
+                    contentDescription = "Remove",
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(14.dp)
+                )
             }
         }
     }

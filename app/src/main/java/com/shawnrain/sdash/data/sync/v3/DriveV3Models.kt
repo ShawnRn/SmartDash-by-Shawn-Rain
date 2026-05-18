@@ -9,6 +9,7 @@ data class DriveV3Manifest(
     val updatedByDeviceId: String,
     val updatedByDeviceName: String,
     val settingsEntry: String = "v3/settings/current.json.enc",
+    val settingsFingerprint: String = "",
     val entities: List<DriveV3EntityRef> = emptyList(),
     val counters: DriveV3Counters = DriveV3Counters()
 )

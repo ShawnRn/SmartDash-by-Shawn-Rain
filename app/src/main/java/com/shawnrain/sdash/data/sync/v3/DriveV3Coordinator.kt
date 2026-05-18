@@ -170,6 +170,11 @@ class DriveV3Coordinator(
         val stateVersion = maxOf(metadata.localStateVersion, metadata.lastPushedLocalVersion) + 1
         val now = System.currentTimeMillis()
         val password = deriveEncryptionPassword()
+        val remoteManifest = entityStore.fetchManifest()
+        val remoteRefs = remoteManifest
+            ?.entities
+            .orEmpty()
+            .associateBy { "${it.type}:${it.id}" }
         val refs = mutableListOf<DriveV3EntityRef>()
         var uploadedEntities = 0
 
@@ -184,38 +189,45 @@ class DriveV3Coordinator(
             uploadedEntities += 1
         }
 
-        uploadEncrypted(
-            SETTINGS_ENTRY,
-            settingsRepository.exportSettingsBackupJson(excludeLegacyRideHistory = true).toByteArray(Charsets.UTF_8)
-        )
+        val settingsPayload = stableSettingsPayloadBytes()
+        val settingsFingerprint = sha256(settingsPayload)
+        if (remoteManifest?.settingsFingerprint != settingsFingerprint) {
+            uploadEncrypted(SETTINGS_ENTRY, settingsPayload)
+        }
 
         val profiles = settingsRepository.vehicleProfilesSnapshot()
         profiles.forEach { profile ->
             val payload = profile.toJson().toString().toByteArray(Charsets.UTF_8)
+            val fingerprint = sha256(payload)
             val entry = DriveV3EntityRef(
                 type = ENTITY_VEHICLE_PROFILE,
                 id = profile.id,
                 vehicleId = profile.id,
                 entryName = vehicleProfileEntry(profile.id),
                 updatedAt = profile.lastModified.takeIf { it > 0L } ?: now,
-                fingerprint = sha256(payload)
+                fingerprint = fingerprint
             )
-            uploadEncrypted(entry.entryName, payload)
+            if (!remoteRefMatches(remoteRefs, entry)) {
+                uploadEncrypted(entry.entryName, payload)
+            }
             refs += entry
         }
 
         val bindings = settingsRepository.controllerBindingsSnapshot()
         bindings.forEach { binding ->
             val payload = binding.toJson().toString().toByteArray(Charsets.UTF_8)
+            val fingerprint = sha256(payload)
             val entry = DriveV3EntityRef(
                 type = ENTITY_CONTROLLER_BINDING,
                 id = binding.vehicleId,
                 vehicleId = binding.vehicleId,
                 entryName = controllerBindingEntry(binding.vehicleId),
                 updatedAt = maxOf(binding.verifiedAt, binding.lastConnectedAt),
-                fingerprint = sha256(payload)
+                fingerprint = fingerprint
             )
-            uploadEncrypted(entry.entryName, payload)
+            if (!remoteRefMatches(remoteRefs, entry)) {
+                uploadEncrypted(entry.entryName, payload)
+            }
             refs += entry
         }
 
@@ -234,7 +246,9 @@ class DriveV3Coordinator(
                 updatedAt = record.timestampMs,
                 fingerprint = sha256(payload)
             )
-            uploadEncrypted(entry.entryName, payload)
+            if (!remoteRefMatches(remoteRefs, entry)) {
+                uploadEncrypted(entry.entryName, payload)
+            }
             refs += entry
         }
 
@@ -253,7 +267,9 @@ class DriveV3Coordinator(
                 updatedAt = summary.updatedAt,
                 fingerprint = summary.detailFingerprint.ifBlank { sha256(payload) }
             )
-            uploadEncrypted(entry.entryName, payload)
+            if (!remoteRefMatches(remoteRefs, entry)) {
+                uploadEncrypted(entry.entryName, payload)
+            }
             refs += entry
         }
 
@@ -263,6 +279,7 @@ class DriveV3Coordinator(
             updatedByDeviceId = metadata.deviceId,
             updatedByDeviceName = metadata.deviceName,
             settingsEntry = SETTINGS_ENTRY,
+            settingsFingerprint = settingsFingerprint,
             entities = refs,
             counters = DriveV3Counters(
                 vehicleProfileCount = profiles.size,
@@ -288,6 +305,24 @@ class DriveV3Coordinator(
             controllerBindingCount = bindings.size,
             speedTestCount = speedTests.size
         )
+    }
+
+    private suspend fun stableSettingsPayloadBytes(): ByteArray {
+        val raw = settingsRepository.exportSettingsBackupJson(excludeLegacyRideHistory = true)
+        val root = JSONObject(raw)
+        root.put("exportedAt", 0L)
+        return root.toString().toByteArray(Charsets.UTF_8)
+    }
+
+    private fun remoteRefMatches(
+        remoteRefs: Map<String, DriveV3EntityRef>,
+        local: DriveV3EntityRef
+    ): Boolean {
+        val remote = remoteRefs["${local.type}:${local.id}"] ?: return false
+        return remote.deletedAt == 0L &&
+            remote.entryName == local.entryName &&
+            remote.fingerprint.isNotBlank() &&
+            remote.fingerprint == local.fingerprint
     }
 
     private fun safeToken(value: String): String =

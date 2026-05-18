@@ -133,6 +133,19 @@ class SettingsRepository(private val context: Context) {
         val AUTO_RIDE_STOP_DELAY_SECONDS = intPreferencesKey("auto_ride_stop_delay_seconds")
         val RIDE_HISTORY_NORMALIZATION_VERSION = intPreferencesKey("ride_history_normalization_version")
         val RIDE_HISTORY_STORAGE_MIGRATION_VERSION = intPreferencesKey("ride_history_storage_migration_version")
+        private val DEFAULT_DASHBOARD_ITEMS = listOf(
+            MetricType.SOC,
+            MetricType.RANGE,
+            MetricType.POWER,
+            MetricType.ELAPSED_TIME,
+            MetricType.MEDIA_CONTROL
+        )
+        private val FALLBACK_DASHBOARD_ITEMS = listOf(
+            MetricType.SOC,
+            MetricType.RANGE,
+            MetricType.POWER,
+            MetricType.ELAPSED_TIME
+        )
 
         private fun syncMetaName(name: String): String = "$SYNC_META_PREFIX$name"
         private fun syncMetaKey(name: String) = longPreferencesKey(syncMetaName(name))
@@ -308,19 +321,10 @@ class SettingsRepository(private val context: Context) {
     val dashboardItems: Flow<List<MetricType>> = currentVehicleId.flatMapLatest { id ->
         preferencesFlow.map { pref ->
             val raw = pref.safeGet(vKey(id, K_DASH_ITEMS))
-            val resolved = if (raw.isNullOrEmpty()) {
-                listOf(
-                    MetricType.SOC,
-                    MetricType.RANGE,
-                    MetricType.POWER,
-                    MetricType.ELAPSED_TIME,
-                    MetricType.MEDIA_CONTROL
-                )
+            if (raw == null) {
+                DEFAULT_DASHBOARD_ITEMS
             } else {
-                raw.split(",").mapNotNull { try { MetricType.valueOf(it) } catch (e: Exception) { null } }
-            }
-            resolved.ifEmpty {
-                listOf(MetricType.SOC, MetricType.RANGE, MetricType.POWER, MetricType.ELAPSED_TIME)
+                normalizeDashboardItems(parseMetricTypes(raw))
             }
         }
     }
@@ -568,8 +572,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveDashboardItems(items: List<MetricType>) {
         val id = currentVehicleId.first()
+        val normalized = normalizeDashboardItems(items)
         context.dataStore.edit {
-            it[vKey(id, K_DASH_ITEMS)] = items.joinToString(",") { item -> item.name }
+            it[vKey(id, K_DASH_ITEMS)] = normalized.joinToString(",") { item -> item.name }
             markSyncedAt(it, "v_${id}_$K_DASH_ITEMS")
         }
     }
@@ -582,12 +587,10 @@ class SettingsRepository(private val context: Context) {
                 return@edit
             }
             val raw = pref.safeGet(vKey(vehicleId, K_DASH_ITEMS))
-            val currentItems = if (raw.isNullOrEmpty()) {
-                listOf(MetricType.SOC, MetricType.RANGE, MetricType.POWER, MetricType.ELAPSED_TIME, MetricType.MEDIA_CONTROL)
+            val currentItems = if (raw == null) {
+                DEFAULT_DASHBOARD_ITEMS
             } else {
-                raw.split(",").mapNotNull { token ->
-                    runCatching { MetricType.valueOf(token) }.getOrNull()
-                }
+                normalizeDashboardItems(parseMetricTypes(raw))
             }
             if (MetricType.ELAPSED_TIME !in currentItems) {
                 pref[vKey(vehicleId, K_DASH_ITEMS)] = (currentItems + MetricType.ELAPSED_TIME)
@@ -765,7 +768,7 @@ class SettingsRepository(private val context: Context) {
                         ?: pref.safeGet(vKey(vehicleId, K_LAST_CONTROLLER_PROTOCOL_ID)).orEmpty(),
                     controllerAutoConnectEnabled = binding?.autoConnectEnabled ?: true,
                     controllerUserConfirmed = binding?.userConfirmed ?: false,
-                    dashboardItems = parseMetricNames(pref.safeGet(vKey(vehicleId, K_DASH_ITEMS))),
+                    dashboardItems = dashboardItemNamesForSync(pref.safeGet(vKey(vehicleId, K_DASH_ITEMS))),
                     rideOverviewItems = parseMetricNames(pref.safeGet(vKey(vehicleId, K_RIDE_OVERVIEW_ITEMS))),
                     updatedAt = updatedAt,
                     updatedByDeviceId = deviceId
@@ -1029,7 +1032,7 @@ class SettingsRepository(private val context: Context) {
         } else {
             pref.remove(vKey(vehicleId, K_LAST_CONTROLLER_PROTOCOL_ID))
         }
-        pref[vKey(vehicleId, K_DASH_ITEMS)] = snapshot.dashboardItems.joinToString(",")
+        pref[vKey(vehicleId, K_DASH_ITEMS)] = normalizeDashboardNames(snapshot.dashboardItems).joinToString(",")
         pref[vKey(vehicleId, K_RIDE_OVERVIEW_ITEMS)] = snapshot.rideOverviewItems.joinToString(",")
         markSyncedAt(
             pref,
@@ -1108,6 +1111,29 @@ class SettingsRepository(private val context: Context) {
             .split(',')
             .map { it.trim() }
             .filter { it.isNotBlank() }
+
+    private fun parseMetricTypes(raw: String?): List<MetricType> =
+        parseMetricNames(raw).mapNotNull { token ->
+            runCatching { MetricType.valueOf(token) }.getOrNull()
+        }
+
+    private fun metricTypesFromNames(names: List<String>): List<MetricType> =
+        names.mapNotNull { token ->
+            runCatching { MetricType.valueOf(token.trim()) }.getOrNull()
+        }
+
+    private fun normalizeDashboardItems(items: List<MetricType>): List<MetricType> =
+        items.distinct().ifEmpty { FALLBACK_DASHBOARD_ITEMS }
+
+    private fun normalizeDashboardNames(names: List<String>): List<String> =
+        normalizeDashboardItems(metricTypesFromNames(names)).map { it.name }
+
+    private fun dashboardItemNamesForSync(raw: String?): List<String> =
+        if (raw == null) {
+            DEFAULT_DASHBOARD_ITEMS.map { it.name }
+        } else {
+            normalizeDashboardItems(parseMetricTypes(raw)).map { it.name }
+        }
 
     private fun SyncVehicleProfileSnapshot.toVehicleProfile(): VehicleProfile = normalizedProfile(
         VehicleProfile(

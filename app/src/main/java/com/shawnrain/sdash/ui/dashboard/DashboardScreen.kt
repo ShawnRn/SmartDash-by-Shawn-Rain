@@ -205,11 +205,43 @@ fun DashboardScreen(
     val displayedDashboardItems = remember { mutableStateListOf<MetricType>() }
     val gridItems = if (isEditMode || draggingItem != null) displayedDashboardItems else dashboardItems
 
-    // Only sync from ViewModel when ENTERING edit mode (not on every dashboardItems change)
-    LaunchedEffect(isEditMode) {
-        if (isEditMode) {
-            displayedDashboardItems.clear()
-            displayedDashboardItems.addAll(dashboardItems)
+    fun replaceDashboardDraft(items: List<MetricType>) {
+        displayedDashboardItems.clear()
+        displayedDashboardItems.addAll(items.distinct())
+    }
+
+    fun enterDashboardEditMode() {
+        replaceDashboardDraft(dashboardItems)
+        isEditMode = true
+    }
+
+    fun saveDashboardDraft() {
+        val draft = displayedDashboardItems.distinct()
+        if (draft.isNotEmpty()) {
+            replaceDashboardDraft(draft)
+            viewModel.saveDashboardItems(draft)
+        } else {
+            replaceDashboardDraft(dashboardItems)
+        }
+        draggingItem = null
+        dragOffset = Offset.Zero
+        dragStartBounds = null
+        itemBounds.clear()
+        isEditMode = false
+    }
+
+    fun discardDashboardDraft() {
+        replaceDashboardDraft(dashboardItems)
+        draggingItem = null
+        dragOffset = Offset.Zero
+        dragStartBounds = null
+        itemBounds.clear()
+        isEditMode = false
+    }
+
+    LaunchedEffect(dashboardItems, isEditMode) {
+        if (!isEditMode) {
+            replaceDashboardDraft(dashboardItems)
         }
     }
 
@@ -251,7 +283,7 @@ fun DashboardScreen(
 
     if (isEditMode) {
         BackHandler {
-            isEditMode = false
+            discardDashboardDraft()
         }
     }
 
@@ -294,7 +326,13 @@ fun DashboardScreen(
                     isEditMode = isEditMode,
                     isRideActive = isRideActive,
                     rideDirectionLabel = rideDirectionLabel,
-                    onEditModeToggle = { isEditMode = it },
+                    onEditModeToggle = { editing ->
+                        if (editing) {
+                            enterDashboardEditMode()
+                        } else {
+                            saveDashboardDraft()
+                        }
+                    },
                     onAddClick = { showAddPicker = true },
                     onRideToggle = { viewModel.toggleRideTracking() }
                 )
@@ -347,9 +385,10 @@ fun DashboardScreen(
                         isHidSupported = isHidSupported,
                         isHogpActive = isHogpActive,
                         onMove = { from, to ->
-                            val moved = displayedDashboardItems.removeAt(from)
-                            displayedDashboardItems.add(to, moved)
-                            viewModel.moveDashboardItem(from, to)
+                            if (from in displayedDashboardItems.indices && to in displayedDashboardItems.indices && from != to) {
+                                val moved = displayedDashboardItems.removeAt(from)
+                                displayedDashboardItems.add(to, moved)
+                            }
                             val now = SystemClock.elapsedRealtime()
                             if (now - lastReorderHapticAt >= 110L) {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -357,12 +396,13 @@ fun DashboardScreen(
                             }
                         },
                         onRemove = { idx ->
-                            displayedDashboardItems.removeAt(idx)
-                            viewModel.removeDashboardItem(idx)
+                            if (idx in displayedDashboardItems.indices && displayedDashboardItems.size > 1) {
+                                displayedDashboardItems.removeAt(idx)
+                            }
                         },
                         onEnterEditMode = {
                             if (!isEditMode) {
-                                isEditMode = true
+                                enterDashboardEditMode()
                             }
                         },
                         onDragStart = { type ->
@@ -404,7 +444,7 @@ fun DashboardScreen(
                 ) {
                     Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
                         Text("添加数据模块", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 16.dp))
-                        val available = MetricType.entries.filter { it !in gridItems }
+                        val available = MetricType.entries.filter { it !in displayedDashboardItems }
                         if (available.isEmpty()) {
                             Text("所有支持的数据模块均已添加", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
                         } else {
@@ -418,8 +458,9 @@ fun DashboardScreen(
                                     tonalElevation = 0.5.dp,
                                     onClick = {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        displayedDashboardItems.add(type)
-                                        viewModel.addDashboardItem(type)
+                                        if (type !in displayedDashboardItems) {
+                                            displayedDashboardItems.add(type)
+                                        }
                                         showAddPicker = false
                                     }
                                 ) {

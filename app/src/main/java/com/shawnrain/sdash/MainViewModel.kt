@@ -3667,40 +3667,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return String.format(Locale.getDefault(), "%.2f s", durationMs / 1000f)
     }
 
-    fun addDashboardItem(type: com.shawnrain.sdash.data.MetricType) {
-        val current = _dashboardItems.value.toMutableList()
-        current.add(type)
-        _dashboardItems.value = current
+    fun saveDashboardItems(items: List<com.shawnrain.sdash.data.MetricType>) {
+        val normalized = normalizeDashboardItems(items)
+        _dashboardItems.value = normalized
         viewModelScope.launch {
-            settingsRepository.saveDashboardItems(current)
+            settingsRepository.saveDashboardItems(normalized)
             syncScheduler.onSettingsChanged()
         }
     }
 
+    fun addDashboardItem(type: com.shawnrain.sdash.data.MetricType) {
+        if (type in _dashboardItems.value) return
+        saveDashboardItems(_dashboardItems.value + type)
+    }
+
     fun removeDashboardItem(index: Int) {
         val current = _dashboardItems.value.toMutableList()
-        if (index in current.indices) {
-            current.removeAt(index)
-            _dashboardItems.value = current
-            viewModelScope.launch {
-                settingsRepository.saveDashboardItems(current)
-                syncScheduler.onSettingsChanged()
-            }
-        }
+        if (index !in current.indices || current.size <= 1) return
+        current.removeAt(index)
+        saveDashboardItems(current)
     }
 
     fun moveDashboardItem(from: Int, to: Int) {
         val current = _dashboardItems.value.toMutableList()
-        if (from in current.indices && to in current.indices) {
-            val item = current.removeAt(from)
-            current.add(to, item)
-            _dashboardItems.value = current // Immediate UI update
-            
-            // Persist in background
-            viewModelScope.launch {
-                settingsRepository.saveDashboardItems(current)
-                syncScheduler.onSettingsChanged()
-            }
+        if (from !in current.indices || to !in current.indices || from == to) return
+        val item = current.removeAt(from)
+        current.add(to, item)
+        saveDashboardItems(current)
+    }
+
+    private fun normalizeDashboardItems(
+        items: List<com.shawnrain.sdash.data.MetricType>
+    ): List<com.shawnrain.sdash.data.MetricType> {
+        return items.distinct().ifEmpty {
+            listOf(
+                com.shawnrain.sdash.data.MetricType.SOC,
+                com.shawnrain.sdash.data.MetricType.RANGE,
+                com.shawnrain.sdash.data.MetricType.POWER,
+                com.shawnrain.sdash.data.MetricType.ELAPSED_TIME
+            )
         }
     }
 

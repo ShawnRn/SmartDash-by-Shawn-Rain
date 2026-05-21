@@ -32,6 +32,9 @@ interface RideHistoryDao {
     @Query("SELECT * FROM ride_history_detail WHERE rideId = :rideId LIMIT 1")
     suspend fun getDetail(rideId: String): RideHistoryDetailEntity?
 
+    @Query("SELECT * FROM ride_history_summary WHERE id = :rideId LIMIT 1")
+    suspend fun getSummary(rideId: String): RideHistorySummaryEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertSummary(entity: RideHistorySummaryEntity)
 

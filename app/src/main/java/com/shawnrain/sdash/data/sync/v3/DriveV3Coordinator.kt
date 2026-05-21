@@ -174,31 +174,57 @@ class DriveV3Coordinator(
         val remoteRefs = remoteManifest
             ?.entities
             .orEmpty()
-            .associateBy { "${it.type}:${it.id}" }
+            .associateBy(::entityKey)
         val refs = mutableListOf<DriveV3EntityRef>()
         var uploadedEntities = 0
 
-        suspend fun uploadEncrypted(entryName: String, payload: ByteArray) {
+        suspend fun uploadEncrypted(
+            entryName: String,
+            payload: ByteArray,
+            existingRef: DriveV3EntityRef? = null
+        ): String {
             val encrypted = EncryptionService.encryptWithPassword(
                 plainText = payload,
                 password = password,
                 salt = EncryptionService.generateSalt(),
                 version = EncryptionService.VERSION_PASSWORD_RANDOM_SALT_GZIP
             )
-            entityStore.uploadEntity(entryName, encrypted.toJson().toByteArray(Charsets.UTF_8))
+            val uploadedFileId = entityStore.uploadEntity(
+                entryName = entryName,
+                payload = encrypted.toJson().toByteArray(Charsets.UTF_8),
+                existingFileId = existingRef?.fileId?.takeIf { it.isNotBlank() },
+                skipLookup = existingRef == null
+            )
             uploadedEntities += 1
+            return uploadedFileId
         }
 
         val settingsPayload = stableSettingsPayloadBytes()
         val settingsFingerprint = sha256(settingsPayload)
-        if (remoteManifest?.settingsFingerprint != settingsFingerprint) {
-            uploadEncrypted(SETTINGS_ENTRY, settingsPayload)
+        val settingsFileId = if (remoteManifest?.settingsFingerprint != settingsFingerprint) {
+            entityStore.uploadEntity(
+                entryName = SETTINGS_ENTRY,
+                payload = EncryptionService.encryptWithPassword(
+                    plainText = settingsPayload,
+                    password = password,
+                    salt = EncryptionService.generateSalt(),
+                    version = EncryptionService.VERSION_PASSWORD_RANDOM_SALT_GZIP
+                ).toJson().toByteArray(Charsets.UTF_8),
+                existingFileId = remoteManifest?.settingsFileId?.takeIf { it.isNotBlank() },
+                skipLookup = remoteManifest == null
+            ).also {
+                uploadedEntities += 1
+            }
+        } else {
+            remoteManifest.settingsFileId
         }
 
         val profiles = settingsRepository.vehicleProfilesSnapshot()
         profiles.forEach { profile ->
             val payload = profile.toJson().toString().toByteArray(Charsets.UTF_8)
             val fingerprint = sha256(payload)
+            val key = entityKey(ENTITY_VEHICLE_PROFILE, profile.id)
+            val remoteRef = remoteRefs[key]
             val entry = DriveV3EntityRef(
                 type = ENTITY_VEHICLE_PROFILE,
                 id = profile.id,
@@ -207,16 +233,19 @@ class DriveV3Coordinator(
                 updatedAt = profile.lastModified.takeIf { it > 0L } ?: now,
                 fingerprint = fingerprint
             )
-            if (!remoteRefMatches(remoteRefs, entry)) {
-                uploadEncrypted(entry.entryName, payload)
+            refs += if (!remoteRefMatches(remoteRefs, entry)) {
+                entry.copy(fileId = uploadEncrypted(entry.entryName, payload, remoteRef))
+            } else {
+                entry.copy(fileId = remoteRef?.fileId.orEmpty())
             }
-            refs += entry
         }
 
         val bindings = settingsRepository.controllerBindingsSnapshot()
         bindings.forEach { binding ->
             val payload = binding.toJson().toString().toByteArray(Charsets.UTF_8)
             val fingerprint = sha256(payload)
+            val key = entityKey(ENTITY_CONTROLLER_BINDING, binding.vehicleId)
+            val remoteRef = remoteRefs[key]
             val entry = DriveV3EntityRef(
                 type = ENTITY_CONTROLLER_BINDING,
                 id = binding.vehicleId,
@@ -225,10 +254,11 @@ class DriveV3Coordinator(
                 updatedAt = maxOf(binding.verifiedAt, binding.lastConnectedAt),
                 fingerprint = fingerprint
             )
-            if (!remoteRefMatches(remoteRefs, entry)) {
-                uploadEncrypted(entry.entryName, payload)
+            refs += if (!remoteRefMatches(remoteRefs, entry)) {
+                entry.copy(fileId = uploadEncrypted(entry.entryName, payload, remoteRef))
+            } else {
+                entry.copy(fileId = remoteRef?.fileId.orEmpty())
             }
-            refs += entry
         }
 
         val activeVehicleId = settingsRepository.currentVehicleId.first()
@@ -238,6 +268,8 @@ class DriveV3Coordinator(
                 .put("vehicleId", activeVehicleId)
                 .put("updatedAt", record.timestampMs)
             val payload = payloadJson.toString().toByteArray(Charsets.UTF_8)
+            val key = entityKey(ENTITY_SPEED_TEST, record.id)
+            val remoteRef = remoteRefs[key]
             val entry = DriveV3EntityRef(
                 type = ENTITY_SPEED_TEST,
                 id = record.id,
@@ -246,31 +278,39 @@ class DriveV3Coordinator(
                 updatedAt = record.timestampMs,
                 fingerprint = sha256(payload)
             )
-            if (!remoteRefMatches(remoteRefs, entry)) {
-                uploadEncrypted(entry.entryName, payload)
+            refs += if (!remoteRefMatches(remoteRefs, entry)) {
+                entry.copy(fileId = uploadEncrypted(entry.entryName, payload, remoteRef))
+            } else {
+                entry.copy(fileId = remoteRef?.fileId.orEmpty())
             }
-            refs += entry
         }
 
         val rideSummaries = rideHistoryRepository.listRideHistorySummaries()
         rideSummaries.forEach { summary ->
-            val record = rideHistoryRepository.loadRideRecord(summary.id) ?: return@forEach
-            val payloadJson = record.toJson()
-                .put("vehicleId", summary.vehicleId)
-                .put("updatedAt", summary.updatedAt)
-            val payload = payloadJson.toString().toByteArray(Charsets.UTF_8)
+            val key = entityKey(ENTITY_RIDE, summary.id)
+            val remoteRef = remoteRefs[key]
             val entry = DriveV3EntityRef(
                 type = ENTITY_RIDE,
                 id = summary.id,
                 vehicleId = summary.vehicleId,
                 entryName = rideEntry(summary.vehicleId, summary.id),
                 updatedAt = summary.updatedAt,
-                fingerprint = summary.detailFingerprint.ifBlank { sha256(payload) }
+                fingerprint = summary.detailFingerprint
             )
-            if (!remoteRefMatches(remoteRefs, entry)) {
-                uploadEncrypted(entry.entryName, payload)
+            refs += if (!remoteRefMatches(remoteRefs, entry)) {
+                val record = rideHistoryRepository.loadRideRecord(summary.id) ?: return@forEach
+                val payloadJson = record.toJson()
+                    .put("vehicleId", summary.vehicleId)
+                    .put("updatedAt", summary.updatedAt)
+                val payload = payloadJson.toString().toByteArray(Charsets.UTF_8)
+                val resolvedFingerprint = entry.fingerprint.ifBlank { sha256(payload) }
+                entry.copy(
+                    fingerprint = resolvedFingerprint,
+                    fileId = uploadEncrypted(entry.entryName, payload, remoteRef)
+                )
+            } else {
+                entry.copy(fileId = remoteRef?.fileId.orEmpty())
             }
-            refs += entry
         }
 
         val manifest = DriveV3Manifest(
@@ -279,6 +319,7 @@ class DriveV3Coordinator(
             updatedByDeviceId = metadata.deviceId,
             updatedByDeviceName = metadata.deviceName,
             settingsEntry = SETTINGS_ENTRY,
+            settingsFileId = settingsFileId,
             settingsFingerprint = settingsFingerprint,
             entities = refs,
             counters = DriveV3Counters(
@@ -318,12 +359,16 @@ class DriveV3Coordinator(
         remoteRefs: Map<String, DriveV3EntityRef>,
         local: DriveV3EntityRef
     ): Boolean {
-        val remote = remoteRefs["${local.type}:${local.id}"] ?: return false
+        val remote = remoteRefs[entityKey(local)] ?: return false
         return remote.deletedAt == 0L &&
             remote.entryName == local.entryName &&
             remote.fingerprint.isNotBlank() &&
             remote.fingerprint == local.fingerprint
     }
+
+    private fun entityKey(type: String, id: String): String = "$type:$id"
+
+    private fun entityKey(ref: DriveV3EntityRef): String = entityKey(ref.type, ref.id)
 
     private fun safeToken(value: String): String =
         Base64.getUrlEncoder().withoutPadding().encodeToString(value.toByteArray(Charsets.UTF_8))

@@ -9,6 +9,7 @@ data class DriveV3Manifest(
     val updatedByDeviceId: String,
     val updatedByDeviceName: String,
     val settingsEntry: String = "v3/settings/current.json.enc",
+    val settingsFileId: String = "",
     val settingsFingerprint: String = "",
     val entities: List<DriveV3EntityRef> = emptyList(),
     val counters: DriveV3Counters = DriveV3Counters()
@@ -20,6 +21,7 @@ data class DriveV3EntityRef(
     val id: String,
     val vehicleId: String = "",
     val entryName: String,
+    val fileId: String = "",
     val updatedAt: Long,
     val fingerprint: String = "",
     val deletedAt: Long = 0L

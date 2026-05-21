@@ -22,6 +22,7 @@ import com.shawnrain.sdash.data.sync.SyncTriggerReason
 import com.shawnrain.sdash.data.sync.v3.DriveEntityStore
 import com.shawnrain.sdash.data.sync.v3.DriveV3Coordinator
 import com.shawnrain.sdash.data.sync.v3.DriveV3LegacyMigrator
+import com.shawnrain.sdash.data.sync.v3.DriveV3SyncGate
 import com.shawnrain.sdash.debug.AppLogger
 import java.util.concurrent.TimeUnit
 
@@ -122,7 +123,9 @@ class DrivePullWorker(
                 )
                 return Result.success()
             }
-            val publish = v3Coordinator.publishFullSnapshot()
+            val publish = DriveV3SyncGate.withLock {
+                v3Coordinator.publishFullSnapshot()
+            }
             AppLogger.i(
                 TAG,
                 "Worker migrated legacy sync to V3: entities=${publish.uploadedEntityCount} " +

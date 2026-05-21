@@ -5,6 +5,7 @@ import android.os.Build
 import androidx.core.content.pm.PackageInfoCompat
 import com.shawnrain.sdash.debug.AppLogger
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -15,13 +16,21 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.ConnectionPool
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
+import java.io.EOFException
+import java.io.IOException
+import java.net.SocketTimeoutException
+import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
+import javax.net.ssl.SSLException
+import javax.net.ssl.SSLHandshakeException
 
 /**
  * Manages Google Drive backup operations using the Drive REST API.
@@ -37,10 +46,23 @@ class GoogleDriveSyncManager(private val context: Context) {
         private const val METADATA_FILE_NAME = "habe_metadata.json"
         private const val BACKUP_MIME_TYPE = "application/octet-stream"
         private const val MANIFEST_MIME_TYPE = "application/json"
+        private const val DRIVE_TOKEN_CACHE_MS = 50L * 60L * 1000L
+        private const val DRIVE_CONNECT_TIMEOUT_SECONDS = 20L
+        private const val DRIVE_READ_TIMEOUT_SECONDS = 60L
+        private const val DRIVE_WRITE_TIMEOUT_SECONDS = 60L
+        private const val DRIVE_CALL_TIMEOUT_SECONDS = 90L
+        private const val DRIVE_TRANSIENT_RETRY_COUNT = 3
+        private const val DRIVE_RETRY_BASE_DELAY_MS = 700L
+        private const val DRIVE_PRUNE_MAX_DELETES_PER_RUN = 3
         private val appDataMutationMutex = Mutex()
     }
 
     private val auth = GoogleDriveAuth(context)
+    private val tokenCacheMutex = Mutex()
+    @Volatile
+    private var cachedAccessToken: String? = null
+    @Volatile
+    private var cachedAccessTokenAtMs: Long = 0L
 
     // Auth delegation methods
     fun isSignedIn() = auth.isSignedIn()
@@ -53,6 +75,27 @@ class GoogleDriveSyncManager(private val context: Context) {
      */
     private suspend fun getAccessToken(): String = withContext(Dispatchers.IO) {
         auth.getAccessToken()
+    }
+
+    private suspend fun getCachedAccessToken(): String {
+        val cached = cachedAccessToken
+        val ageMs = System.currentTimeMillis() - cachedAccessTokenAtMs
+        if (!cached.isNullOrBlank() && ageMs in 0 until DRIVE_TOKEN_CACHE_MS) {
+            return cached
+        }
+
+        return tokenCacheMutex.withLock {
+            val secondCached = cachedAccessToken
+            val secondAgeMs = System.currentTimeMillis() - cachedAccessTokenAtMs
+            if (!secondCached.isNullOrBlank() && secondAgeMs in 0 until DRIVE_TOKEN_CACHE_MS) {
+                return@withLock secondCached
+            }
+
+            getAccessToken().also { token ->
+                cachedAccessToken = token
+                cachedAccessTokenAtMs = System.currentTimeMillis()
+            }
+        }
     }
 
     /**
@@ -75,8 +118,17 @@ class GoogleDriveSyncManager(private val context: Context) {
      * Creates an authenticated OkHttpClient that auto-adds the OAuth token.
      */
     private suspend fun createAuthenticatedClient(): OkHttpClient {
-        val token = getAccessToken()
+        val token = getCachedAccessToken()
         return OkHttpClient.Builder()
+            .retryOnConnectionFailure(true)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .protocols(listOf(Protocol.HTTP_1_1))
+            .connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
+            .connectTimeout(DRIVE_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(DRIVE_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(DRIVE_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(DRIVE_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val request = chain.request().newBuilder()
                     .addHeader("Authorization", "Bearer $token")
@@ -84,6 +136,42 @@ class GoogleDriveSyncManager(private val context: Context) {
                 chain.proceed(request)
             }
             .build()
+    }
+
+    private suspend fun <T> withDriveRetry(
+        operation: String,
+        block: suspend () -> T
+    ): T {
+        var lastError: Exception? = null
+        repeat(DRIVE_TRANSIENT_RETRY_COUNT) { attemptIndex ->
+            try {
+                return block()
+            } catch (e: Exception) {
+                if (!e.isTransientDriveNetworkFailure() || attemptIndex == DRIVE_TRANSIENT_RETRY_COUNT - 1) {
+                    throw e
+                }
+                lastError = e
+                val nextAttempt = attemptIndex + 2
+                val delayMs = DRIVE_RETRY_BASE_DELAY_MS * (attemptIndex + 1)
+                AppLogger.w(
+                    TAG,
+                    "Transient Drive network failure during $operation; retrying attempt=$nextAttempt/${DRIVE_TRANSIENT_RETRY_COUNT}: ${e.message}"
+                )
+                delay(delayMs)
+            }
+        }
+        throw lastError ?: IllegalStateException("Drive retry exhausted: $operation")
+    }
+
+    private fun Throwable.isTransientDriveNetworkFailure(): Boolean {
+        if (this is SocketTimeoutException || this is EOFException || this is SSLHandshakeException || this is SSLException || this is IOException) {
+            return true
+        }
+        val message = message.orEmpty()
+        return message.contains("Required SETTINGS preface", ignoreCase = true) ||
+            message.contains("connection closed", ignoreCase = true) ||
+            message.contains("stream was reset", ignoreCase = true) ||
+            message.contains("timeout", ignoreCase = true)
     }
 
     /**
@@ -94,42 +182,44 @@ class GoogleDriveSyncManager(private val context: Context) {
         progressCallback: ((Float) -> Unit)? = null
     ): Result<BackupMetadata> = withContext(Dispatchers.IO) {
         try {
-            // Get password derived from Google account email for cross-device compatibility
-            val password = getEncryptionPassword()
+            withDriveRetry("upload backup") {
+                // Get password derived from Google account email for cross-device compatibility
+                val password = getEncryptionPassword()
 
-            // Encrypt the backup with password-derived key
-            val plainBytes = backupJson.toByteArray(Charsets.UTF_8)
-            val encrypted = EncryptionService.encryptWithPassword(
-                plainText = plainBytes,
-                password = password,
-                salt = EncryptionService.generateSalt()
-            )
-            val encryptedPayload = encrypted.toJson().toByteArray(Charsets.UTF_8)
+                // Encrypt the backup with password-derived key
+                val plainBytes = backupJson.toByteArray(Charsets.UTF_8)
+                val encrypted = EncryptionService.encryptWithPassword(
+                    plainText = plainBytes,
+                    password = password,
+                    salt = EncryptionService.generateSalt()
+                )
+                val encryptedPayload = encrypted.toJson().toByteArray(Charsets.UTF_8)
 
-            val client = createAuthenticatedClient()
-            val timestamp = System.currentTimeMillis()
-            val fileName = "${BACKUP_FILE_PREFIX}${timestamp}.json.enc"
+                val client = createAuthenticatedClient()
+                val timestamp = System.currentTimeMillis()
+                val fileName = "${BACKUP_FILE_PREFIX}${timestamp}.json.enc"
 
-            // Upload using multipart upload (metadata + content)
-            val fileId = uploadFile(
-                client = client,
-                fileName = fileName,
-                content = encryptedPayload,
-                description = "SmartDash Backup - ${getDeviceName()} - $timestamp"
-            ) ?: return@withContext Result.failure(Exception("Upload returned null file ID"))
+                // Upload using multipart upload (metadata + content)
+                val fileId = uploadFile(
+                    client = client,
+                    fileName = fileName,
+                    content = encryptedPayload,
+                    description = "SmartDash Backup - ${getDeviceName()} - $timestamp"
+                ) ?: return@withDriveRetry Result.failure(Exception("Upload returned null file ID"))
 
-            val metadata = BackupMetadata(
-                fileId = fileId,
-                fileName = fileName,
-                createdAt = timestamp,
-                sizeBytes = encryptedPayload.size.toLong(),
-                deviceName = getDeviceName(),
-                appVersion = getAppVersion(),
-                vehicleCount = 0
-            )
+                val metadata = BackupMetadata(
+                    fileId = fileId,
+                    fileName = fileName,
+                    createdAt = timestamp,
+                    sizeBytes = encryptedPayload.size.toLong(),
+                    deviceName = getDeviceName(),
+                    appVersion = getAppVersion(),
+                    vehicleCount = 0
+                )
 
-            AppLogger.i(TAG, "Backup uploaded: $fileName ($fileId)")
-            Result.success(metadata)
+                AppLogger.i(TAG, "Backup uploaded: $fileName ($fileId)")
+                Result.success(metadata)
+            }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Upload failed", e)
             Result.failure(e)
@@ -145,26 +235,28 @@ class GoogleDriveSyncManager(private val context: Context) {
      */
     suspend fun listBackups(): Result<List<BackupMetadata>> = withContext(Dispatchers.IO) {
         try {
-            val client = createAuthenticatedClient()
+            withDriveRetry("list backups") {
+                val client = createAuthenticatedClient()
 
-            // Query for habe backup files
-            val query = "name contains '${BACKUP_FILE_PREFIX}' and trashed = false"
-            val fields = "files(id,name,createdTime,size,description)"
-            val url = "$DRIVE_API_BASE/drive/v3/files" +
-                    "?q=$query&orderBy=createdTime desc&spaces=appDataFolder&fields=$fields"
+                // Query for habe backup files
+                val query = "name contains '${BACKUP_FILE_PREFIX}' and trashed = false"
+                val fields = "files(id,name,createdTime,size,description)"
+                val url = "$DRIVE_API_BASE/drive/v3/files" +
+                        "?q=$query&orderBy=createdTime desc&spaces=appDataFolder&fields=$fields"
 
-            val response = client.newCall(
-                okhttp3.Request.Builder().url(url).get().build()
-            ).execute()
+                val response = client.newCall(
+                    okhttp3.Request.Builder().url(url).get().build()
+                ).execute()
 
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(Exception("List failed: ${response.code}"))
+                if (!response.isSuccessful) {
+                    return@withDriveRetry Result.failure(Exception("List failed: ${response.code}"))
+                }
+
+                val body = response.body?.string() ?: ""
+                val backups = parseFileList(body)
+
+                Result.success(backups)
             }
-
-            val body = response.body?.string() ?: ""
-            val backups = parseFileList(body)
-
-            Result.success(backups)
         } catch (e: Exception) {
             AppLogger.e(TAG, "List backups failed", e)
             Result.failure(e)
@@ -178,35 +270,37 @@ class GoogleDriveSyncManager(private val context: Context) {
         fileId: String
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val client = createAuthenticatedClient()
-            val password = getEncryptionPassword()
+            withDriveRetry("download backup") {
+                val client = createAuthenticatedClient()
+                val password = getEncryptionPassword()
 
-            // Download file content
-            val url = "$DRIVE_API_BASE/drive/v3/files/$fileId?alt=media"
-            val response = client.newCall(
-                okhttp3.Request.Builder().url(url).get().build()
-            ).execute()
+                // Download file content
+                val url = "$DRIVE_API_BASE/drive/v3/files/$fileId?alt=media"
+                val response = client.newCall(
+                    okhttp3.Request.Builder().url(url).get().build()
+                ).execute()
 
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(Exception("Download failed: ${response.code}"))
+                if (!response.isSuccessful) {
+                    return@withDriveRetry Result.failure(Exception("Download failed: ${response.code}"))
+                }
+
+                val encryptedBytes = response.body?.bytes()
+                    ?: return@withDriveRetry Result.failure(Exception("Empty download response"))
+
+                // Parse encrypted payload
+                val encryptedJson = String(encryptedBytes, Charsets.UTF_8)
+                val encrypted = EncryptedBackup.fromJson(encryptedJson)
+
+                // Decrypt based on version
+                val plainBytes = if (encrypted.version >= EncryptionService.VERSION_PASSWORD_FIXED_SALT_LEGACY) {
+                    // Password-derived key (cross-device compatible)
+                    EncryptionService.decryptWithPassword(encrypted, password)
+                } else {
+                    // Version 1 = device-bound key (legacy, only works on same device)
+                    EncryptionService.decrypt(encrypted)
+                }
+                Result.success(String(plainBytes, Charsets.UTF_8))
             }
-
-            val encryptedBytes = response.body?.bytes()
-                ?: return@withContext Result.failure(Exception("Empty download response"))
-
-            // Parse encrypted payload
-            val encryptedJson = String(encryptedBytes, Charsets.UTF_8)
-            val encrypted = EncryptedBackup.fromJson(encryptedJson)
-
-            // Decrypt based on version
-            val plainBytes = if (encrypted.version >= EncryptionService.VERSION_PASSWORD_FIXED_SALT_LEGACY) {
-                // Password-derived key (cross-device compatible)
-                EncryptionService.decryptWithPassword(encrypted, password)
-            } else {
-                // Version 1 = device-bound key (legacy, only works on same device)
-                EncryptionService.decrypt(encrypted)
-            }
-            Result.success(String(plainBytes, Charsets.UTF_8))
         } catch (e: Exception) {
             AppLogger.e(TAG, "Download failed", e)
             Result.failure(e)
@@ -218,18 +312,20 @@ class GoogleDriveSyncManager(private val context: Context) {
      */
     suspend fun deleteBackup(fileId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val client = createAuthenticatedClient()
-            val url = "$DRIVE_API_BASE/drive/v3/files/$fileId"
+            withDriveRetry("delete backup") {
+                val client = createAuthenticatedClient()
+                val url = "$DRIVE_API_BASE/drive/v3/files/$fileId"
 
-            val response = client.newCall(
-                okhttp3.Request.Builder().url(url).delete().build()
-            ).execute()
+                val response = client.newCall(
+                    okhttp3.Request.Builder().url(url).delete().build()
+                ).execute()
 
-            if (response.isSuccessful) {
-                AppLogger.i(TAG, "Deleted backup: $fileId")
-                Result.success(Unit)
-            } else {
-                Result.failure(Exception("Delete failed: ${response.code}"))
+                if (response.isSuccessful) {
+                    AppLogger.i(TAG, "Deleted backup: $fileId")
+                    Result.success(Unit)
+                } else {
+                    Result.failure(Exception("Delete failed: ${response.code}"))
+                }
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Delete failed", e)
@@ -253,11 +349,15 @@ class GoogleDriveSyncManager(private val context: Context) {
             val expiredBackups = backups
                 .drop(1) // newest version is always preserved
                 .filter { it.createdAt < cutoffMs }
+                .take(DRIVE_PRUNE_MAX_DELETES_PER_RUN)
 
             var deletedCount = 0
             expiredBackups.forEach { backup ->
-                deleteBackup(backup.fileId).getOrElse { throw it }
-                deletedCount += 1
+                deleteBackup(backup.fileId)
+                    .onSuccess { deletedCount += 1 }
+                    .onFailure { error ->
+                        AppLogger.w(TAG, "Deferred backup pruning for ${backup.fileId}: ${error.message}")
+                    }
             }
 
             if (deletedCount > 0) {
@@ -277,43 +377,54 @@ class GoogleDriveSyncManager(private val context: Context) {
         fileName: String,
         content: ByteArray,
         description: String,
-        mimeType: String = BACKUP_MIME_TYPE
+        mimeType: String = BACKUP_MIME_TYPE,
+        existingFileId: String? = null
     ): String? {
         // Build JSON metadata
-        val metadataJson = """
-            {
-                "name": "$fileName",
-                "description": "$description",
-                "mimeType": "$mimeType",
-                "parents": ["appDataFolder"]
-            }
-        """.trimIndent()
+        val request = if (existingFileId != null) {
+            okhttp3.Request.Builder()
+                .url("$UPLOAD_BASE/files/$existingFileId?uploadType=media")
+                .patch(content.toRequestBody(mimeType.toMediaType()))
+                .build()
+        } else {
+            val metadataJson = """
+                {
+                    "name": "$fileName",
+                    "description": "$description",
+                    "mimeType": "$mimeType",
+                    "parents": ["appDataFolder"]
+                }
+            """.trimIndent()
 
-        val metadataPart = MultipartBody.Part.createFormData(
-            "metadata", "metadata.json",
-            metadataJson.toRequestBody("application/json".toMediaType())
-        )
+            val metadataPart = MultipartBody.Part.createFormData(
+                "metadata", "metadata.json",
+                metadataJson.toRequestBody("application/json".toMediaType())
+            )
 
-        val filePart = MultipartBody.Part.createFormData(
-            "file", fileName,
-            content.toRequestBody(mimeType.toMediaType())
-        )
+            val filePart = MultipartBody.Part.createFormData(
+                "file", fileName,
+                content.toRequestBody(mimeType.toMediaType())
+            )
 
-        val body = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addPart(metadataPart)
-            .addPart(filePart)
-            .build()
+            val body = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addPart(metadataPart)
+                .addPart(filePart)
+                .build()
 
-        val request = okhttp3.Request.Builder()
-            .url("$UPLOAD_BASE/files?uploadType=multipart")
-            .post(body)
-            .build()
+            okhttp3.Request.Builder()
+                .url("$UPLOAD_BASE/files?uploadType=multipart")
+                .post(body)
+                .build()
+        }
 
         val response = client.newCall(request).execute()
         if (!response.isSuccessful) {
             val errBody = response.body?.string()
             AppLogger.e(TAG, "Upload failed: ${response.code} $errBody")
+            if (response.code >= 500) {
+                throw IOException("Upload failed: ${response.code} $errBody")
+            }
             return null
         }
 
@@ -341,6 +452,9 @@ class GoogleDriveSyncManager(private val context: Context) {
         ).execute()
 
         if (!response.isSuccessful) {
+            if (response.code >= 500) {
+                throw IOException("Query failed: ${response.code}")
+            }
             throw IllegalStateException("Query failed: ${response.code}")
         }
 
@@ -368,7 +482,26 @@ class GoogleDriveSyncManager(private val context: Context) {
             return@withContext
         }
         if (!response.isSuccessful) {
+            if (response.code >= 500) {
+                throw IOException("Delete failed: ${response.code}")
+            }
             throw IllegalStateException("Delete failed: ${response.code}")
+        }
+    }
+
+    private suspend fun cleanupDuplicateFilesBestEffort(
+        client: OkHttpClient,
+        fileName: String,
+        duplicates: List<DriveNamedFile>
+    ) {
+        duplicates.forEach { duplicate ->
+            runCatching {
+                deleteFileById(client, duplicate.id)
+            }.onSuccess {
+                AppLogger.i(TAG, "Removed stale duplicate Drive file: $fileName (${duplicate.id})")
+            }.onFailure { error ->
+                AppLogger.w(TAG, "Deferred duplicate cleanup for $fileName: ${error.message}")
+            }
         }
     }
 
@@ -432,25 +565,106 @@ class GoogleDriveSyncManager(private val context: Context) {
     suspend fun uploadRawFile(
         fileName: String,
         content: ByteArray,
-        mimeType: String = MANIFEST_MIME_TYPE
+        mimeType: String = MANIFEST_MIME_TYPE,
+        existingFileIdHint: String? = null,
+        skipLookup: Boolean = false
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val fileId = appDataMutationMutex.withLock {
-                val client = createAuthenticatedClient()
-                val existingFiles = findFilesByName(client, fileName)
-                existingFiles.forEach { existing ->
-                    deleteFileById(client, existing.id)
+            val fileId = withDriveRetry("upload raw file $fileName") {
+                appDataMutationMutex.withLock {
+                    val client = createAuthenticatedClient()
+                    val uploadedId = when {
+                        !existingFileIdHint.isNullOrBlank() -> {
+                            val updatedId = runCatching {
+                                uploadFile(
+                                    client = client,
+                                    fileName = fileName,
+                                    content = content,
+                                    description = "SmartDash Drive Sync - $fileName",
+                                    mimeType = mimeType,
+                                    existingFileId = existingFileIdHint
+                                )
+                            }.getOrElse { error ->
+                                if (error.isTransientDriveNetworkFailure()) {
+                                    throw error
+                                }
+                                AppLogger.w(TAG, "Failed to update hinted Drive file id for $fileName: ${error.message}")
+                                null
+                            }
+                            updatedId ?: if (skipLookup) {
+                                uploadFile(
+                                    client = client,
+                                    fileName = fileName,
+                                    content = content,
+                                    description = "SmartDash Drive Sync - $fileName",
+                                    mimeType = mimeType
+                                )
+                            } else {
+                                null
+                            }
+                        }
+                        skipLookup -> {
+                            uploadFile(
+                                client = client,
+                                fileName = fileName,
+                                content = content,
+                                description = "SmartDash Drive Sync - $fileName",
+                                mimeType = mimeType
+                            )
+                        }
+                        else -> {
+                            val existingFiles = findFilesByName(client, fileName)
+                            val primary = existingFiles.firstOrNull()
+                            val duplicates = existingFiles.drop(1)
+
+                            val resolvedUpload = when {
+                                primary == null -> {
+                                    uploadFile(
+                                        client = client,
+                                        fileName = fileName,
+                                        content = content,
+                                        description = "SmartDash Drive Sync - $fileName",
+                                        mimeType = mimeType
+                                    )
+                                }
+                                else -> {
+                                    val updatedId = try {
+                                        uploadFile(
+                                            client = client,
+                                            fileName = fileName,
+                                            content = content,
+                                            description = "SmartDash Drive Sync - $fileName",
+                                            mimeType = mimeType,
+                                            existingFileId = primary.id
+                                        )
+                                    } catch (error: Exception) {
+                                        if (error.isTransientDriveNetworkFailure()) {
+                                            throw error
+                                        }
+                                        AppLogger.w(TAG, "Failed updating existing Drive file; will create a replacement: $fileName (${error.message})")
+                                        null
+                                    }
+
+                                    updatedId ?: uploadFile(
+                                        client = client,
+                                        fileName = fileName,
+                                        content = content,
+                                        description = "SmartDash Drive Sync - $fileName",
+                                        mimeType = mimeType
+                                    )
+                                }
+                            }
+
+                            if (duplicates.isNotEmpty()) {
+                                cleanupDuplicateFilesBestEffort(client, fileName, duplicates)
+                            }
+
+                            resolvedUpload
+                        }
+                    }
+
+                    uploadedId
                 }
-                if (existingFiles.isNotEmpty()) {
-                    AppLogger.i(TAG, "Removed ${existingFiles.size} stale Drive file(s) before upload: $fileName")
-                }
-                uploadFile(
-                    client = client,
-                    fileName = fileName,
-                    content = content,
-                    description = "SmartDash Drive Sync - $fileName",
-                    mimeType = mimeType
-                )
             }
             if (fileId != null) {
                 Result.success(fileId)
@@ -478,26 +692,28 @@ class GoogleDriveSyncManager(private val context: Context) {
      */
     suspend fun downloadRawFile(fileName: String): Result<ByteArray> = withContext(Dispatchers.IO) {
         try {
-            val client = createAuthenticatedClient()
-            val files = findFilesByName(client, fileName)
-            val file = files.firstOrNull()
-                ?: return@withContext Result.failure(Exception("File not found: $fileName"))
-            val fileId = file.id
+            withDriveRetry("download raw file $fileName") {
+                val client = createAuthenticatedClient()
+                val files = findFilesByName(client, fileName)
+                val file = files.firstOrNull()
+                    ?: return@withDriveRetry Result.failure(Exception("File not found: $fileName"))
+                val fileId = file.id
 
-            // Download the file content
-            val downloadUrl = "$DRIVE_API_BASE/drive/v3/files/$fileId?alt=media"
-            val downloadResponse = client.newCall(
-                okhttp3.Request.Builder().url(downloadUrl).get().build()
-            ).execute()
+                // Download the file content
+                val downloadUrl = "$DRIVE_API_BASE/drive/v3/files/$fileId?alt=media"
+                val downloadResponse = client.newCall(
+                    okhttp3.Request.Builder().url(downloadUrl).get().build()
+                ).execute()
 
-            if (!downloadResponse.isSuccessful) {
-                return@withContext Result.failure(Exception("Download failed: ${downloadResponse.code}"))
+                if (!downloadResponse.isSuccessful) {
+                    return@withDriveRetry Result.failure(Exception("Download failed: ${downloadResponse.code}"))
+                }
+
+                val bytes = downloadResponse.body?.bytes()
+                    ?: return@withDriveRetry Result.failure(Exception("Empty download response"))
+
+                Result.success(bytes)
             }
-
-            val bytes = downloadResponse.body?.bytes()
-                ?: return@withContext Result.failure(Exception("Empty download response"))
-
-            Result.success(bytes)
         } catch (e: Exception) {
             AppLogger.e(TAG, "downloadRawFile failed: $fileName", e)
             Result.failure(e)
@@ -509,21 +725,23 @@ class GoogleDriveSyncManager(private val context: Context) {
      */
     suspend fun downloadTextFile(fileId: String): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val client = createAuthenticatedClient()
-            val url = "$DRIVE_API_BASE/drive/v3/files/$fileId?alt=media"
-            val response = client.newCall(
-                okhttp3.Request.Builder().url(url).get().build()
-            ).execute()
+            withDriveRetry("download text file") {
+                val client = createAuthenticatedClient()
+                val url = "$DRIVE_API_BASE/drive/v3/files/$fileId?alt=media"
+                val response = client.newCall(
+                    okhttp3.Request.Builder().url(url).get().build()
+                ).execute()
 
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(Exception("Download failed: ${response.code}"))
-            }
+                if (!response.isSuccessful) {
+                    return@withDriveRetry Result.failure(Exception("Download failed: ${response.code}"))
+                }
 
-            val body = response.body?.string()
-            if (body != null) {
-                Result.success(body)
-            } else {
-                Result.failure(Exception("Empty download response"))
+                val body = response.body?.string()
+                if (body != null) {
+                    Result.success(body)
+                } else {
+                    Result.failure(Exception("Empty download response"))
+                }
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "downloadTextFile failed: $fileId", e)

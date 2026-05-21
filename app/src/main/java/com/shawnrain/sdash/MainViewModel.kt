@@ -1086,7 +1086,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 loadDriveBackups()
                 syncScheduler.onAuthSuccess()
-                maybeStartAutoDriveSync(force = true)
             } catch (e: Exception) {
                 _driveSyncState.value = SyncState.Error(e.message ?: "登录失败")
             }
@@ -1103,16 +1102,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun syncDriveNow(): kotlinx.coroutines.Job = viewModelScope.launch {
-        publishDriveV3Snapshot("同步完成")
-    }
+    private var activeDrivePublishJob: Job? = null
 
-    fun forceUploadCurrentDeviceData(): kotlinx.coroutines.Job = viewModelScope.launch {
-        publishDriveV3Snapshot("强制上传完成")
-    }
+    fun syncDriveNow(): Job = startDrivePublish("同步完成")
 
-    fun uploadToDrive(): kotlinx.coroutines.Job = viewModelScope.launch {
-        publishDriveV3Snapshot("备份已上传")
+    fun forceUploadCurrentDeviceData(): Job = startDrivePublish("强制上传完成")
+
+    fun uploadToDrive(): Job = startDrivePublish("备份已上传")
+
+    private fun startDrivePublish(successPrefix: String): Job {
+        activeDrivePublishJob?.takeIf { it.isActive }?.let { runningJob ->
+            _driveSyncMessage.value = "同步任务仍在进行，请稍等"
+            return runningJob
+        }
+        autoSyncJob?.takeIf { it.isActive }?.cancel()
+        return viewModelScope.launch {
+            publishDriveV3Snapshot(successPrefix)
+        }.also { job ->
+            activeDrivePublishJob = job
+        }
     }
 
     private suspend fun publishDriveV3Snapshot(successPrefix: String) {
@@ -1279,6 +1287,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!driveSyncManager.isSignedIn()) return
         if (!force && hasAutoSyncedThisSession) return
         if (autoSyncJob?.isActive == true) return
+        if (activeDrivePublishJob?.isActive == true) return
         autoSyncJob = viewModelScope.launch {
             runCatching {
                 driveV3Migrator.reconcileAndPublish()

@@ -28,9 +28,18 @@ class DriveEntityStore(
             .getOrElse { throw it }
     }
 
-    suspend fun uploadEntity(entryName: String, payload: ByteArray) {
-        driveSyncManager.uploadRawFile(entryName, payload).getOrElse { throw it }
-    }
+    suspend fun uploadEntity(
+        entryName: String,
+        payload: ByteArray,
+        existingFileId: String? = null,
+        skipLookup: Boolean = false
+    ): String =
+        driveSyncManager.uploadRawFile(
+            fileName = entryName,
+            content = payload,
+            existingFileIdHint = existingFileId,
+            skipLookup = skipLookup
+        ).getOrElse { throw it }
 
     suspend fun downloadEntity(entryName: String): ByteArray =
         driveSyncManager.downloadRawFile(entryName).getOrElse { throw it }

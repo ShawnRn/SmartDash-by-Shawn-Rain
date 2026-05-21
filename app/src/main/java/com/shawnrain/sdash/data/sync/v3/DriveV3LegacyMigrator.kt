@@ -26,7 +26,11 @@ class DriveV3LegacyMigrator(
     private val entityStore: DriveEntityStore,
     private val v3Coordinator: DriveV3Coordinator
 ) {
-    suspend fun pullOrMigrate(): DriveV3PullResult? {
+    suspend fun pullOrMigrate(): DriveV3PullResult? = DriveV3SyncGate.withLock {
+        pullOrMigrateLocked()
+    }
+
+    private suspend fun pullOrMigrateLocked(): DriveV3PullResult? {
         if (entityStore.fetchManifest() != null) {
             return v3Coordinator.pullAndMergeRemoteSnapshot()
         }
@@ -34,7 +38,11 @@ class DriveV3LegacyMigrator(
         return null
     }
 
-    suspend fun reconcileAndPublish(): DriveV3PublishResult {
+    suspend fun reconcileAndPublish(): DriveV3PublishResult = DriveV3SyncGate.withLock {
+        reconcileAndPublishLocked()
+    }
+
+    private suspend fun reconcileAndPublishLocked(): DriveV3PublishResult {
         if (entityStore.fetchManifest() == null) {
             migrateLegacyV2IfPresent()
         } else {
@@ -43,13 +51,14 @@ class DriveV3LegacyMigrator(
         return v3Coordinator.publishFullSnapshot()
     }
 
-    suspend fun ensureV3Exists(): Boolean {
-        if (entityStore.fetchManifest() != null) return true
-        val migrated = migrateLegacyV2IfPresent()
-        if (!migrated) {
-            v3Coordinator.publishFullSnapshot()
+    suspend fun ensureV3Exists(): Boolean = DriveV3SyncGate.withLock {
+        if (entityStore.fetchManifest() == null) {
+            val migrated = migrateLegacyV2IfPresent()
+            if (!migrated) {
+                v3Coordinator.publishFullSnapshot()
+            }
         }
-        return true
+        true
     }
 
     private suspend fun migrateLegacyV2IfPresent(): Boolean {

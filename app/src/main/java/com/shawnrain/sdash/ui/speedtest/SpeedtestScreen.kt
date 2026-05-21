@@ -1010,7 +1010,7 @@ private fun RideHistoryCard(
         }
         add("峰值功率" to metricOf(summary.peakPowerKw, "kW"))
         add("能耗" to metricOf(summary.avgNetEfficiencyWhKm, "Wh/km"))
-        add("采样点" to metricOfLabel(summary.sampleCount.toString()))
+        add("总能耗" to metricOf(summary.totalEnergyWh.coerceAtLeast(0.0f), "Wh"))
     }
 
     AnimatedVisibility(
@@ -3929,24 +3929,26 @@ private fun metricCompactStyle(
     val longValue = metric.value.length >= 5
     val veryTight = if (statChip) maxWidth < 108.dp else maxWidth < 132.dp
     val compact = if (statChip) maxWidth < 118.dp else maxWidth < 150.dp
+    val valueFontSize = if (statChip) 22.sp else 24.sp
+    val unitFontSize = if (statChip) 11.sp else 12.sp
     return when {
         veryTight || (longUnit && longValue) -> MetricCompactStyle(
-            valueFontSize = if (statChip) 17.sp else 20.sp,
-            unitFontSize = if (statChip) 8.sp else 9.sp,
+            valueFontSize = valueFontSize,
+            unitFontSize = unitFontSize,
             unitSpacing = 1.dp,
             horizontalPadding = if (statChip) 8.dp else 12.dp,
             verticalPadding = if (statChip) 9.dp else 12.dp
         )
         compact || longUnit || longValue -> MetricCompactStyle(
-            valueFontSize = if (statChip) 19.sp else 22.sp,
-            unitFontSize = if (statChip) 9.sp else 10.sp,
+            valueFontSize = valueFontSize,
+            unitFontSize = unitFontSize,
             unitSpacing = 2.dp,
             horizontalPadding = if (statChip) 10.dp else 14.dp,
             verticalPadding = if (statChip) 10.dp else 14.dp
         )
         else -> MetricCompactStyle(
-            valueFontSize = if (statChip) 22.sp else 24.sp,
-            unitFontSize = if (statChip) 11.sp else 12.sp,
+            valueFontSize = valueFontSize,
+            unitFontSize = unitFontSize,
             unitSpacing = 4.dp,
             horizontalPadding = if (statChip) 12.dp else 16.dp,
             verticalPadding = if (statChip) 10.dp else 16.dp

@@ -44,6 +44,9 @@ class RideHistoryRepository(context: Context) {
     suspend fun loadRideRecord(rideId: String): RideHistoryRecord? =
         dao.getDetail(rideId)?.toRideHistoryRecord()
 
+    suspend fun loadRideSummary(rideId: String): RideHistorySummary? =
+        dao.getSummary(rideId)?.toDomain()
+
     suspend fun upsertRide(vehicleId: String, record: RideHistoryRecord, updatedAt: Long = System.currentTimeMillis()) {
         val normalized = normalizer.normalize(record)
         val summary = normalized.toSummary(vehicleId = vehicleId, updatedAt = updatedAt)

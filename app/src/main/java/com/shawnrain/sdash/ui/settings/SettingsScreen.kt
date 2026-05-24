@@ -67,6 +67,13 @@ import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.SystemUpdateAlt
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.GpsFixed
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.LocalParking
+import androidx.compose.material.icons.filled.PictureInPicture
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -347,7 +354,18 @@ fun SettingsScreen(
                             modifier = Modifier.padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Text("车辆档案", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DirectionsCar,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text("车辆档案", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                            }
                             Text(
                                 "按车辆隔离行程记录和最近连接控制器，车辆参数统一放在档案详情里维护。",
                                 style = MaterialTheme.typography.bodySmall,
@@ -446,7 +464,18 @@ fun SettingsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("GPS 轮径校准", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GpsFixed,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text("GPS 轮径校准", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    }
                     Text(
                         "保存后会直接应用到当前活跃车辆：${currentVehicle.name}",
                         style = MaterialTheme.typography.bodySmall,
@@ -583,7 +612,18 @@ fun SettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-            Text("数据源优先级", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Tune,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text("数据源优先级", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            }
             Spacer(modifier = Modifier.height(8.dp))
 
             ExposedDropdownMenuBox(
@@ -643,7 +683,18 @@ fun SettingsScreen(
 
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("停车结束记录", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocalParking,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text("停车结束记录", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -690,7 +741,18 @@ fun SettingsScreen(
 
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("悬浮仪表", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PictureInPicture,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text("悬浮仪表", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    }
                     Text(
                         "切到后台后自动进入系统画中画，显示速度、功率、平均能耗三个核心指标。",
                         style = MaterialTheme.typography.bodySmall,
@@ -721,7 +783,18 @@ fun SettingsScreen(
 
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("调试日志", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Terminal,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text("调试日志", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    }
                     Text(
                         "可调日志级别，并导出或分享 BLE 连接、协议识别、指令发送与通知回包日志。",
                         style = MaterialTheme.typography.bodySmall,
@@ -785,7 +858,18 @@ fun SettingsScreen(
 
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("局域网直连迁移", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Wifi,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text("局域网直连迁移", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    }
                     Text(
                         "默认推荐直接使用下方的 Google Drive 云同步完成换机；如果两台设备在同一局域网，或暂时不方便使用 Google 服务，再用这里直接迁移。",
                         style = MaterialTheme.typography.bodySmall,
@@ -969,7 +1053,18 @@ fun SettingsScreen(
             // Google Drive Cloud Sync Section
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Google Drive 云同步", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudSync,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text("Google Drive 云同步", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    }
                     Text(
                         "换机优先用它。开启后会自动双向同步并智能合并云端/本地数据；局域网直连迁移只作为补充方式。",
                         style = MaterialTheme.typography.bodySmall,

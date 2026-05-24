@@ -18,6 +18,18 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.compose.ui.unit.dp
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+
+data class SmartDashColors(
+    val speedAccent: Color = Color(0xFFD0BCFF),
+    val regenGreen: Color = Color(0xFF66BB6A),
+    val warningAmber: Color = Color(0xFFFFCA28),
+    val criticalRed: Color = Color(0xFFFF5252)
+)
+
+val LocalSmartDashColors = staticCompositionLocalOf { SmartDashColors() }
+
 private val DarkColorScheme = darkColorScheme(
     primary = Color(0xFFD0BCFF),
     secondary = Color(0xFFCCC2DC),
@@ -60,9 +72,15 @@ fun HabeTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        shapes = HabeShapes,
-        content = content
-    )
+    val customColors = SmartDashColors()
+
+    CompositionLocalProvider(
+        LocalSmartDashColors provides customColors
+    ) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            shapes = HabeShapes,
+            content = content
+        )
+    }
 }

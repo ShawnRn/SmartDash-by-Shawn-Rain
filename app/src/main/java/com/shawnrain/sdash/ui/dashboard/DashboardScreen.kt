@@ -76,6 +76,17 @@ import com.shawnrain.sdash.ui.navigation.BlurredModalBottomSheet
 import com.shawnrain.sdash.ui.navigation.PredictiveBackPopupTransform
 import com.shawnrain.sdash.ui.theme.bezierPillShape
 import com.shawnrain.sdash.ui.theme.bezierRoundedShape
+import com.shawnrain.sdash.ui.theme.icon
+import com.shawnrain.sdash.ui.theme.tintColor
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.Battery4Bar
+import androidx.compose.material.icons.filled.BatteryAlert
+import androidx.compose.material.icons.automirrored.filled.BatteryUnknown
+import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.abs
@@ -841,7 +852,22 @@ fun StatCardWrap(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(CardHeight),
+                .height(CardHeight)
+                .drawWithContent {
+                    drawContent()
+                    val strokeWidth = 2.dp.toPx()
+                    val gradientBrush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                        colors = listOf(type.tintColor.copy(alpha = 0.8f), androidx.compose.ui.graphics.Color.Transparent),
+                        startX = 0f,
+                        endX = size.width
+                    )
+                    drawLine(
+                        brush = gradientBrush,
+                        start = androidx.compose.ui.geometry.Offset(0f, size.height - strokeWidth / 2),
+                        end = androidx.compose.ui.geometry.Offset(size.width, size.height - strokeWidth / 2),
+                        strokeWidth = strokeWidth
+                    )
+                },
             shape = bezierRoundedShape(CardCornerRadius),
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             tonalElevation = 0.5.dp
@@ -850,17 +876,28 @@ fun StatCardWrap(
                 modifier = Modifier.padding(CardInnerPadding),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = type.title,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.Medium
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = type.icon,
+                        contentDescription = null,
+                        tint = type.tintColor,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = type.title,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
                 BaselineMetricValue(
                     value = valueStr,
                     unit = type.unit,
                     valueColor = MaterialTheme.colorScheme.onSurface,
-                    unitColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unitColor = type.tintColor.copy(alpha = 0.7f),
                     valueFontSize = 24.sp,
                     unitFontSize = 24.sp,
                     valueFontWeight = FontWeight.Bold,
@@ -908,6 +945,19 @@ private fun DashboardStatusStrip(
     onConnectionClick: () -> Unit,
     onTuningClick: (() -> Unit)? = null
 ) {
+    val socValue = metrics.soc
+    val socPair: Pair<androidx.compose.ui.graphics.vector.ImageVector, Color> = if (isControllerConnected) {
+        when {
+            socValue > 60f -> Pair(Icons.Default.BatteryChargingFull, Color(0xFF66BB6A))
+            socValue > 30f -> Pair(Icons.Default.Battery4Bar, Color(0xFFFF7043))
+            else -> Pair(Icons.Default.BatteryAlert, Color(0xFFFF5252))
+        }
+    } else {
+        Pair(Icons.AutoMirrored.Filled.BatteryUnknown, MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    val socIcon = socPair.first
+    val socColor = socPair.second
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -921,7 +971,9 @@ private fun DashboardStatusStrip(
                     String.format("%.0f%%", metrics.soc)
                 } else {
                     "--"
-                }
+                },
+                icon = socIcon,
+                iconColor = socColor
             )
         }
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -939,7 +991,9 @@ private fun DashboardStatusStrip(
                     String.format("%.1f km", metrics.estimatedRangeKm)
                 } else {
                     "--"
-                }
+                },
+                icon = Icons.Default.Route,
+                iconColor = Color(0xFF66BB6A)
             )
         }
     }
@@ -964,88 +1018,139 @@ fun SquareSpeedIndicator(
             .fillMaxWidth()
             .height(SpeedAreaHeight),
         shape = bezierRoundedShape(SpeedAreaCornerRadius),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = Color.Transparent,
         tonalElevation = 0.5.dp
     ) {
-        Column {
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = PageHorizontalPadding),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Left: Real-time Power
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = String.format("%.2f", metrics.totalPowerW / 1000f),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "功率 kW",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                // Center: Speed
-                Column(
-                    modifier = Modifier.weight(1.6f),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    BaselineMetricValue(
-                        value = String.format("%.0f", animatedSpeed),
-                        unit = "",
-                        valueColor = color,
-                        unitColor = Color.Transparent,
-                        valueFontSize = 64.sp,
-                        unitFontSize = 14.sp,
-                        valueFontWeight = FontWeight.Black,
-                        valueLineHeight = 64.sp,
-                        horizontalArrangement = Arrangement.Center,
-                        textAlign = TextAlign.Center,
-                        singleLine = true
-                    )
-                }
-
-                // Right: Avg Efficiency
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = String.format("%.1f", metrics.avgEfficiencyWhKm),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "平均 Wh/km",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            PowerBalanceBar(
-                powerKw = metrics.totalPowerW / 1000f,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = CardInnerPadding, vertical = 8.dp)
-                    .height(6.dp)
+        val radialGradient = androidx.compose.ui.graphics.Brush.radialGradient(
+            colors = listOf(
+                MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.85f),
+                MaterialTheme.colorScheme.surfaceContainerLow
             )
+        )
+        Box(
+            modifier = Modifier.background(radialGradient)
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = PageHorizontalPadding),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Left: Real-time Power
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = String.format("%.2f", metrics.totalPowerW / 1000f),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = null,
+                                tint = com.shawnrain.sdash.data.MetricCategory.POWER.tintColor,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                text = "功率 kW",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    // Center: Speed
+                    Column(
+                        modifier = Modifier
+                            .weight(1.6f)
+                            .drawBehind {
+                                if (animatedSpeed > 0.1f) {
+                                    val drawCenter = this.center
+                                    val radiusVal = this.size.minDimension / 1.2f
+                                    drawCircle(
+                                        brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                                            colors = listOf(color.copy(alpha = 0.25f), Color.Transparent),
+                                            center = drawCenter,
+                                            radius = radiusVal
+                                        )
+                                    )
+                                }
+                            },
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        BaselineMetricValue(
+                            value = String.format("%.0f", animatedSpeed),
+                            unit = "",
+                            valueColor = color,
+                            unitColor = Color.Transparent,
+                            valueFontSize = 64.sp,
+                            unitFontSize = 14.sp,
+                            valueFontWeight = FontWeight.Black,
+                            valueLineHeight = 64.sp,
+                            horizontalArrangement = Arrangement.Center,
+                            textAlign = TextAlign.Center,
+                            singleLine = true
+                        )
+                    }
+
+                    // Right: Avg Efficiency
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = String.format("%.1f", metrics.avgEfficiencyWhKm),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.BarChart,
+                                contentDescription = null,
+                                tint = com.shawnrain.sdash.data.MetricCategory.POWER.tintColor,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                text = "平均 Wh/km",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                PowerBalanceBar(
+                    powerKw = metrics.totalPowerW / 1000f,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = CardInnerPadding, vertical = 8.dp)
+                        .height(6.dp)
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun CompactTelemetryBadge(label: String, value: String) {
+private fun CompactTelemetryBadge(
+    label: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    iconColor: androidx.compose.ui.graphics.Color? = null
+) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
         shape = bezierPillShape()
@@ -1055,6 +1160,14 @@ private fun CompactTelemetryBadge(label: String, value: String) {
             horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(13.dp)
+                )
+            }
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
@@ -1092,13 +1205,50 @@ private fun ConnectionStatusBadge(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isConnected) Color(0xFF16A34A) else MaterialTheme.colorScheme.outline
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(10.dp)
+            ) {
+                if (isConnected) {
+                    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                    val pulseScale by infiniteTransition.animateFloat(
+                        initialValue = 1.0f,
+                        targetValue = 2.0f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1500, easing = LinearOutSlowInEasing),
+                            repeatMode = RepeatMode.Restart
+                        ),
+                        label = "pulse_scale"
                     )
-            )
+                    val pulseAlpha by infiniteTransition.animateFloat(
+                        initialValue = 0.6f,
+                        targetValue = 0.0f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1500, easing = LinearOutSlowInEasing),
+                            repeatMode = RepeatMode.Restart
+                        ),
+                        label = "pulse_alpha"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                scaleX = pulseScale
+                                scaleY = pulseScale
+                                alpha = pulseAlpha
+                            }
+                            .clip(CircleShape)
+                            .background(Color(0xFF16A34A))
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isConnected) Color(0xFF16A34A) else MaterialTheme.colorScheme.outline
+                        )
+                )
+            }
             Text(
                 text = label,
                 fontSize = 11.sp,

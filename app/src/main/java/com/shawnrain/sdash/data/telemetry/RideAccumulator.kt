@@ -39,7 +39,9 @@ class RideAccumulator {
                 maxControllerTempC = maxOf(_state.maxControllerTempC, sample.controllerTempC),
                 maxMotorTempC = maxOf(_state.maxMotorTempC, sample.motorTempC),
                 totalBusCurrentAbsSum = _state.totalBusCurrentAbsSum + abs(sample.busCurrentA),
-                busCurrentSampleCount = _state.busCurrentSampleCount + 1
+                busCurrentSampleCount = _state.busCurrentSampleCount + 1,
+                totalPhaseCurrentSum = _state.totalPhaseCurrentSum + sample.phaseCurrentA,
+                phaseCurrentSampleCount = _state.phaseCurrentSampleCount + 1
             )
         }
 

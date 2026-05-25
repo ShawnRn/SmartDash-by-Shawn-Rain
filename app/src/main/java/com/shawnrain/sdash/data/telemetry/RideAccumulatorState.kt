@@ -16,6 +16,8 @@ data class RideAccumulatorState(
     val maxMotorTempC: Float = 0.0f,
     val totalBusCurrentAbsSum: Float = 0.0f,
     val busCurrentSampleCount: Int = 0,
+    val totalPhaseCurrentSum: Float = 0.0f,
+    val phaseCurrentSampleCount: Int = 0,
     val totalDistanceMeters: Float = 0.0f,
     val maxSpeedKmh: Float = 0.0f,
     val totalSpeedSum: Float = 0.0f,

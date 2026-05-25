@@ -70,6 +70,7 @@ import com.shawnrain.sdash.ble.ConnectionState
 import com.shawnrain.sdash.ble.displayName
 import com.shawnrain.sdash.ble.VehicleMetrics
 import com.shawnrain.sdash.data.MetricType
+import com.shawnrain.sdash.data.VehicleProfile
 import com.shawnrain.sdash.debug.AppLogger
 import com.shawnrain.sdash.ui.connect.ConnectionQuickSheet
 import com.shawnrain.sdash.ui.navigation.BlurredModalBottomSheet
@@ -78,12 +79,11 @@ import com.shawnrain.sdash.ui.theme.bezierPillShape
 import com.shawnrain.sdash.ui.theme.bezierRoundedShape
 import com.shawnrain.sdash.ui.theme.icon
 import com.shawnrain.sdash.ui.theme.tintColor
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Battery4Bar
 import androidx.compose.material.icons.filled.BatteryAlert
-import androidx.compose.material.icons.automirrored.filled.BatteryUnknown
+import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.BarChart
@@ -164,16 +164,40 @@ private fun formatElapsedTime(durationMs: Long): String {
 
 private fun dashboardSecondaryLine(type: MetricType, metrics: VehicleMetrics, rideElapsedMs: Long): String {
     return when (type) {
-        MetricType.TEMP -> "最高 ${String.format("%.1f", metrics.maxControllerTemp)} °C"
+        MetricType.SPEED -> "最高 ${String.format("%.1f", metrics.maxSpeedKmh)} km/h"
+        MetricType.GRADE -> "海拔 ${String.format("%.0f", metrics.altitudeMeters)} m"
+        MetricType.ALTITUDE -> "坡度 ${String.format("%.1f", metrics.gradePercent)} %"
+        MetricType.VOLTAGE -> "压降 ${String.format("%.1f", metrics.voltageSag)} V"
         MetricType.VOLTAGE_SAG -> "最高 ${String.format("%.1f", metrics.maxVoltageSag)} V"
         MetricType.BUS_CURRENT -> "平均 ${String.format("%.1f", metrics.avgBusCurrent)} A"
+        MetricType.PHASE_CURRENT -> "平均 ${String.format("%.1f", metrics.avgPhaseCurrent)} A"
         MetricType.POWER -> "峰值 ${String.format("%.1f", metrics.peakRegenPowerKw * 1000f)} W 回收"
+        MetricType.TEMP -> "最高 ${String.format("%.1f", metrics.maxControllerTemp)} °C"
+        MetricType.MAX_CONTROLLER_TEMP -> "实时 ${String.format("%.1f", metrics.controllerTemp)} °C"
         MetricType.SOC -> "续航 ${String.format("%.1f", metrics.estimatedRangeKm)} km"
+        MetricType.RANGE -> "能耗 ${String.format("%.1f", metrics.avgEfficiencyWhKm)} Wh/km"
+        MetricType.RPM -> "频率 ${String.format("%.1f", metrics.rpm / 60f)} Hz"
+        MetricType.EFFICIENCY -> "实时 ${String.format("%.1f", metrics.efficiencyWhKm)} Wh/km"
         MetricType.TRIP_DISTANCE -> "用时 ${formatElapsedTime(rideElapsedMs)}"
+        MetricType.ELAPSED_TIME -> "里程 ${String.format("%.2f", metrics.tripDistance)} km"
         MetricType.TOTAL_ENERGY -> "回收 ${String.format("%.1f", metrics.recoveredEnergyWh)} Wh"
+        MetricType.PEAK_REGEN_POWER -> "回收 ${String.format("%.1f", metrics.recoveredEnergyWh)} Wh"
         MetricType.RECOVERED_ENERGY -> "峰值 ${String.format("%.0f", metrics.peakRegenPowerKw * 1000f)} W"
         else -> ""
     }
+}
+
+private fun profileAverageEfficiencyWhKm(profile: VehicleProfile): Float {
+    val learned = profile.learnedEfficiencyWhKm
+    return if (learned.isFinite() && learned > 0.1f) learned else 0.0f
+}
+
+private fun VehicleMetrics.withProfileAverageWhenDisconnected(
+    isControllerConnected: Boolean,
+    currentVehicle: VehicleProfile
+): VehicleMetrics {
+    if (isControllerConnected) return this
+    return copy(avgEfficiencyWhKm = profileAverageEfficiencyWhKm(currentVehicle))
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -184,6 +208,8 @@ fun DashboardScreen(
     modifier: Modifier = Modifier
 ) {
     val metrics = viewModel.metrics.collectAsStateWithLifecycle().value
+    val currentVehicle by viewModel.currentVehicle.collectAsStateWithLifecycle()
+    val rideHistory by viewModel.rideHistory.collectAsStateWithLifecycle()
     val config = LocalConfiguration.current
     val isLandscape = config.orientation == Configuration.ORIENTATION_LANDSCAPE
     val dashboardItems by viewModel.dashboardItems.collectAsStateWithLifecycle()
@@ -260,6 +286,24 @@ fun DashboardScreen(
     val primaryColor = MaterialTheme.colorScheme.primary
     val ringColor = if (isRegen) Color(0xFF10B981) else primaryColor
     val isControllerConnected = connectionState is ConnectionState.Connected
+    val currentVehicleHistoricalAvgEfficiencyWhKm = remember(currentVehicle.id, rideHistory) {
+        val distanceKm = (rideHistory.sumOf { it.distanceMeters.toDouble() } / 1000.0).toFloat()
+        val totalEnergyWh = rideHistory.sumOf { it.totalEnergyWh.toDouble() }.toFloat()
+        if (distanceKm > 0.02f && totalEnergyWh > 0.5f) {
+            totalEnergyWh / distanceKm
+        } else {
+            val learned = currentVehicle.learnedEfficiencyWhKm
+            if (learned.isFinite() && learned > 0.1f) learned else 0.0f
+        }
+    }
+
+    val dashboardMetrics = remember(metrics, currentVehicleHistoricalAvgEfficiencyWhKm, isControllerConnected) {
+        if (isControllerConnected) {
+            metrics
+        } else {
+            metrics.copy(avgEfficiencyWhKm = currentVehicleHistoricalAvgEfficiencyWhKm)
+        }
+    }
 
     // Use auto-connect state for natural status messages
     val connectionStatusLabel by remember {
@@ -355,7 +399,7 @@ fun DashboardScreen(
                     verticalArrangement = Arrangement.spacedBy(SectionSpacing)
                 ) {
                     DashboardStatusStrip(
-                        metrics = metrics,
+                        metrics = dashboardMetrics,
                         connectionStatusLabel = connectionStatusLabel,
                         isControllerConnected = isControllerConnected,
                         onConnectionClick = { showConnectionSheet = true },
@@ -365,7 +409,7 @@ fun DashboardScreen(
                     )
                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                         SquareSpeedIndicator(
-                            metrics = metrics,
+                            metrics = dashboardMetrics,
                             color = ringColor
                         )
                     }
@@ -382,7 +426,7 @@ fun DashboardScreen(
                 ) {
                     dashboardItemsGridContent(
                         items = gridItems,
-                        metrics = metrics,
+                        metrics = dashboardMetrics,
                         rideElapsedMs = rideElapsedMs,
                         isEditMode = isEditMode,
                         draggingItem = draggingItem,
@@ -434,7 +478,7 @@ fun DashboardScreen(
             }
         } else {
             LandscapeDashboardFocus(
-                metrics = metrics,
+                metrics = dashboardMetrics,
                 color = ringColor,
                 modifier = Modifier.fillMaxSize()
             )
@@ -495,7 +539,7 @@ fun DashboardScreen(
         val startBounds = dragStartBounds
         if (draggedType != null && startBounds != null) {
             StatCardWrap(
-                metrics = metrics,
+                metrics = dashboardMetrics,
                 rideElapsedMs = rideElapsedMs,
                 type = draggedType,
                 isEditMode = false,
@@ -844,6 +888,7 @@ fun StatCardWrap(
     val secondaryText = remember(metrics, type, rideElapsedMs) {
         dashboardSecondaryLine(type, metrics, rideElapsedMs)
     }
+    val accentColor = type.tintColor
 
     Box(
         modifier = modifier
@@ -852,22 +897,7 @@ fun StatCardWrap(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(CardHeight)
-                .drawWithContent {
-                    drawContent()
-                    val strokeWidth = 2.dp.toPx()
-                    val gradientBrush = androidx.compose.ui.graphics.Brush.horizontalGradient(
-                        colors = listOf(type.tintColor.copy(alpha = 0.8f), androidx.compose.ui.graphics.Color.Transparent),
-                        startX = 0f,
-                        endX = size.width
-                    )
-                    drawLine(
-                        brush = gradientBrush,
-                        start = androidx.compose.ui.geometry.Offset(0f, size.height - strokeWidth / 2),
-                        end = androidx.compose.ui.geometry.Offset(size.width, size.height - strokeWidth / 2),
-                        strokeWidth = strokeWidth
-                    )
-                },
+                .height(CardHeight),
             shape = bezierRoundedShape(CardCornerRadius),
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             tonalElevation = 0.5.dp
@@ -883,7 +913,7 @@ fun StatCardWrap(
                     Icon(
                         imageVector = type.icon,
                         contentDescription = null,
-                        tint = type.tintColor,
+                        tint = accentColor,
                         modifier = Modifier.size(14.dp)
                     )
                     Text(
@@ -897,7 +927,7 @@ fun StatCardWrap(
                     value = valueStr,
                     unit = type.unit,
                     valueColor = MaterialTheme.colorScheme.onSurface,
-                    unitColor = type.tintColor.copy(alpha = 0.7f),
+                    unitColor = accentColor.copy(alpha = 0.82f),
                     valueFontSize = 24.sp,
                     unitFontSize = 24.sp,
                     valueFontWeight = FontWeight.Bold,
@@ -945,18 +975,16 @@ private fun DashboardStatusStrip(
     onConnectionClick: () -> Unit,
     onTuningClick: (() -> Unit)? = null
 ) {
-    val socValue = metrics.soc
-    val socPair: Pair<androidx.compose.ui.graphics.vector.ImageVector, Color> = if (isControllerConnected) {
+    val accentColor = MaterialTheme.colorScheme.primary
+    val socIcon = if (isControllerConnected) {
         when {
-            socValue > 60f -> Pair(Icons.Default.BatteryChargingFull, Color(0xFF66BB6A))
-            socValue > 30f -> Pair(Icons.Default.Battery4Bar, Color(0xFFFF7043))
-            else -> Pair(Icons.Default.BatteryAlert, Color(0xFFFF5252))
+            metrics.soc > 60f -> Icons.Default.BatteryChargingFull
+            metrics.soc > 30f -> Icons.Default.Battery4Bar
+            else -> Icons.Default.BatteryAlert
         }
     } else {
-        Pair(Icons.AutoMirrored.Filled.BatteryUnknown, MaterialTheme.colorScheme.onSurfaceVariant)
+        Icons.Default.BatteryFull
     }
-    val socIcon = socPair.first
-    val socColor = socPair.second
 
     Row(
         modifier = Modifier
@@ -973,7 +1001,7 @@ private fun DashboardStatusStrip(
                     "--"
                 },
                 icon = socIcon,
-                iconColor = socColor
+                iconColor = accentColor
             )
         }
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -993,7 +1021,7 @@ private fun DashboardStatusStrip(
                     "--"
                 },
                 icon = Icons.Default.Route,
-                iconColor = Color(0xFF66BB6A)
+                iconColor = accentColor
             )
         }
     }
@@ -1018,18 +1046,10 @@ fun SquareSpeedIndicator(
             .fillMaxWidth()
             .height(SpeedAreaHeight),
         shape = bezierRoundedShape(SpeedAreaCornerRadius),
-        color = Color.Transparent,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 0.5.dp
     ) {
-        val radialGradient = androidx.compose.ui.graphics.Brush.radialGradient(
-            colors = listOf(
-                MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.85f),
-                MaterialTheme.colorScheme.surfaceContainerLow
-            )
-        )
-        Box(
-            modifier = Modifier.background(radialGradient)
-        ) {
+        Box {
             Column {
                 Row(
                     modifier = Modifier
@@ -1057,7 +1077,7 @@ fun SquareSpeedIndicator(
                             Icon(
                                 imageVector = Icons.Default.Bolt,
                                 contentDescription = null,
-                                tint = com.shawnrain.sdash.data.MetricCategory.POWER.tintColor,
+                                tint = color,
                                 modifier = Modifier.size(12.dp)
                             )
                             Text(
@@ -1070,21 +1090,7 @@ fun SquareSpeedIndicator(
 
                     // Center: Speed
                     Column(
-                        modifier = Modifier
-                            .weight(1.6f)
-                            .drawBehind {
-                                if (animatedSpeed > 0.1f) {
-                                    val drawCenter = this.center
-                                    val radiusVal = this.size.minDimension / 1.2f
-                                    drawCircle(
-                                        brush = androidx.compose.ui.graphics.Brush.radialGradient(
-                                            colors = listOf(color.copy(alpha = 0.25f), Color.Transparent),
-                                            center = drawCenter,
-                                            radius = radiusVal
-                                        )
-                                    )
-                                }
-                            },
+                        modifier = Modifier.weight(1.6f),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         BaselineMetricValue(
@@ -1120,7 +1126,7 @@ fun SquareSpeedIndicator(
                             Icon(
                                 imageVector = Icons.Default.BarChart,
                                 contentDescription = null,
-                                tint = com.shawnrain.sdash.data.MetricCategory.POWER.tintColor,
+                                tint = color,
                                 modifier = Modifier.size(12.dp)
                             )
                             Text(
@@ -1316,6 +1322,7 @@ private fun PowerBalanceBar(
     )
     val isOutput = powerKw >= 0f
     val hasActivePower = abs(powerKw) >= 0.08f
+    val accentColor = MaterialTheme.colorScheme.primary
 
     Box(
         modifier = modifier
@@ -1330,17 +1337,13 @@ private fun PowerBalanceBar(
                 .background(Color.White.copy(alpha = 0.38f))
         )
         if (hasActivePower) {
-            val activeColor = powerBarColor(
-                normalizedFraction = targetFraction,
-                isOutput = isOutput
-            )
             Box(
                 modifier = Modifier
                     .align(if (isOutput) Alignment.CenterEnd else Alignment.CenterStart)
                     .fillMaxHeight()
                     .fillMaxWidth(0.5f * animatedFraction)
                     .clip(bezierRoundedShape(999.dp))
-                    .background(activeColor)
+                    .background(accentColor.copy(alpha = 0.86f))
             )
         }
     }
@@ -1517,33 +1520,6 @@ fun CompactMediaControls(
             }
         }
     }
-}
-
-private fun powerBarColor(normalizedFraction: Float, isOutput: Boolean): Color {
-    val fraction = normalizedFraction.coerceIn(0f, 1f)
-    return if (isOutput) {
-        when {
-            fraction < 0.33f -> blendColor(Color(0xFFD4BF7A), Color(0xFFD6A86A), fraction / 0.33f)
-            fraction < 0.66f -> blendColor(Color(0xFFD6A86A), Color(0xFFCC8968), (fraction - 0.33f) / 0.33f)
-            else -> blendColor(Color(0xFFCC8968), Color(0xFFBA6F68), (fraction - 0.66f) / 0.34f)
-        }
-    } else {
-        when {
-            fraction < 0.25f -> blendColor(Color(0xFFD1A56A), Color(0xFFC7BD78), fraction / 0.25f)
-            fraction < 0.6f -> blendColor(Color(0xFFC7BD78), Color(0xFF8BD39A), (fraction - 0.25f) / 0.35f)
-            else -> blendColor(Color(0xFF8BD39A), Color(0xFF16C784), (fraction - 0.6f) / 0.4f)
-        }
-    }
-}
-
-private fun blendColor(start: Color, end: Color, fraction: Float): Color {
-    val t = fraction.coerceIn(0f, 1f)
-    return Color(
-        red = start.red + (end.red - start.red) * t,
-        green = start.green + (end.green - start.green) * t,
-        blue = start.blue + (end.blue - start.blue) * t,
-        alpha = start.alpha + (end.alpha - start.alpha) * t
-    )
 }
 
 @Composable

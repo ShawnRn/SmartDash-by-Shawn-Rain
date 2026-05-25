@@ -669,7 +669,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // UI 默认显示净能效 (最准，包含回收贡献)
         val avgEff = when {
             tripAverageNetEfficiencyWhKm > 0.1f -> tripAverageNetEfficiencyWhKm
-            rangeEstimate.averageWindowEfficiencyWhKm > 0.1f -> rangeEstimate.averageWindowEfficiencyWhKm
             else -> 0.0f
         }
         
@@ -686,14 +685,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             0.0f
         }
+        val avgPhaseCurrentA = if (rideActive && accumulatorState.phaseCurrentSampleCount > 0) {
+            accumulatorState.totalPhaseCurrentSum / accumulatorState.phaseCurrentSampleCount
+        } else {
+            0.0f
+        }
 
         // Statistics are now handled by RideAccumulator
 
         return bleMetrics.copy(
             voltage = volt,
             busCurrent = curr,
+            phaseCurrent = sample?.phaseCurrentA ?: bleMetrics.phaseCurrent,
+            avgPhaseCurrent = avgPhaseCurrentA,
             voltageSag = voltageSag,
             maxVoltageSag = if (rideActive) accumulatorState.maxVoltageSagV else voltageSag.coerceAtLeast(0f),
+            maxSpeedKmh = if (rideActive) accumulatorState.maxSpeedKmh else speed.coerceAtLeast(0f),
             totalPowerW = powerW,
             speedKmH = speed,
             controllerSpeedKmH = cleanedControllerSpeed,

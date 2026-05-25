@@ -19,8 +19,8 @@ android {
         applicationId = "com.shawnrain.sdash"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2026052101
-        versionName = "1.2.10"
+        versionCode = 2026052501
+        versionName = "1.2.11"
         
         vectorDrawables {
             useSupportLibrary = true
@@ -34,6 +34,8 @@ android {
                 storePassword = releaseStorePassword
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
             }
         }
     }

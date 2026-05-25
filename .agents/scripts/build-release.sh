@@ -55,6 +55,7 @@ STAMP="$(timestamp)"
 LOG_FILE="$LOG_DIR/build-release-$STAMP.log"
 ARCHIVE_APK="$ARTIFACT_DIR/habe-release-$STAMP.apk"
 
+./gradlew --stop
 run_gradle_logged_with_dex_retry "$LOG_FILE" release :app:assembleRelease
 
 grep "BUILD SUCCESSFUL" "$LOG_FILE" >/dev/null

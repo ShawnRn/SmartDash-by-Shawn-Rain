@@ -288,7 +288,14 @@ copy_remote_file_to_local() {
   local local_path="$3"
 
   mkdir -p "$(dirname "$local_path")"
-  smartdash_ssh "$target" "cat $(shell_quote "$remote_path")" > "$local_path"
+  local tmp_local
+  tmp_local="$(mktemp)"
+  if smartdash_ssh "$target" "cat $(shell_quote "$remote_path")" > "$tmp_local" && [[ -s "$tmp_local" ]]; then
+    mv "$tmp_local" "$local_path"
+  else
+    rm -f "$tmp_local"
+    echo "Warning: failed to copy remote file $remote_path to local via SSH (connection reset or empty data). Fallback to iCloud sync." >&2
+  fi
 }
 
 ensure_dirs() {

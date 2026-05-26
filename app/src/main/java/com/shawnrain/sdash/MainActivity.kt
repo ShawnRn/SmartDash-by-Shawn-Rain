@@ -43,6 +43,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -125,8 +126,8 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val BACK_CHAIN_TAG = "MainActivityBack"
         private const val EXTRA_TARGET_ROUTE = "target_route"
-        private val TELEMETRY_PIP_ASPECT_RATIO = Rational(25, 14)
-        private val TELEMETRY_PIP_EXPANDED_ASPECT_RATIO = Rational(8, 5)
+        private val TELEMETRY_PIP_ASPECT_RATIO = Rational(21, 9)
+        private val TELEMETRY_PIP_EXPANDED_ASPECT_RATIO = Rational(21, 9)
 
         fun createLaunchIntent(
             context: Context,
@@ -902,14 +903,18 @@ private fun TelemetryPipScreen(
     viewModel: MainViewModel
 ) {
     val metrics by viewModel.metrics.collectAsState()
+    val currentVehicle by viewModel.currentVehicle.collectAsState()
     val speedText = metrics.speedKmH.toInt().coerceAtLeast(0).toString()
-    val baseWidth = 300.dp
-    val baseHeight = 168.dp
+    val powerKw = metrics.totalPowerW / 1000f
+
+    // 21:9 ratio base size
+    val baseWidth = 350.dp
+    val baseHeight = 150.dp
 
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f)),
+            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.95f)),
         contentAlignment = Alignment.Center
     ) {
         val scale = min(maxWidth / baseWidth, maxHeight / baseHeight)
@@ -922,62 +927,204 @@ private fun TelemetryPipScreen(
                 .height(scaledHeight),
             contentAlignment = Alignment.Center
         ) {
-            Column(
+            Row(
                 modifier = Modifier
                     .requiredSize(baseWidth, baseHeight)
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
                     }
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.SpaceBetween,
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Row(
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.Center
+                // Left Area: Speed Box with mini PowerBalanceBar (Unified app style)
+                Box(
+                    modifier = Modifier
+                        .width(110.dp)
+                        .fillMaxHeight()
+                        .clip(com.shawnrain.sdash.ui.theme.bezierRoundedShape(18.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow),
+                    contentAlignment = Alignment.Center
                 ) {
-                    BaselineMetricValue(
-                        value = speedText,
-                        unit = "km/h",
-                        valueColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        unitColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
-                        valueFontSize = 64.sp,
-                        unitFontSize = 26.sp,
-                        valueLineHeight = 64.sp,
-                        unitSpacing = 6.dp,
-                        singleLine = true,
-                        textAlign = TextAlign.Center
-                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(vertical = 10.dp, horizontal = 8.dp),
+                        verticalArrangement = Arrangement.SpaceBetween,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Spacer(modifier = Modifier.height(1.dp))
+
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = speedText,
+                                fontSize = 52.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.primary,
+                                lineHeight = 52.sp
+                            )
+                            Text(
+                                text = "km/h",
+                                fontSize = 12.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                color = Color.Gray
+                            )
+                        }
+
+                        PipPowerBalanceBar(
+                            powerKw = powerKw,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                        )
+                    }
                 }
+
+                Spacer(modifier = Modifier.width(20.dp))
+
+                // Right Area: 2 columns to form a perfect 2x2 grid
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    BaselineMetricValue(
-                        value = String.format("%.2f", metrics.totalPowerW / 1000f),
-                        unit = "kW",
-                        valueColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        unitColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
-                        valueFontSize = 28.sp,
-                        unitFontSize = 18.sp,
-                        unitSpacing = 4.dp,
-                        singleLine = true
-                    )
-                    BaselineMetricValue(
-                        value = String.format("%.1f", metrics.avgEfficiencyWhKm),
-                        unit = "Wh/km",
-                        valueColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        unitColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
-                        valueFontSize = 28.sp,
-                        unitFontSize = 18.sp,
-                        unitSpacing = 4.dp,
-                        singleLine = true
-                    )
+                    // Column 1: SOC & Voltage
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // SOC
+                        PipGridItem(
+                            value = metrics.soc.toInt().coerceIn(0, 100).toString(),
+                            unit = "%",
+                            label = "SOC",
+                            valueColor = when {
+                                metrics.soc < 20f -> Color(0xFFFF5252)
+                                metrics.soc < 40f -> Color(0xFFFF9800)
+                                else -> MaterialTheme.colorScheme.onBackground
+                            }
+                        )
+
+                        // Voltage
+                        val series = currentVehicle.batterySeries.coerceAtLeast(1)
+                        val underVoltageThreshold = series * 3.2f
+                        val isUnderVoltage = metrics.voltage < 45.0f || metrics.voltage < underVoltageThreshold
+                        PipGridItem(
+                            value = String.format("%.1f", metrics.voltage),
+                            unit = "V",
+                            label = "电压",
+                            valueColor = if (isUnderVoltage) Color(0xFFFF9800) else MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+
+                    // Column 2: Range & Temp
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Range
+                        PipGridItem(
+                            value = metrics.estimatedRangeKm.toInt().coerceAtLeast(0).toString(),
+                            unit = "km",
+                            label = "续航"
+                        )
+
+                        // Temp
+                        val isOverTemp = metrics.controllerTemp > 65f
+                        PipGridItem(
+                            value = metrics.controllerTemp.toInt().toString(),
+                            unit = "°C",
+                            label = "温控",
+                            valueColor = if (isOverTemp) Color(0xFFFF5252) else MaterialTheme.colorScheme.onBackground
+                        )
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PipPowerBalanceBar(
+    powerKw: Float,
+    modifier: Modifier = Modifier
+) {
+    val targetFraction = when {
+        powerKw > 0f -> (powerKw / 8.0f).coerceIn(0f, 1f)
+        powerKw < 0f -> (kotlin.math.abs(powerKw) / 2.0f).coerceIn(0f, 1f)
+        else -> 0f
+    }
+    val isOutput = powerKw >= 0f
+    val hasActivePower = kotlin.math.abs(powerKw) >= 0.08f
+    val accentColor = if (isOutput) {
+        if (targetFraction > 0.6f) Color(0xFFFF5252) else Color(0xFFFF9800)
+    } else {
+        Color(0xFF4CAF50)
+    }
+
+    Box(
+        modifier = modifier
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(999.dp))
+            .background(Color.Gray.copy(alpha = 0.2f))
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxHeight()
+                .width(1.5.dp)
+                .background(Color.White.copy(alpha = 0.38f))
+        )
+        if (hasActivePower) {
+            Box(
+                modifier = Modifier
+                    .align(if (isOutput) Alignment.CenterEnd else Alignment.CenterStart)
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.5f * targetFraction)
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(999.dp))
+                    .background(accentColor)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PipGridItem(
+    value: String,
+    unit: String,
+    label: String,
+    valueColor: Color = MaterialTheme.colorScheme.onBackground,
+    unitColor: Color = Color.Gray
+) {
+    Column(horizontalAlignment = Alignment.Start) {
+        Text(
+            text = label,
+            fontSize = 13.sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Normal,
+            color = Color.Gray.copy(alpha = 0.9f),
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+        )
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.Start
+        ) {
+            Text(
+                text = value,
+                fontSize = 30.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                color = valueColor,
+                modifier = Modifier.alignByBaseline()
+            )
+            Spacer(modifier = Modifier.width(3.dp))
+            Text(
+                text = unit,
+                fontSize = 12.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                color = unitColor,
+                modifier = Modifier.alignByBaseline()
+            )
         }
     }
 }

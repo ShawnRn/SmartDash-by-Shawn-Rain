@@ -2636,40 +2636,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun sanitizeRideMetricSamples(
+    internal fun sanitizeRideMetricSamples(
         samples: List<RideMetricSample>,
         batterySeries: Int
     ): List<RideMetricSample> {
-        if (samples.isEmpty()) return samples
-
-        val minValidVoltage = TelemetryStreamProcessor.recommendedMinPackVoltageV(batterySeries)
-        val trimmed = samples.toMutableList()
-        while (trimmed.isNotEmpty() && isDirtyZeroValueSample(trimmed.last(), minValidVoltage)) {
-            trimmed.removeAt(trimmed.lastIndex)
-        }
-        if (trimmed.size < 3) return trimmed
-
-        return trimmed.filterIndexed { index, sample ->
-            if (!isDirtyZeroValueSample(sample, minValidVoltage)) return@filterIndexed true
-            val prev = trimmed.getOrNull(index - 1)
-            val next = trimmed.getOrNull(index + 1)
-            val bridgedByValidNeighbors =
-                prev != null && next != null &&
-                    isClearlyValidRideSample(prev, minValidVoltage) &&
-                    isClearlyValidRideSample(next, minValidVoltage)
-            !bridgedByValidNeighbors
-        }
-    }
-
-    private fun isDirtyZeroValueSample(sample: RideMetricSample, minValidVoltage: Float): Boolean {
-        val voltageTooLow = sample.voltage in 0.0f..<minValidVoltage
-        val controllerTempCollapsed = sample.controllerTemp <= 1.0f
-        val mostlyIdle = sample.speedKmH <= 1.5f && abs(sample.busCurrent) <= 3.0f && sample.rpm <= 80.0f
-        return voltageTooLow && controllerTempCollapsed && mostlyIdle
-    }
-
-    private fun isClearlyValidRideSample(sample: RideMetricSample, minValidVoltage: Float): Boolean {
-        return sample.voltage >= minValidVoltage && sample.controllerTemp > 1.0f
+        return com.shawnrain.sdash.data.history.RideMetricSanitizer.sanitize(samples, batterySeries)
     }
 
     private data class SampleEnergyTotals(

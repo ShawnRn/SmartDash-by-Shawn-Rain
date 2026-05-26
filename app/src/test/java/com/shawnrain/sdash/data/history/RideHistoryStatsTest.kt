@@ -122,4 +122,63 @@ class RideHistoryStatsTest {
         assertTrue(stats.hasAltitudeData)
         assertTrue(stats.hasGradeData)
     }
+
+    @Test
+    fun sanitizeFiltersStartupGlitchAndOffsetsElapsedMs() {
+        val samples = listOf(
+            RideMetricSample(
+                elapsedMs = 0L,
+                timestampMs = 1779773678309L,
+                speedKmH = 4.693f,
+                powerKw = 0.798f,
+                voltage = 53.200f,
+                voltageSag = 0.700f,
+                busCurrent = 15.000f,
+                phaseCurrent = 193.600f,
+                controllerTemp = 36.400f,
+                soc = 14.501f, // startup SoC glitch!
+                rpm = 63.000f,
+                efficiencyWhKm = 0f,
+                distanceMeters = 0f
+            ),
+            RideMetricSample(
+                elapsedMs = 1050L,
+                timestampMs = 1779773679359L,
+                speedKmH = 11.255f,
+                powerKw = 1.415f,
+                voltage = 52.400f,
+                voltageSag = 1.500f,
+                busCurrent = 27.000f,
+                phaseCurrent = 217.600f,
+                controllerTemp = 36.500f,
+                soc = 90.199f, // stable SoC
+                rpm = 151.100f,
+                efficiencyWhKm = 125.703f,
+                distanceMeters = 2.326f
+            ),
+            RideMetricSample(
+                elapsedMs = 2100L,
+                timestampMs = 1779773680409L,
+                speedKmH = 12.700f,
+                powerKw = 0f,
+                voltage = 54.000f,
+                voltageSag = 0f,
+                busCurrent = 0f,
+                phaseCurrent = 0f,
+                controllerTemp = 36.500f,
+                soc = 90.194f, // stable SoC
+                rpm = 173.300f,
+                efficiencyWhKm = 0f,
+                distanceMeters = 5.819f
+            )
+        )
+
+        val sanitized = RideMetricSanitizer.sanitize(samples, 14)
+
+        org.junit.Assert.assertEquals(2, sanitized.size)
+        org.junit.Assert.assertEquals(0L, sanitized[0].elapsedMs)
+        org.junit.Assert.assertEquals(90.199f, sanitized[0].soc)
+        org.junit.Assert.assertEquals(1050L, sanitized[1].elapsedMs)
+        org.junit.Assert.assertEquals(90.194f, sanitized[1].soc)
+    }
 }

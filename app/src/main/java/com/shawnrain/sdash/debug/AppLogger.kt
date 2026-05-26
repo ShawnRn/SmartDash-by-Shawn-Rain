@@ -133,7 +133,11 @@ object AppLogger {
         val fullMessage = if (throwable == null) {
             message
         } else {
-            message + "\n" + Log.getStackTraceString(throwable)
+            message + "\n" + try {
+                Log.getStackTraceString(throwable)
+            } catch (_: RuntimeException) {
+                throwable.stackTraceToString()
+            }
         }
 
         synchronized(logBuffer) {
@@ -150,6 +154,10 @@ object AppLogger {
             )
         }
 
-        Log.println(level.priority, tag, fullMessage)
+        try {
+            Log.println(level.priority, tag, fullMessage)
+        } catch (_: RuntimeException) {
+            println("[$tag] ${level.name}: $fullMessage")
+        }
     }
 }

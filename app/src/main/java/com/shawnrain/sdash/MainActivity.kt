@@ -109,7 +109,13 @@ import com.shawnrain.sdash.ui.navigation.PredictiveBackPage
 import com.shawnrain.sdash.ui.settings.SettingsScreen
 import com.shawnrain.sdash.ui.speedtest.SpeedtestScreen
 import com.shawnrain.sdash.ui.theme.HabeTheme
+import com.shawnrain.sdash.ui.theme.bezierRoundedShape
 import kotlin.math.min
+import kotlin.math.max
+import kotlin.math.abs
+import kotlin.math.pow
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.runtime.mutableFloatStateOf
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -927,35 +933,34 @@ private fun TelemetryPipScreen(
                 .height(scaledHeight),
             contentAlignment = Alignment.Center
         ) {
-            Row(
+            Box(
                 modifier = Modifier
                     .requiredSize(baseWidth, baseHeight)
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
                     }
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left Area: Speed Box with mini PowerBalanceBar (Unified app style)
-                Box(
+                Row(
                     modifier = Modifier
-                        .width(110.dp)
+                        .fillMaxWidth()
                         .fillMaxHeight()
-                        .clip(com.shawnrain.sdash.ui.theme.bezierRoundedShape(18.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerLow),
-                    contentAlignment = Alignment.Center
+                        .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
+                    // Left Area: Speed Box centered (Unified app style)
+                    Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(vertical = 10.dp, horizontal = 8.dp),
-                        verticalArrangement = Arrangement.SpaceBetween,
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .width(110.dp)
+                            .fillMaxHeight()
+                            .clip(bezierRoundedShape(18.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerLow),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Spacer(modifier = Modifier.height(1.dp))
-
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
                             Text(
                                 text = speedText,
                                 fontSize = 52.sp,
@@ -972,75 +977,77 @@ private fun TelemetryPipScreen(
                                 color = Color.Gray
                             )
                         }
+                    }
 
-                        PipPowerBalanceBar(
-                            powerKw = powerKw,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                        )
+                    Spacer(modifier = Modifier.width(20.dp))
+
+                    // Right Area: 2 columns to form a perfect 2x2 grid
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Column 1: SOC & Voltage
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // SOC
+                            PipGridItem(
+                                value = metrics.soc.toInt().coerceIn(0, 100).toString(),
+                                unit = "%",
+                                label = "SOC",
+                                valueColor = when {
+                                    metrics.soc < 20f -> Color(0xFFFF5252)
+                                    metrics.soc < 40f -> Color(0xFFFF9800)
+                                    else -> MaterialTheme.colorScheme.onBackground
+                                }
+                            )
+
+                            // Voltage
+                            val series = currentVehicle.batterySeries.coerceAtLeast(1)
+                            val underVoltageThreshold = series * 3.2f
+                            val isUnderVoltage = metrics.voltage < 45.0f || metrics.voltage < underVoltageThreshold
+                            PipGridItem(
+                                value = String.format("%.1f", metrics.voltage),
+                                unit = "V",
+                                label = "电压",
+                                valueColor = if (isUnderVoltage) Color(0xFFFF9800) else MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+
+                        // Column 2: Range & Temp
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // Range
+                            PipGridItem(
+                                value = metrics.estimatedRangeKm.toInt().coerceAtLeast(0).toString(),
+                                unit = "km",
+                                label = "续航"
+                            )
+
+                            // Temp
+                            val isOverTemp = metrics.controllerTemp > 65f
+                            PipGridItem(
+                                value = metrics.controllerTemp.toInt().toString(),
+                                unit = "°C",
+                                label = "温控",
+                                valueColor = if (isOverTemp) Color(0xFFFF5252) else MaterialTheme.colorScheme.onBackground
+                            )
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.width(20.dp))
-
-                // Right Area: 2 columns to form a perfect 2x2 grid
-                Row(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Column 1: SOC & Voltage
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        // SOC
-                        PipGridItem(
-                            value = metrics.soc.toInt().coerceIn(0, 100).toString(),
-                            unit = "%",
-                            label = "SOC",
-                            valueColor = when {
-                                metrics.soc < 20f -> Color(0xFFFF5252)
-                                metrics.soc < 40f -> Color(0xFFFF9800)
-                                else -> MaterialTheme.colorScheme.onBackground
-                            }
-                        )
-
-                        // Voltage
-                        val series = currentVehicle.batterySeries.coerceAtLeast(1)
-                        val underVoltageThreshold = series * 3.2f
-                        val isUnderVoltage = metrics.voltage < 45.0f || metrics.voltage < underVoltageThreshold
-                        PipGridItem(
-                            value = String.format("%.1f", metrics.voltage),
-                            unit = "V",
-                            label = "电压",
-                            valueColor = if (isUnderVoltage) Color(0xFFFF9800) else MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-
-                    // Column 2: Range & Temp
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        // Range
-                        PipGridItem(
-                            value = metrics.estimatedRangeKm.toInt().coerceAtLeast(0).toString(),
-                            unit = "km",
-                            label = "续航"
-                        )
-
-                        // Temp
-                        val isOverTemp = metrics.controllerTemp > 65f
-                        PipGridItem(
-                            value = metrics.controllerTemp.toInt().toString(),
-                            unit = "°C",
-                            label = "温控",
-                            valueColor = if (isOverTemp) Color(0xFFFF5252) else MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                }
+                // PowerBalanceBar at the bottom spanning the full width
+                PipPowerBalanceBar(
+                    powerKw = powerKw,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(8.dp)
+                )
             }
         }
     }
@@ -1051,23 +1058,49 @@ private fun PipPowerBalanceBar(
     powerKw: Float,
     modifier: Modifier = Modifier
 ) {
+    var positivePeakKw by remember { mutableFloatStateOf(3.5f) }
+    var regenPeakKw by remember { mutableFloatStateOf(0.8f) }
+
+    LaunchedEffect(powerKw) {
+        positivePeakKw = when {
+            powerKw > 0f -> max(positivePeakKw * 0.985f, max(3.5f, powerKw * 1.12f))
+            else -> max(positivePeakKw * 0.992f, 3.5f)
+        }
+        regenPeakKw = when {
+            powerKw < 0f -> max(regenPeakKw * 0.978f, max(0.8f, abs(powerKw) * 1.12f))
+            else -> max(regenPeakKw * 0.99f, 0.8f)
+        }
+    }
+
     val targetFraction = when {
-        powerKw > 0f -> (powerKw / 8.0f).coerceIn(0f, 1f)
-        powerKw < 0f -> (kotlin.math.abs(powerKw) / 2.0f).coerceIn(0f, 1f)
+        powerKw > 0f -> (powerKw / positivePeakKw).coerceIn(0f, 1f)
+        powerKw < 0f -> (abs(powerKw) / regenPeakKw).coerceIn(0f, 1f)
         else -> 0f
     }
-    val isOutput = powerKw >= 0f
-    val hasActivePower = kotlin.math.abs(powerKw) >= 0.08f
-    val accentColor = if (isOutput) {
-        if (targetFraction > 0.6f) Color(0xFFFF5252) else Color(0xFFFF9800)
-    } else {
-        Color(0xFF4CAF50)
+    val visualTargetFraction = remember(targetFraction, powerKw) {
+        val hasActivePower = abs(powerKw) >= 0.08f
+        if (!hasActivePower) 0f else {
+            val raw = targetFraction.coerceIn(0f, 1f)
+            if (powerKw >= 0f) {
+                max(0.06f, raw.pow(0.82f))
+            } else {
+                max(0.16f, raw.pow(0.56f))
+            }.coerceIn(0f, 1f)
+        }
     }
+    val animatedFraction by animateFloatAsState(
+        targetValue = visualTargetFraction,
+        animationSpec = tween(durationMillis = 180),
+        label = "pip_power_balance_fraction"
+    )
+    val isOutput = powerKw >= 0f
+    val hasActivePower = abs(powerKw) >= 0.08f
+    val accentColor = MaterialTheme.colorScheme.primary
 
     Box(
         modifier = modifier
-            .clip(androidx.compose.foundation.shape.RoundedCornerShape(999.dp))
-            .background(Color.Gray.copy(alpha = 0.2f))
+            .clip(bezierRoundedShape(999.dp))
+            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f))
     ) {
         Box(
             modifier = Modifier
@@ -1081,9 +1114,9 @@ private fun PipPowerBalanceBar(
                 modifier = Modifier
                     .align(if (isOutput) Alignment.CenterEnd else Alignment.CenterStart)
                     .fillMaxHeight()
-                    .fillMaxWidth(0.5f * targetFraction)
-                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(999.dp))
-                    .background(accentColor)
+                    .fillMaxWidth(0.5f * animatedFraction)
+                    .clip(bezierRoundedShape(999.dp))
+                    .background(accentColor.copy(alpha = 0.86f))
             )
         }
     }

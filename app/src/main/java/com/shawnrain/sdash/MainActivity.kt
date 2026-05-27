@@ -933,7 +933,7 @@ private fun TelemetryPipScreen(
                 .height(scaledHeight),
             contentAlignment = Alignment.Center
         ) {
-            Box(
+            Column(
                 modifier = Modifier
                     .requiredSize(baseWidth, baseHeight)
                     .graphicsLayer {
@@ -944,8 +944,8 @@ private fun TelemetryPipScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .fillMaxHeight()
-                        .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 20.dp),
+                        .weight(1f)
+                        .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Left Area: Speed Box centered (Unified app style)
@@ -983,14 +983,18 @@ private fun TelemetryPipScreen(
 
                     // Right Area: 2 columns to form a perfect 2x2 grid
                     Row(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Column 1: SOC & Voltage
                         Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            verticalArrangement = Arrangement.Center
                         ) {
                             // SOC
                             PipGridItem(
@@ -1003,6 +1007,8 @@ private fun TelemetryPipScreen(
                                     else -> MaterialTheme.colorScheme.onBackground
                                 }
                             )
+
+                            Spacer(modifier = Modifier.height(12.dp))
 
                             // Voltage
                             val series = currentVehicle.batterySeries.coerceAtLeast(1)
@@ -1018,8 +1024,10 @@ private fun TelemetryPipScreen(
 
                         // Column 2: Range & Temp
                         Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            verticalArrangement = Arrangement.Center
                         ) {
                             // Range
                             PipGridItem(
@@ -1027,6 +1035,8 @@ private fun TelemetryPipScreen(
                                 unit = "km",
                                 label = "续航"
                             )
+
+                            Spacer(modifier = Modifier.height(12.dp))
 
                             // Temp
                             val isOverTemp = metrics.controllerTemp > 65f
@@ -1044,7 +1054,6 @@ private fun TelemetryPipScreen(
                 PipPowerBalanceBar(
                     powerKw = powerKw,
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .height(8.dp)
                 )

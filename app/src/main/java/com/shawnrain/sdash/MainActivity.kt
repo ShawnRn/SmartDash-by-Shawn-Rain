@@ -132,8 +132,8 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val BACK_CHAIN_TAG = "MainActivityBack"
         private const val EXTRA_TARGET_ROUTE = "target_route"
-        private val TELEMETRY_PIP_ASPECT_RATIO = Rational(21, 9)
-        private val TELEMETRY_PIP_EXPANDED_ASPECT_RATIO = Rational(21, 9)
+        private val TELEMETRY_PIP_ASPECT_RATIO = Rational(18, 9)
+        private val TELEMETRY_PIP_EXPANDED_ASPECT_RATIO = Rational(18, 9)
 
         fun createLaunchIntent(
             context: Context,
@@ -913,9 +913,9 @@ private fun TelemetryPipScreen(
     val speedText = metrics.speedKmH.toInt().coerceAtLeast(0).toString()
     val powerKw = metrics.totalPowerW / 1000f
 
-    // 21:9 ratio base size
+    // 18:9 ratio base size
     val baseWidth = 350.dp
-    val baseHeight = 150.dp
+    val baseHeight = 175.dp
 
     BoxWithConstraints(
         modifier = Modifier

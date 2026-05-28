@@ -20,6 +20,11 @@ import androidx.compose.ui.unit.dp
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.Typography
+import com.shawnrain.sdash.R
 
 data class SmartDashColors(
     val speedAccent: Color = Color(0xFFD0BCFF),
@@ -29,6 +34,41 @@ data class SmartDashColors(
 )
 
 val LocalSmartDashColors = staticCompositionLocalOf { SmartDashColors() }
+
+val MiSansFontFamily = FontFamily(
+    Font(R.font.misans_light, FontWeight.Light),
+    Font(R.font.misans_regular, FontWeight.Normal),
+    Font(R.font.misans_medium, FontWeight.Medium),
+    Font(R.font.misans_demibold, FontWeight.SemiBold),
+    Font(R.font.misans_bold, FontWeight.Bold),
+    Font(R.font.misans_heavy, FontWeight.ExtraBold),
+    Font(R.font.misans_heavy, FontWeight.Black)
+)
+
+val LocalUseMiSansFont = staticCompositionLocalOf { true }
+
+fun getAppTypography(useMiSans: Boolean): Typography {
+    val fontFamily = if (useMiSans) MiSansFontFamily else FontFamily.Default
+    val fontFeatureSettings = if (useMiSans) "tnum" else null
+    val default = Typography()
+    return Typography(
+        displayLarge = default.displayLarge.copy(fontFamily = fontFamily, fontFeatureSettings = fontFeatureSettings),
+        displayMedium = default.displayMedium.copy(fontFamily = fontFamily, fontFeatureSettings = fontFeatureSettings),
+        displaySmall = default.displaySmall.copy(fontFamily = fontFamily, fontFeatureSettings = fontFeatureSettings),
+        headlineLarge = default.headlineLarge.copy(fontFamily = fontFamily, fontFeatureSettings = fontFeatureSettings),
+        headlineMedium = default.headlineMedium.copy(fontFamily = fontFamily, fontFeatureSettings = fontFeatureSettings),
+        headlineSmall = default.headlineSmall.copy(fontFamily = fontFamily, fontFeatureSettings = fontFeatureSettings),
+        titleLarge = default.titleLarge.copy(fontFamily = fontFamily, fontFeatureSettings = fontFeatureSettings),
+        titleMedium = default.titleMedium.copy(fontFamily = fontFamily, fontFeatureSettings = fontFeatureSettings),
+        titleSmall = default.titleSmall.copy(fontFamily = fontFamily, fontFeatureSettings = fontFeatureSettings),
+        bodyLarge = default.bodyLarge.copy(fontFamily = fontFamily, fontFeatureSettings = fontFeatureSettings),
+        bodyMedium = default.bodyMedium.copy(fontFamily = fontFamily, fontFeatureSettings = fontFeatureSettings),
+        bodySmall = default.bodySmall.copy(fontFamily = fontFamily, fontFeatureSettings = fontFeatureSettings),
+        labelLarge = default.labelLarge.copy(fontFamily = fontFamily, fontFeatureSettings = fontFeatureSettings),
+        labelMedium = default.labelMedium.copy(fontFamily = fontFamily, fontFeatureSettings = fontFeatureSettings),
+        labelSmall = default.labelSmall.copy(fontFamily = fontFamily, fontFeatureSettings = fontFeatureSettings)
+    )
+}
 
 private val DarkColorScheme = darkColorScheme(
     primary = Color(0xFFD0BCFF),
@@ -54,6 +94,7 @@ private val HabeShapes = Shapes(
 fun HabeTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
+    useMiSans: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
@@ -73,13 +114,16 @@ fun HabeTheme(
     }
 
     val customColors = SmartDashColors()
+    val typography = getAppTypography(useMiSans)
 
     CompositionLocalProvider(
-        LocalSmartDashColors provides customColors
+        LocalSmartDashColors provides customColors,
+        LocalUseMiSansFont provides useMiSans
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
             shapes = HabeShapes,
+            typography = typography,
             content = content
         )
     }

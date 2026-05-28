@@ -225,6 +225,7 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     var previewRideRecord by remember { mutableStateOf<RideHistoryRecord?>(null) }
     var previewSpeedTestRecord by remember { mutableStateOf<SpeedTestRecord?>(null) }
     var selectedRideIds by remember { mutableStateOf(setOf<String>()) }
+    var showMergeConfirmDialog by remember { mutableStateOf(false) }
     val pagerState = rememberPagerState(
         initialPage = 0,
         pageCount = { SpeedPageTab.entries.size }
@@ -495,16 +496,7 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                     }
                     Button(
                         onClick = {
-                            scope.launch {
-                                val merged = viewModel.mergeRideHistoryRecords(selectedRideIds)
-                                if (merged != null) {
-                                    selectedRideIds = emptySet()
-                                    selectedRideRecord = merged
-                                    snackbarHostState.showSnackbar("已合并行程记录")
-                                } else {
-                                    snackbarHostState.showSnackbar("至少选择 2 条行程记录")
-                                }
-                            }
+                            showMergeConfirmDialog = true
                         },
                         enabled = selectedRideIds.size >= 2,
                         shape = bezierPillShape()
@@ -514,6 +506,43 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                 }
             }
         }
+    }
+
+    if (showMergeConfirmDialog) {
+        val selectedSummaries = remember(selectedRideIds, rideHistory) {
+            rideHistory.filter { it.id in selectedRideIds }.sortedBy { it.startedAtMs }
+        }
+        val selectedCount = selectedSummaries.size
+        val timeRangeText = remember(selectedSummaries) {
+            val first = selectedSummaries.firstOrNull()?.startedAtMs
+            val last = selectedSummaries.lastOrNull()?.startedAtMs
+            if (first != null && last != null) {
+                val dateFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+                val startStr = dateFormat.format(Date(first))
+                val endStr = dateFormat.format(Date(last))
+                if (startStr == endStr) startStr else "$startStr 至 $endStr"
+            } else {
+                "无时间范围"
+            }
+        }
+        MergeConfirmationDialog(
+            selectedCount = selectedCount,
+            timeRangeText = timeRangeText,
+            onDismiss = { showMergeConfirmDialog = false },
+            onConfirm = {
+                showMergeConfirmDialog = false
+                scope.launch {
+                    val merged = viewModel.mergeRideHistoryRecords(selectedRideIds)
+                    if (merged != null) {
+                        selectedRideIds = emptySet()
+                        selectedRideRecord = merged
+                        snackbarHostState.showSnackbar("已合并行程记录")
+                    } else {
+                        snackbarHostState.showSnackbar("至少选择 2 条行程记录")
+                    }
+                }
+            }
+        )
     }
 
     selectedRideRecord?.let { record ->
@@ -4275,4 +4304,174 @@ private fun summarizeVoltageSag(samples: List<RideMetricSample>): VoltageSagSumm
     val average = if (sagValues.isEmpty()) 0.0f else sagValues.sum() / sagValues.size
     val maximum = sagValues.maxOfOrNull { it } ?: 0.0f
     return VoltageSagSummary(average = average, maximum = maximum)
+}
+
+@Composable
+private fun MergeConfirmationDialog(
+    selectedCount: Int,
+    timeRangeText: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val enterDurationMs = 320
+    val exitDurationMs = 220
+    var isDialogVisible by remember { mutableStateOf(false) }
+    var dismissInFlight by remember { mutableStateOf(false) }
+    val entryProgress by animateFloatAsState(
+        targetValue = if (isDialogVisible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (isDialogVisible) enterDurationMs else exitDurationMs,
+            easing = if (isDialogVisible) FastOutSlowInEasing else FastOutLinearInEasing
+        ),
+        label = "MergeConfirmEntry"
+    )
+
+    fun requestDismiss() {
+        if (dismissInFlight) return
+        dismissInFlight = true
+        isDialogVisible = false
+        scope.launch {
+            kotlinx.coroutines.delay(exitDurationMs.toLong())
+            onDismiss()
+        }
+    }
+
+    fun requestConfirm() {
+        if (dismissInFlight) return
+        dismissInFlight = true
+        isDialogVisible = false
+        scope.launch {
+            kotlinx.coroutines.delay(exitDurationMs.toLong())
+            onConfirm()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        dismissInFlight = false
+        isDialogVisible = true
+    }
+
+    Dialog(
+        onDismissRequest = ::requestDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        ApplyDialogWindowBlurEffect(blurRadius = 28.dp)
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            val density = LocalDensity.current
+            val motion = rememberPredictiveBackMotion(
+                width = maxWidth,
+                onBack = ::requestDismiss,
+                maxHorizontalInset = 10.dp,
+                maxVerticalInset = 8.dp,
+                maxCorner = 16.dp,
+                maxScaleTravelFraction = 0.1f
+            )
+            val scale = 1f - (0.045f * motion.progress)
+            PopupBackdropBlurLayer(
+                blurRadius = 28.dp,
+                scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.24f * entryProgress),
+                onDismissRequest = ::requestDismiss
+            )
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 400.dp)
+                    .padding(horizontal = 24.dp)
+                    .padding(horizontal = motion.insetHorizontal, vertical = motion.insetVertical)
+                    .graphicsLayer {
+                        translationX = motion.translationX
+                        translationY = with(density) { (1f - entryProgress) * 26.dp.toPx() } + motion.insetVertical.toPx()
+                        scaleX = scale * (0.94f + 0.06f * entryProgress)
+                        scaleY = scale * (0.94f + 0.06f * entryProgress)
+                        alpha = motion.alpha * entryProgress
+                    },
+                shape = bezierRoundedShape(28.dp + motion.corner),
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = "合并行程记录",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "当前已选择 ${selectedCount} 条行程记录",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = bezierRoundedShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "行程时间跨度：",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = timeRangeText,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        
+                        Text(
+                            text = "合并后，所有的被选记录将融合成一条新行程。原来的行程将被物理删除，且操作不可逆。是否确认合并？",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = ::requestDismiss,
+                            modifier = Modifier.weight(1f),
+                            shape = bezierPillShape()
+                        ) {
+                            Text("取消")
+                        }
+                        Button(
+                            onClick = ::requestConfirm,
+                            modifier = Modifier.weight(1f),
+                            shape = bezierPillShape(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError
+                            )
+                        ) {
+                            Text("确认合并")
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

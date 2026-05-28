@@ -33,6 +33,7 @@ data class SyncSettingsSnapshot(
     val controllerBrand: String = "auto",
     val logLevel: String = "DEBUG",
     val overlayEnabled: Boolean = false,
+    val useMiSansFont: Boolean = true,
     val dashboardItems: List<String> = emptyList(),
     val rideOverviewItems: List<String> = emptyList(),
     val driveBackupRetention: String = "KEEP_ALL",

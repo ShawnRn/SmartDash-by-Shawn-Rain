@@ -128,6 +128,7 @@ class SettingsRepository(private val context: Context) {
         const val K_POSTER_SHOW_WATERMARK = "poster_show_watermark"
         val LOG_LEVEL = stringPreferencesKey("log_level")
         val OVERLAY_ENABLED = booleanPreferencesKey("overlay_enabled")
+        val USE_MISANS_FONT = booleanPreferencesKey("use_misans_font")
         val DRIVE_BACKUP_RETENTION = stringPreferencesKey("drive_backup_retention")
         val AUTO_RIDE_STOP_ENABLED = booleanPreferencesKey("auto_ride_stop_enabled")
         val AUTO_RIDE_STOP_DELAY_SECONDS = intPreferencesKey("auto_ride_stop_delay_seconds")
@@ -367,6 +368,10 @@ class SettingsRepository(private val context: Context) {
 
     val overlayEnabled: Flow<Boolean> = preferencesFlow.map { pref ->
         pref.safeGet(OVERLAY_ENABLED) ?: false
+    }.distinctUntilChanged()
+
+    val useMiSansFont: Flow<Boolean> = preferencesFlow.map { pref ->
+        pref.safeGet(USE_MISANS_FONT) ?: true
     }.distinctUntilChanged()
 
     val driveBackupRetentionPolicy: Flow<BackupRetentionPolicy> = preferencesFlow.map { pref ->
@@ -676,6 +681,13 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit {
             it[OVERLAY_ENABLED] = enabled
             markSyncedAt(it, OVERLAY_ENABLED.name)
+        }
+    }
+
+    suspend fun saveUseMiSansFont(enabled: Boolean) {
+        context.dataStore.edit {
+            it[USE_MISANS_FONT] = enabled
+            markSyncedAt(it, USE_MISANS_FONT.name)
         }
     }
 
@@ -1056,6 +1068,7 @@ class SettingsRepository(private val context: Context) {
     ) {
         pref[LOG_LEVEL] = AppLogLevel.fromName(snapshot.logLevel).name
         pref[OVERLAY_ENABLED] = snapshot.overlayEnabled
+        pref[USE_MISANS_FONT] = snapshot.useMiSansFont
         pref[DRIVE_BACKUP_RETENTION] = snapshot.driveBackupRetention
         pref[AUTO_RIDE_STOP_ENABLED] = snapshot.autoRideStopEnabled
         pref[AUTO_RIDE_STOP_DELAY_SECONDS] = snapshot.autoRideStopDelaySeconds.coerceIn(15, 600)
@@ -1069,6 +1082,7 @@ class SettingsRepository(private val context: Context) {
             pref,
             LOG_LEVEL.name,
             OVERLAY_ENABLED.name,
+            USE_MISANS_FONT.name,
             DRIVE_BACKUP_RETENTION.name,
             AUTO_RIDE_STOP_ENABLED.name,
             AUTO_RIDE_STOP_DELAY_SECONDS.name,
@@ -2086,6 +2100,7 @@ class SettingsRepository(private val context: Context) {
         if (name == LAST_CONTROLLER_PROTOCOL_ID.name) return true
         if (name == LOG_LEVEL.name) return true
         if (name == OVERLAY_ENABLED.name) return true
+        if (name == USE_MISANS_FONT.name) return true
         if (name == DRIVE_BACKUP_RETENTION.name) return true
         if (name == RIDE_HISTORY_NORMALIZATION_VERSION.name) return true
         if (name == RIDE_HISTORY_STORAGE_MIGRATION_VERSION.name) return true
@@ -2106,6 +2121,7 @@ class SettingsRepository(private val context: Context) {
         if (name == LAST_CONTROLLER_PROTOCOL_ID.name) return BackupValueKind.STRING
         if (name == LOG_LEVEL.name) return BackupValueKind.STRING
         if (name == OVERLAY_ENABLED.name) return BackupValueKind.BOOLEAN
+        if (name == USE_MISANS_FONT.name) return BackupValueKind.BOOLEAN
         if (name == DRIVE_BACKUP_RETENTION.name) return BackupValueKind.STRING
         if (name == RIDE_HISTORY_NORMALIZATION_VERSION.name) return BackupValueKind.INT
         if (name == RIDE_HISTORY_STORAGE_MIGRATION_VERSION.name) return BackupValueKind.INT

@@ -11,7 +11,8 @@ class SyncVehicleProfileSnapshotTest {
     fun syncSettingsSnapshotRoundTripsAutoRideStopFields() {
         val snapshot = SyncSettingsSnapshot(
             autoRideStopEnabled = false,
-            autoRideStopDelaySeconds = 180
+            autoRideStopDelaySeconds = 180,
+            useMiSansFont = false
         )
 
         val encoded = json.encodeToString(SyncSettingsSnapshot.serializer(), snapshot)
@@ -19,6 +20,7 @@ class SyncVehicleProfileSnapshotTest {
 
         assertEquals(false, decoded.autoRideStopEnabled)
         assertEquals(180, decoded.autoRideStopDelaySeconds)
+        assertEquals(false, decoded.useMiSansFont)
     }
 
     @Test
@@ -35,6 +37,7 @@ class SyncVehicleProfileSnapshotTest {
 
         assertEquals(true, decoded.autoRideStopEnabled)
         assertEquals(75, decoded.autoRideStopDelaySeconds)
+        assertEquals(true, decoded.useMiSansFont)
     }
 
     @Test

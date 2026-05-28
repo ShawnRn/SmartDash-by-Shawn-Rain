@@ -396,6 +396,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val controllerBrand = settingsRepository.controllerBrand.stateIn(viewModelScope, SharingStarted.Lazily, "auto")
     val logLevel = settingsRepository.logLevel.stateIn(viewModelScope, SharingStarted.Lazily, AppLogLevel.INFO)
     val overlayEnabled = settingsRepository.overlayEnabled.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val useMiSansFont = settingsRepository.useMiSansFont.stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val driveBackupRetentionPolicy = settingsRepository.driveBackupRetentionPolicy.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
@@ -3242,9 +3243,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun mergeRideHistoryRecords(ids: Set<String>): RideHistoryRecord? {
+        AppLogger.i("MainViewModel", "mergeRideHistoryRecords: 触发合并, 传入ids=${ids}")
         val selected = rideHistoryRepository.loadRideRecords(ids)
             .sortedBy { it.startedAtMs }
-        if (selected.size < 2) return null
+        AppLogger.i("MainViewModel", "mergeRideHistoryRecords: 加载了 ${selected.size} 条记录。详情: " +
+                selected.map { "[id=${it.id}, title='${it.title}', startedAtMs=${it.startedAtMs}]" })
+        if (selected.size < 2) {
+            AppLogger.w("MainViewModel", "mergeRideHistoryRecords: 选中记录少于 2 条, 取消合并")
+            return null
+        }
 
         var elapsedOffsetMs = 0L
         var distanceOffsetMeters = 0f
@@ -3345,8 +3352,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             samples = mergedSamples
         )
         val vehicleId = rideHistory.value.firstOrNull { it.id in ids }?.vehicleId ?: currentVehicle.value.id
+        AppLogger.i("MainViewModel", "mergeRideHistoryRecords: 开始执行合并写入。新纪录 id=${mergedRecord.id}, title='${mergedRecord.title}', startedAtMs=${mergedRecord.startedAtMs}, 物理删除旧记录数=${ids.size}")
         ids.forEach { rideHistoryRepository.deleteRide(it) }
         rideHistoryRepository.upsertRide(vehicleId, mergedRecord)
+        AppLogger.i("MainViewModel", "mergeRideHistoryRecords: 合并写入成功, 新记录已入库")
         syncScheduler.onRideHistoryChanged(mergedRecord.id)
         _calibrationMessage.value = "已合并 ${selected.size} 条行程记录"
         return mergedRecord
@@ -3807,6 +3816,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             "后台画中画仪表已关闭"
         }
+    }
+
+    fun saveUseMiSansFont(enabled: Boolean): kotlinx.coroutines.Job = viewModelScope.launch {
+        settingsRepository.saveUseMiSansFont(enabled)
+        syncScheduler.onSettingsChanged()
+        _calibrationMessage.value = if (enabled) "MiSans 字体已开启" else "系统默认字体已开启"
     }
 
     fun saveAutoRideStopEnabled(enabled: Boolean): kotlinx.coroutines.Job = viewModelScope.launch {

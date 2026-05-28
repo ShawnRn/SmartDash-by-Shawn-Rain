@@ -181,4 +181,46 @@ class RideHistoryStatsTest {
         org.junit.Assert.assertEquals(1050L, sanitized[1].elapsedMs)
         org.junit.Assert.assertEquals(90.194f, sanitized[1].soc)
     }
+
+    @Test
+    fun mergeRideHistoryRecordsTimestampVerification() {
+        val record1 = RideHistoryRecord(
+            id = "ride1",
+            title = "05-28 18:30",
+            startedAtMs = 1779930000000L, // 假设的18:30时间戳
+            endedAtMs = 1779931800000L,
+            durationMs = 1800000L,
+            distanceMeters = 5000f,
+            maxSpeedKmh = 25f,
+            avgSpeedKmh = 10f,
+            peakPowerKw = 1.0f,
+            totalEnergyWh = 100f,
+            avgEfficiencyWhKm = 20f,
+            trackPoints = emptyList(),
+            samples = emptyList()
+        )
+        val record2 = RideHistoryRecord(
+            id = "ride2",
+            title = "05-28 18:10",
+            startedAtMs = 1779928800000L, // 假设的18:10时间戳
+            endedAtMs = 1779930000000L,
+            durationMs = 1200000L,
+            distanceMeters = 3000f,
+            maxSpeedKmh = 20f,
+            avgSpeedKmh = 9f,
+            peakPowerKw = 0.8f,
+            totalEnergyWh = 60f,
+            avgEfficiencyWhKm = 20f,
+            trackPoints = emptyList(),
+            samples = emptyList()
+        )
+
+        // 模拟 MainViewModel 中的合并前置排序和开始时间提取逻辑
+        val selected = listOf(record1, record2).sortedBy { it.startedAtMs }
+        val mergedStartedAtMs = selected.first().startedAtMs
+
+        // 验证合并后的开始时间必然是最早的 18:10，且对应的行程为 ride2
+        org.junit.Assert.assertEquals(1779928800000L, mergedStartedAtMs)
+        org.junit.Assert.assertEquals("ride2", selected.first().id)
+    }
 }

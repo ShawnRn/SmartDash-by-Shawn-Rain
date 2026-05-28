@@ -57,6 +57,7 @@ class DriveStateSerializer(
             controllerBrand = settingsRepository.controllerBrand.first(),
             logLevel = settingsRepository.logLevel.first().name,
             overlayEnabled = settingsRepository.overlayEnabled.first(),
+            useMiSansFont = settingsRepository.useMiSansFont.first(),
             dashboardItems = settingsRepository.dashboardItems.first().map { it.name },
             rideOverviewItems = settingsRepository.rideOverviewItems.first().map { it.name },
             driveBackupRetention = settingsRepository.driveBackupRetentionPolicy.first().name,

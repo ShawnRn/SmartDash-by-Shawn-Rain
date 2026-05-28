@@ -176,9 +176,15 @@ class MainActivity : ComponentActivity() {
         dispatchLaunchIntent(intent)
         enableEdgeToEdge()
         setContent {
-            HabeTheme {
+            val viewModel: MainViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+                factory = ViewModelProvider.AndroidViewModelFactory.getInstance(application)
+            )
+            val useMiSans by viewModel.useMiSansFont.collectAsState()
+
+            HabeTheme(useMiSans = useMiSans) {
                 PermissionBootstrapGate {
                     MainScreen(
+                        viewModel = viewModel,
                         isInPictureInPictureMode = isInPipModeState.value,
                         onRouteChanged = { route ->
                             currentRoute = route
@@ -583,14 +589,15 @@ private object MainActivityRouteRequests {
 fun MainScreen(
     isInPictureInPictureMode: Boolean,
     onRouteChanged: (String?) -> Unit,
-    onPipPreferenceChanged: (Boolean) -> Unit
+    onPipPreferenceChanged: (Boolean) -> Unit,
+    viewModel: MainViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+        factory = ViewModelProvider.AndroidViewModelFactory.getInstance(
+            androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application
+        )
+    )
 ) {
     val navController = rememberNavController()
     val context = LocalContext.current
-    val application = remember(context) { context.applicationContext as Application }
-    val viewModel: MainViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
-        factory = ViewModelProvider.AndroidViewModelFactory.getInstance(application)
-    )
     val configuration = LocalConfiguration.current
     val pipEnabled by viewModel.overlayEnabled.collectAsState()
     val pendingRideStop by viewModel.pendingRideStop.collectAsState()
@@ -957,6 +964,10 @@ private fun TelemetryPipScreen(
                             .background(MaterialTheme.colorScheme.surfaceContainerLow),
                         contentAlignment = Alignment.Center
                     ) {
+                        val useMiSans = com.shawnrain.sdash.ui.theme.LocalUseMiSansFont.current
+                        val pipFontFamily = if (useMiSans) com.shawnrain.sdash.ui.theme.MiSansFontFamily else androidx.compose.ui.text.font.FontFamily.Monospace
+                        val pipFontFeatureSettings = if (useMiSans) "tnum" else null
+
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
@@ -965,7 +976,8 @@ private fun TelemetryPipScreen(
                                 text = speedText,
                                 fontSize = 52.sp,
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
-                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                fontFamily = pipFontFamily,
+                                style = androidx.compose.material3.LocalTextStyle.current.copy(fontFeatureSettings = pipFontFeatureSettings),
                                 color = MaterialTheme.colorScheme.primary,
                                 lineHeight = 52.sp
                             )
@@ -973,7 +985,8 @@ private fun TelemetryPipScreen(
                                 text = "km/h",
                                 fontSize = 12.sp,
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                fontFamily = pipFontFamily,
+                                style = androidx.compose.material3.LocalTextStyle.current.copy(fontFeatureSettings = pipFontFeatureSettings),
                                 color = Color.Gray
                             )
                         }
@@ -1139,13 +1152,18 @@ private fun PipGridItem(
     valueColor: Color = MaterialTheme.colorScheme.onBackground,
     unitColor: Color = Color.Gray
 ) {
+    val useMiSans = com.shawnrain.sdash.ui.theme.LocalUseMiSansFont.current
+    val pipFontFamily = if (useMiSans) com.shawnrain.sdash.ui.theme.MiSansFontFamily else androidx.compose.ui.text.font.FontFamily.Monospace
+    val pipFontFeatureSettings = if (useMiSans) "tnum" else null
+
     Column(horizontalAlignment = Alignment.Start) {
         Text(
             text = label,
             fontSize = 13.sp,
             fontWeight = androidx.compose.ui.text.font.FontWeight.Normal,
             color = Color.Gray.copy(alpha = 0.9f),
-            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+            fontFamily = pipFontFamily,
+            style = androidx.compose.material3.LocalTextStyle.current.copy(fontFeatureSettings = pipFontFeatureSettings)
         )
         Row(
             verticalAlignment = Alignment.Bottom,
@@ -1155,7 +1173,8 @@ private fun PipGridItem(
                 text = value,
                 fontSize = 30.sp,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                fontFamily = pipFontFamily,
+                style = androidx.compose.material3.LocalTextStyle.current.copy(fontFeatureSettings = pipFontFeatureSettings),
                 color = valueColor,
                 modifier = Modifier.alignByBaseline()
             )
@@ -1163,7 +1182,8 @@ private fun PipGridItem(
             Text(
                 text = unit,
                 fontSize = 12.sp,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                fontFamily = pipFontFamily,
+                style = androidx.compose.material3.LocalTextStyle.current.copy(fontFeatureSettings = pipFontFeatureSettings),
                 color = unitColor,
                 modifier = Modifier.alignByBaseline()
             )

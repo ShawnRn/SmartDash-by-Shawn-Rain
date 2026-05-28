@@ -74,6 +74,7 @@ import androidx.compose.material.icons.filled.LocalParking
 import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.*
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -165,6 +166,7 @@ fun SettingsScreen(
     val battDataSource by viewModel.battDataSource.collectAsState()
     val logLevel by viewModel.logLevel.collectAsState()
     val overlayEnabled by viewModel.overlayEnabled.collectAsState()
+    val useMiSansFont by viewModel.useMiSansFont.collectAsState()
     val autoRideStopEnabled by viewModel.autoRideStopEnabled.collectAsState()
     val autoRideStopDelaySeconds by viewModel.autoRideStopDelaySeconds.collectAsState()
     val vehicleProfiles by viewModel.vehicleProfiles.collectAsState()
@@ -774,6 +776,48 @@ fun SettingsScreen(
                         Switch(
                             checked = overlayEnabled,
                             onCheckedChange = { enabled -> viewModel.saveOverlayEnabled(enabled) }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.TextFields,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text("界面字体", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                    Text(
+                        "支持使用小米 MiSans 字体或系统默认字体。开启后，应用所有场景（含等宽数字）将切换至小米 MiSans 字体。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("使用 MiSans 字体", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "默认开启，关闭后回退至系统字体",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = useMiSansFont,
+                            onCheckedChange = { enabled -> viewModel.saveUseMiSansFont(enabled) }
                         )
                     }
                 }

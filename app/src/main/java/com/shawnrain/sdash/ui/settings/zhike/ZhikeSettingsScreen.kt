@@ -83,6 +83,7 @@ import com.shawnrain.sdash.ble.protocols.syncLegacyFieldsFromWords
 import com.shawnrain.sdash.ui.navigation.BlurredAlertDialog
 import com.shawnrain.sdash.ui.navigation.SecondaryScreenTopBar
 import com.shawnrain.sdash.ui.theme.bezierPillShape
+import com.shawnrain.sdash.ui.theme.bezierRoundedShape
 import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -206,7 +207,39 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
 
     Scaffold(
         snackbarHost = {
-            SnackbarHost(hostState = snackbarHostState)
+            SnackbarHost(
+                hostState = snackbarHostState,
+                snackbar = { data ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.inverseSurface,
+                        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                        shape = bezierRoundedShape(16.dp),
+                        tonalElevation = 6.dp,
+                        shadowElevation = 8.dp,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = data.visuals.message,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.inverseOnSurface,
+                                modifier = Modifier.weight(1f)
+                            )
+                            data.visuals.actionLabel?.let { action ->
+                                TextButton(
+                                    onClick = { data.performAction() },
+                                    modifier = Modifier.padding(start = 8.dp)
+                                ) {
+                                    Text(action, color = MaterialTheme.colorScheme.inversePrimary)
+                                }
+                            }
+                        }
+                    }
+                }
+            )
         },
         topBar = {
             SecondaryScreenTopBar(

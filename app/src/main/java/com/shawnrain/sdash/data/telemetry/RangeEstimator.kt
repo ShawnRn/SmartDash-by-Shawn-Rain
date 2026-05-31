@@ -115,7 +115,7 @@ class RangeEstimator {
         // 4. 计算剩余能量与里程
         val nominalPackVoltage = batterySeries * NOMINAL_CELL_VOLTAGE
         val totalNominalWh: EnergyWh = batteryCapacityAh * nominalPackVoltage
-        val remainingWh: EnergyWh = (batteryState.socPercent / 100.0f) * totalNominalWh * usableEnergyRatio.coerceIn(0.7f, 1.0f)
+        val remainingWh: EnergyWh = (batteryState.socPercent / 100.0f) * totalNominalWh * usableEnergyRatio.coerceIn(0.30f, 1.20f)
 
         val rangeKm = if (avgEfficiencyWhKm > 0.1f) {
             (remainingWh / avgEfficiencyWhKm).coerceAtLeast(0.0f)

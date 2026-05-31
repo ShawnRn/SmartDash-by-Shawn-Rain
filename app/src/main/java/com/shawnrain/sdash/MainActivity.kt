@@ -687,7 +687,37 @@ fun MainScreen(
         snackbarHost = {
             SnackbarHost(
                 hostState = globalSnackbarHostState,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp)
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
+                snackbar = { data ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.inverseSurface,
+                        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                        shape = bezierRoundedShape(16.dp),
+                        tonalElevation = 6.dp,
+                        shadowElevation = 8.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = data.visuals.message,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.inverseOnSurface,
+                                modifier = Modifier.weight(1f)
+                            )
+                            data.visuals.actionLabel?.let { action ->
+                                TextButton(
+                                    onClick = { data.performAction() },
+                                    modifier = Modifier.padding(start = 8.dp)
+                                ) {
+                                    Text(action, color = MaterialTheme.colorScheme.inversePrimary)
+                                }
+                            }
+                        }
+                    }
+                }
             )
         },
         bottomBar = {

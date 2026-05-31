@@ -280,7 +280,8 @@ enum class SyncTriggerReason {
     NETWORK_RESTORED,
     PERIODIC_CHECK,
     USER_REFRESH,
-    MANUAL_SYNC
+    MANUAL_SYNC,
+    APP_BACKGROUND
 }
 
 // ─── Sync Run Result ───────────────────────────────────────────

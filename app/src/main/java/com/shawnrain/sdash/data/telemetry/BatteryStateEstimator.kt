@@ -26,6 +26,7 @@ class BatteryStateEstimator {
     private var stationarySinceMs = 0L
     private var baseSocPercent = Float.NaN
     private var currentSocAhPercent = Float.NaN
+    private var lastEffectiveCapacityAh = Float.NaN
     private var lastRawSpeed = 0.0f
     private var lastRawRpm = 0.0f
 
@@ -47,6 +48,7 @@ class BatteryStateEstimator {
         stationarySinceMs = 0L
         baseSocPercent = Float.NaN
         currentSocAhPercent = Float.NaN
+        lastEffectiveCapacityAh = Float.NaN
         lastSampleId = null
         lastBatteryState = null
         voltageWindowPadding = 0
@@ -110,11 +112,16 @@ class BatteryStateEstimator {
         val effectiveCapacityAh = (batteryCapacityAh * usableEnergyRatio).coerceAtLeast(1.0f)
         val initialSoc = fallbackSocPercent?.takeIf { it in 1.0f..100.0f } ?: socByOcv
         
+        val netAh = accumulator.netBatteryAh
         if (baseSocPercent.isNaN()) {
             baseSocPercent = initialSoc
+        } else if (!lastEffectiveCapacityAh.isNaN() && abs(lastEffectiveCapacityAh - effectiveCapacityAh) > 0.001f) {
+            // 容量自适应改变或用户修改设置时，无缝修正 baseSocPercent，使 Ah SoC 连续不跳变
+            val lastSocByAh = (baseSocPercent - ((netAh / lastEffectiveCapacityAh) * 100.0f))
+            baseSocPercent = lastSocByAh + ((netAh / effectiveCapacityAh) * 100.0f)
         }
+        lastEffectiveCapacityAh = effectiveCapacityAh
         
-        val netAh = accumulator.netBatteryAh
         val socByAh = (baseSocPercent - ((netAh / effectiveCapacityAh) * 100.0f)).coerceIn(0.0f, 100.0f)
 
         // 6. 静置检测与融合 (除电流、速度、转速外，引入电压稳定性门控)
@@ -137,6 +144,12 @@ class BatteryStateEstimator {
         }
         
         val fusedSoc = ((socByAh * wAh) + (socByOcv * wOcv)).coerceIn(0.0f, 100.0f)
+
+        // 反向更新 baseSocPercent，防止骑行（电流变大）时 SoC 反弹
+        // 只有在 OCV 有一定权重的低流、低速状态下才更新 baseSocPercent (wOcv >= 0.1f)
+        if (wOcv >= 0.1f && !baseSocPercent.isNaN() && abs(socByAh - fusedSoc) > 0.01f) {
+            baseSocPercent = fusedSoc + ((netAh / effectiveCapacityAh) * 100.0f)
+        }
 
         // 更新状态以供下次使用
         previousRawVoltage = rawVoltage

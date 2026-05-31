@@ -1744,6 +1744,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (_isRideActive.value && !isRidePausedForStop()) {
                     rideAccumulator.accumulate(sample)
                 }
+                
+                val currentProfile = currentVehicle.value
+                val fallbackSoc = selectFallbackSocPercent(
+                    voltage = sample.voltageV,
+                    bmsSocPercent = if (battDataSource.value == DataSource.BMS) BmsParser.metrics.value.soc.takeIf { it in 1f..100f } else null,
+                    batterySeries = currentProfile.batterySeries,
+                    activeProtocolId = ProtocolParser.activeProtocolId.value
+                )
+                
+                val batteryState = batteryStateEstimator.estimate(
+                    sample = sample,
+                    accumulator = rideAccumulator.state,
+                    batteryCapacityAh = currentProfile.batteryCapacityAh,
+                    batterySeries = currentProfile.batterySeries,
+                    usableEnergyRatio = currentProfile.learnedUsableEnergyRatio,
+                    fallbackSocPercent = fallbackSoc
+                )
+                _batteryState.value = batteryState
+                
+                if (_isRideActive.value && !isRidePausedForStop()) {
+                    performAdaptiveUsableEnergyRatioLearning(
+                        profile = currentProfile,
+                        batteryState = batteryState,
+                        consumedEnergyWh = rideAccumulator.state.tractionEnergyWh
+                    )
+                }
             }
         }
         combine(
@@ -2997,6 +3023,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return result.takeIf { it.isFinite() } ?: observed
     }
 
+    private var lastAdaptiveLearnedUsableRatioWriteMs = 0L
+
+    private suspend fun performAdaptiveUsableEnergyRatioLearning(
+        profile: com.shawnrain.sdash.data.VehicleProfile,
+        batteryState: BatteryState,
+        consumedEnergyWh: Float
+    ) {
+        val now = System.currentTimeMillis()
+        if (now - lastAdaptiveLearnedUsableRatioWriteMs < 30_000L) return
+
+        if (!batteryState.isStationary) return
+        if (batteryState.confidence < 0.65f) return
+
+        val startSoc = rideStartSocPercent.takeIf { it.isFinite() } ?: return
+        val currentSoc = batteryState.socPercent.takeIf { it.isFinite() } ?: return
+        val socDropPercent = (startSoc - currentSoc).coerceAtLeast(0f)
+
+        if (socDropPercent < 8f || consumedEnergyWh < 100f) return
+
+        val nominalPackEnergyWh = profile.batteryCapacityAh.coerceAtLeast(1f) *
+            profile.batterySeries.coerceAtLeast(1) * 3.7f
+        if (nominalPackEnergyWh <= 1f) return
+
+        val impliedPackEnergyWh = consumedEnergyWh / (socDropPercent / 100f)
+        val observedRatio = (impliedPackEnergyWh / nominalPackEnergyWh).coerceIn(0.30f, 1.20f)
+
+        if (abs(profile.learnedUsableEnergyRatio - observedRatio) < 0.02f) return
+
+        val newUsableRatio = (profile.learnedUsableEnergyRatio * 0.9f + observedRatio * 0.1f).coerceIn(0.30f, 1.20f)
+        
+        if (abs(profile.learnedUsableEnergyRatio - newUsableRatio) >= 0.005f) {
+            AppLogger.i("MainViewModel", "自适应容量学习触发: Usable ratio ${profile.learnedUsableEnergyRatio} -> $newUsableRatio (Consumed: ${consumedEnergyWh}Wh, SoC Drop: ${socDropPercent}%)")
+            lastAdaptiveLearnedUsableRatioWriteMs = now
+            settingsRepository.updateCurrentVehicle { p ->
+                p.copy(learnedUsableEnergyRatio = newUsableRatio)
+            }
+        }
+    }
+
     private fun calculateLearnedUsableEnergyRatio(
         profile: com.shawnrain.sdash.data.VehicleProfile,
         consumedEnergyWh: Float
@@ -3013,7 +3078,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (nominalPackEnergyWh <= 1f) return profile.learnedUsableEnergyRatio
 
         val impliedPackEnergyWh = consumedEnergyWh / (socDropPercent / 100f)
-        val result = (impliedPackEnergyWh / nominalPackEnergyWh).coerceIn(0.72f, 0.98f)
+        val result = (impliedPackEnergyWh / nominalPackEnergyWh).coerceIn(0.30f, 1.20f)
         return result.takeIf { it.isFinite() } ?: profile.learnedUsableEnergyRatio
     }
 
@@ -3027,8 +3092,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val safeObserved = observedRatio.takeIf { it.isFinite() } ?: 0.9f
         val safeDistance = tripDistanceKm.takeIf { it.isFinite() } ?: 0f
 
-        val previous = safePrevious.coerceIn(0.72f, 0.98f)
-        val observed = safeObserved.coerceIn(0.72f, 0.98f)
+        val previous = safePrevious.coerceIn(0.30f, 1.20f)
+        val observed = safeObserved.coerceIn(0.30f, 1.20f)
         val weight = (safeDistance / 40f).coerceIn(0.03f, 0.16f)
         val result = (previous * (1f - weight)) + (observed * weight)
         return result.takeIf { it.isFinite() } ?: previous
@@ -3966,6 +4031,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             lastControllerDeviceAddress.value
                 ?.takeIf { isAutoReconnectAllowed(it) }
                 ?.let { autoConnectManager.onAppBackground() }
+
+            // 触发自动同步上传 (后台/息屏)
+            syncScheduler.onAppBackground()
         }
     }
 
@@ -4460,6 +4528,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         AppLogger.i(TAG, "MainViewModel 被清理，清理 BLE 资源")
+
+        // 触发自动同步上传，确保 ViewModel 被清理前最后的 settings/profiles 变更被上传
+        syncScheduler.onAppBackground()
+
         // Disconnect BLE managers to prevent lingering connections
         bleManager.disconnect()
         bmsBleManager.disconnect()

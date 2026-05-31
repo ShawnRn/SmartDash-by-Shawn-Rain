@@ -113,7 +113,7 @@ class SyncScheduler(
 
         settingsDebounceJob = schedulerScope.launch {
             try {
-                kotlinx.coroutines.delay(30_000)
+                kotlinx.coroutines.delay(5_000)
                 enqueueSettingsMutation(pushImmediately = true)
                 AppLogger.i(TAG, "Settings change sync scheduled (debounced)")
             } catch (e: CancellationException) {
@@ -139,6 +139,66 @@ class SyncScheduler(
             AppLogger.i(TAG, "Vehicle profile change sync scheduled: profileId=$profileId")
         } catch (e: Exception) {
             AppLogger.w(TAG, "Failed to schedule vehicle profile sync: ${e.message}")
+        }
+    }
+
+    /**
+     * Call this when the app goes to background.
+     * Flushes any pending settings changes and schedules a background push.
+     * Also attempts an immediate process-level synchronization as a fast path.
+     */
+    fun onAppBackground() {
+        schedulerScope.launch {
+            try {
+                AppLogger.i(TAG, "App went to background: flushing pending mutations")
+                flushPendingSettingsMutationIfNeeded(SyncTriggerReason.APP_BACKGROUND)
+
+                val signedIn = runCatching { GoogleDriveSyncManager(context).isSignedIn() }.getOrDefault(false)
+                if (signedIn && mutationRepository.hasPendingMutations()) {
+                    // Dual-track sync: Fast path in-process backup upload before process gets suspended
+                    kotlinx.coroutines.withTimeoutOrNull(8_000) {
+                        AppLogger.i(TAG, "Starting fast-path process-level background sync...")
+                        val driveSyncManager = GoogleDriveSyncManager(context)
+                        val rideHistoryRepository = RideHistoryRepository(context)
+                        val stateSerializer = DriveStateSerializer(context, settingsRepository, rideHistoryRepository)
+                        val entityStore = DriveEntityStore(driveSyncManager)
+                        val coordinator = DriveV3Coordinator(
+                            context = context,
+                            settingsRepository = settingsRepository,
+                            rideHistoryRepository = rideHistoryRepository,
+                            driveSyncManager = driveSyncManager,
+                            metadataRepository = metadataRepository,
+                            mutationRepository = mutationRepository,
+                            entityStore = entityStore
+                        )
+                        val stateMerger = DriveStateMerger(context, settingsRepository)
+                        val manifestRepository = DriveManifestRepository(driveSyncManager)
+                        val migrator = DriveV3LegacyMigrator(
+                            context = context,
+                            settingsRepository = settingsRepository,
+                            rideHistoryRepository = rideHistoryRepository,
+                            driveSyncManager = driveSyncManager,
+                            metadataRepository = metadataRepository,
+                            legacyManifestRepository = manifestRepository,
+                            stateSerializer = stateSerializer,
+                            stateMerger = stateMerger,
+                            entityStore = entityStore,
+                            v3Coordinator = coordinator
+                        )
+
+                        val result = migrator.reconcileAndPublish()
+                        AppLogger.i(
+                            TAG,
+                            "Fast-path background sync success: uploaded entities=${result.uploadedEntityCount}"
+                        )
+                    } ?: AppLogger.w(TAG, "Fast-path background sync timed out (8s limit reached)")
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Error in background fast-path sync: ${e.message}")
+            } finally {
+                // WorkManager fallback to guarantee completion
+                ensureLocalPushScheduledIfNeeded(SyncTriggerReason.APP_BACKGROUND)
+            }
         }
     }
 

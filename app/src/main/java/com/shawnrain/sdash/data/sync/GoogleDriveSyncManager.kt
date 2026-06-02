@@ -542,6 +542,44 @@ class GoogleDriveSyncManager(private val context: Context) {
         }
     }
 
+    private fun getFileIdCachePrefs(): android.content.SharedPreferences? {
+        val account = auth.getCurrentAccount() ?: return null
+        val email = account.email.orEmpty().trim().lowercase()
+        if (email.isBlank()) return null
+        
+        val hashStr = try {
+            val digest = java.security.MessageDigest.getInstance("MD5")
+            val hashBytes = digest.digest(email.toByteArray(Charsets.UTF_8))
+            hashBytes.joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            "default"
+        }
+        
+        val prefsName = "google_drive_file_id_cache_$hashStr"
+        return context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+    }
+
+    private fun getCachedFileId(fileName: String): String? {
+        val prefs = getFileIdCachePrefs() ?: return null
+        val cached = prefs.getString(fileName, null)
+        if (!cached.isNullOrBlank()) {
+            AppLogger.d(TAG, "File ID cache hit: $fileName -> $cached")
+        }
+        return cached
+    }
+
+    private fun saveFileIdToCache(fileName: String, fileId: String) {
+        val prefs = getFileIdCachePrefs() ?: return
+        prefs.edit().putString(fileName, fileId).apply()
+        AppLogger.d(TAG, "File ID cache saved: $fileName -> $fileId")
+    }
+
+    private fun clearCachedFileId(fileName: String) {
+        val prefs = getFileIdCachePrefs() ?: return
+        prefs.edit().remove(fileName).apply()
+        AppLogger.d(TAG, "File ID cache cleared: $fileName")
+    }
+
     private fun getDeviceName(): String {
         return "${Build.MANUFACTURER} ${Build.MODEL}".trim().ifBlank { "Android Device" }
     }
@@ -573,50 +611,55 @@ class GoogleDriveSyncManager(private val context: Context) {
             val fileId = withDriveRetry("upload raw file $fileName") {
                 appDataMutationMutex.withLock {
                     val client = createAuthenticatedClient()
-                    val uploadedId = when {
-                        !existingFileIdHint.isNullOrBlank() -> {
-                            val updatedId = runCatching {
-                                uploadFile(
-                                    client = client,
-                                    fileName = fileName,
-                                    content = content,
-                                    description = "SmartDash Drive Sync - $fileName",
-                                    mimeType = mimeType,
-                                    existingFileId = existingFileIdHint
-                                )
-                            }.getOrElse { error ->
-                                if (error.isTransientDriveNetworkFailure()) {
-                                    throw error
-                                }
-                                AppLogger.w(TAG, "Failed to update hinted Drive file id for $fileName: ${error.message}")
-                                null
-                            }
-                            updatedId ?: if (skipLookup) {
-                                uploadFile(
-                                    client = client,
-                                    fileName = fileName,
-                                    content = content,
-                                    description = "SmartDash Drive Sync - $fileName",
-                                    mimeType = mimeType
-                                )
-                            } else {
-                                null
-                            }
-                        }
-                        skipLookup -> {
+                    
+                    val resolvedHint = existingFileIdHint ?: getCachedFileId(fileName)
+                    var uploadedId: String? = null
+                    
+                    if (!resolvedHint.isNullOrBlank()) {
+                        // 尝试直接使用 Hint 进行覆盖更新 (PATCH)
+                        uploadedId = runCatching {
                             uploadFile(
+                                client = client,
+                                fileName = fileName,
+                                content = content,
+                                description = "SmartDash Drive Sync - $fileName",
+                                mimeType = mimeType,
+                                existingFileId = resolvedHint
+                            )
+                        }.getOrElse { error ->
+                            if (error.isTransientDriveNetworkFailure()) {
+                                throw error
+                            }
+                            AppLogger.w(TAG, "Failed to update hinted Drive file id for $fileName: ${error.message}")
+                            null
+                        }
+                        
+                        if (uploadedId != null) {
+                            saveFileIdToCache(fileName, uploadedId)
+                        } else {
+                            // 失败了说明此 fileId 已经失效 (如云端被删，或权限变更)，清除缓存
+                            clearCachedFileId(fileName)
+                        }
+                    }
+                    
+                    // 如果 Hint 方式没有成功，或者根本没有 Hint，则退回到原有的逻辑进行查找或创建
+                    if (uploadedId == null) {
+                        if (skipLookup) {
+                            uploadedId = uploadFile(
                                 client = client,
                                 fileName = fileName,
                                 content = content,
                                 description = "SmartDash Drive Sync - $fileName",
                                 mimeType = mimeType
                             )
-                        }
-                        else -> {
+                            if (uploadedId != null) {
+                                saveFileIdToCache(fileName, uploadedId)
+                            }
+                        } else {
                             val existingFiles = findFilesByName(client, fileName)
                             val primary = existingFiles.firstOrNull()
                             val duplicates = existingFiles.drop(1)
-
+                            
                             val resolvedUpload = when {
                                 primary == null -> {
                                     uploadFile(
@@ -644,7 +687,7 @@ class GoogleDriveSyncManager(private val context: Context) {
                                         AppLogger.w(TAG, "Failed updating existing Drive file; will create a replacement: $fileName (${error.message})")
                                         null
                                     }
-
+                                    
                                     updatedId ?: uploadFile(
                                         client = client,
                                         fileName = fileName,
@@ -654,15 +697,19 @@ class GoogleDriveSyncManager(private val context: Context) {
                                     )
                                 }
                             }
-
+                            
+                            if (resolvedUpload != null) {
+                                saveFileIdToCache(fileName, resolvedUpload)
+                            }
+                            
                             if (duplicates.isNotEmpty()) {
                                 cleanupDuplicateFilesBestEffort(client, fileName, duplicates)
                             }
-
-                            resolvedUpload
+                            
+                            uploadedId = resolvedUpload
                         }
                     }
-
+                    
                     uploadedId
                 }
             }

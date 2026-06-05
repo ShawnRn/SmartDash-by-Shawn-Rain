@@ -418,6 +418,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         com.shawnrain.sdash.data.dashcam.DashcamOverlayConfig()
     )
     val dashcamCameraId = settingsRepository.dashcamCameraId.stateIn(viewModelScope, SharingStarted.Eagerly, "auto")
+    val debugAllowRecordWithoutController = settingsRepository.debugAllowRecordWithoutController.stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val vehicleProfiles = settingsRepository.vehicleProfiles.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
@@ -1844,10 +1845,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             if (state is ConnectionState.Disconnected && _isRideActive.value) {
-                beginPendingRideStop(
-                    reason = RideStopReason.DISCONNECTED,
-                    cutoffAtMs = System.currentTimeMillis()
-                )
+                if (!debugAllowRecordWithoutController.value) {
+                    beginPendingRideStop(
+                        reason = RideStopReason.DISCONNECTED,
+                        cutoffAtMs = System.currentTimeMillis()
+                    )
+                }
             }
             if (state is ConnectionState.Disconnected) {
                 lastControllerDeviceAddress.value?.let { address ->
@@ -2318,7 +2321,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             batterySeries = currentVehicle.value.batterySeries
         )
         val hasMeaningfulData = hasMeaningfulRideData(historyRecord, finalEnergyWh)
-        val shouldPersist = if (forceSave) {
+        val shouldPersist = if (debugAllowRecordWithoutController.value) {
+            true
+        } else if (forceSave) {
             hasMeaningfulData
         } else {
             historyRecord.distanceMeters >= 50.0 || historyRecord.durationMs >= 60_000L
@@ -3237,19 +3242,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val saved = stopRide(forceSave = true)
             _calibrationMessage.value = if (saved) "已手动结束并保存本次行程" else "已结束本次行程（未保存，数据不足）"
         } else {
-            val connection = bleManager.connectionState.value
-            if (connection !is ConnectionState.Connected) {
-                _calibrationMessage.value = "请先连接控制器后再开始记录"
-                return
-            }
-            val metricsSnapshot = metrics.value
-            val hasTelemetry = metricsSnapshot.voltage > 5f ||
-                abs(metricsSnapshot.busCurrent) > 0.5f ||
-                metricsSnapshot.rpm > 10f ||
-                metricsSnapshot.speedKmH > 0.5f
-            if (!hasTelemetry) {
-                _calibrationMessage.value = "控制器已连接但暂无有效数据，请稍候再试"
-                return
+            if (!debugAllowRecordWithoutController.value) {
+                val connection = bleManager.connectionState.value
+                if (connection !is ConnectionState.Connected) {
+                    _calibrationMessage.value = "请先连接控制器后再开始记录"
+                    return
+                }
+                val metricsSnapshot = metrics.value
+                val hasTelemetry = metricsSnapshot.voltage > 5f ||
+                        abs(metricsSnapshot.busCurrent) > 0.5f ||
+                        metricsSnapshot.rpm > 10f ||
+                        metricsSnapshot.speedKmH > 0.5f
+                if (!hasTelemetry) {
+                    _calibrationMessage.value = "控制器已连接但暂无有效数据，请稍候再试"
+                    return
+                }
             }
             startRide()
             _calibrationMessage.value = "已开始记录本次行程"
@@ -3940,6 +3947,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun saveDashcamCameraId(cameraId: String) {
         viewModelScope.launch {
             settingsRepository.saveDashcamCameraId(cameraId)
+        }
+    }
+
+    fun saveDebugAllowRecordWithoutController(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.saveDebugAllowRecordWithoutController(enabled)
         }
     }
 

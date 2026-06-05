@@ -152,6 +152,14 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.launch
 
+enum class SettingsSubPage(val title: String) {
+    VEHICLE_PROFILES("车辆档案"),
+    RIDE_TRACKING("记录与校准"),
+    DASHCAM("行车记录仪"),
+    UI_DISPLAY("显示与海报"),
+    SYSTEM_DATA("系统与备份"),
+}
+
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
@@ -178,6 +186,7 @@ fun SettingsScreen(
     val dashcamStorageLimitMb by viewModel.dashcamStorageLimitMb.collectAsState()
     val dashcamOverlayConfig by viewModel.dashcamOverlayConfig.collectAsState()
     val dashcamCameraId by viewModel.dashcamCameraId.collectAsState()
+    val debugAllowRecordWithoutController by viewModel.debugAllowRecordWithoutController.collectAsState()
     val vehicleProfiles by viewModel.vehicleProfiles.collectAsState()
     val currentVehicle by viewModel.currentVehicle.collectAsState()
     val rideHistory by viewModel.rideHistory.collectAsState()
@@ -199,6 +208,7 @@ fun SettingsScreen(
         }
     }
 
+    var activeSubPage by rememberSaveable { mutableStateOf<SettingsSubPage?>(null) }
     var expandSpeedSource by remember { mutableStateOf(false) }
     var expandBattSource by remember { mutableStateOf(false) }
     var expandLogLevel by remember { mutableStateOf(false) }
@@ -320,6 +330,937 @@ fun SettingsScreen(
     val availableBackups = ((driveSyncState as? SyncState.SignedIn) ?: stickyDriveSignedInState)
         ?.availableBackups
         .orEmpty()
+    val vehicleProfilesPage = @Composable {
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DirectionsCar,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text("车辆档案", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                Text(
+                    "按车辆隔离行程记录和最近连接控制器，车辆参数统一放在档案详情里维护。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = MaterialTheme.shapes.large
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            currentVehicle.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            "${formatBatterySpec(currentVehicle)} · 累计 ${formatMileage(currentVehicleDisplayMileageKm)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            currentVehicle.macAddress.takeIf { it.isNotBlank() }?.let { "控制器 $it" }
+                                ?: "当前还未绑定最近连接控制器",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
+                        )
+                        if (currentVehicle.learnedInternalResistanceOhm > 0f) {
+                            Text(
+                                "测试内阻: ${formatResistance(currentVehicle.learnedInternalResistanceOhm)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
+                            )
+                        }
+                        Text(
+                            "历史累计平均能效: ${formatEfficiency(currentVehicleHistoricalAvgEfficiencyWhKm)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
+                        )
+                        Text(
+                            "电池健康度 / 可用容量: ${formatSohCapacity(currentVehicle)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    vehicleProfiles.forEach { vehicle ->
+                        FilterChip(
+                            selected = vehicle.id == currentVehicle.id,
+                            onClick = { viewModel.selectVehicle(vehicle.id) },
+                            label = { Text(vehicle.name) }
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FilledTonalButton(
+                        onClick = { creatingVehicle = true },
+                        modifier = Modifier.weight(1f),
+                        shape = bezierPillShape()
+                    ) {
+                        Text("新增车辆")
+                    }
+                    OutlinedButton(
+                        onClick = { editingVehicle = currentVehicle },
+                        modifier = Modifier.weight(1f),
+                        shape = bezierPillShape()
+                    ) {
+                        Text("编辑当前")
+                    }
+                }
+
+                TextButton(
+                    onClick = { deletingVehicle = currentVehicle },
+                    enabled = vehicleProfiles.size > 1,
+                    shape = bezierPillShape()
+                ) {
+                    Text(if (vehicleProfiles.size > 1) "删除当前车辆" else "至少保留 1 台车辆")
+                }
+            }
+        }
+    }
+
+    val rideTrackingPage = @Composable {
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.GpsFixed,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text("GPS 轮径校准", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                Text(
+                    "保存后会直接应用到当前活跃车辆：${currentVehicle.name}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    gpsCalibrationState.hint,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    MetricSummaryChip(
+                        title = "GPS",
+                        value = "${formatWheelInput(gpsCalibrationState.gpsDistanceMeters)} m",
+                        modifier = Modifier.weight(1f)
+                    )
+                    MetricSummaryChip(
+                        title = "控制器",
+                        value = "${formatWheelInput(gpsCalibrationState.controllerDistanceMeters)} m",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    MetricSummaryChip(
+                        title = "当前建议",
+                        value = gpsCalibrationState.suggestedCircumferenceMm?.let { "${formatWheelInput(it)} mm" } ?: "--",
+                        modifier = Modifier.weight(1f)
+                    )
+                    MetricSummaryChip(
+                        title = "偏差",
+                        value = gpsCalibrationState.deltaPercent?.let { String.format(Locale.getDefault(), "%.1f%%", it) } ?: "--",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FilledTonalButton(
+                        onClick = {
+                            if (gpsCalibrationState.isRunning) viewModel.stopGpsCalibration() else viewModel.startGpsCalibration()
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = bezierPillShape()
+                    ) {
+                        Text(
+                            text = if (gpsCalibrationState.isRunning) "停止校准" else "开始校准",
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Button(
+                        onClick = { viewModel.applyGpsCalibrationSuggestion() },
+                        enabled = gpsCalibrationState.suggestedCircumferenceMm != null,
+                        modifier = Modifier.weight(1f),
+                        shape = bezierPillShape()
+                    ) {
+                        Text(
+                            text = "应用",
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text("数据源优先级", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                Text(
+                    "设置车速和电池遥测数据的首选来源渠道。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                ExposedDropdownMenuBox(
+                    expanded = expandSpeedSource,
+                    onExpandedChange = { expandSpeedSource = it }
+                ) {
+                    OutlinedTextField(
+                        value = speedSource.title,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("速度数据源") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandSpeedSource) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                    )
+                    ExposedDropdownMenu(expanded = expandSpeedSource, onDismissRequest = { expandSpeedSource = false }) {
+                        SpeedSource.entries.forEach { src ->
+                            DropdownMenuItem(
+                                text = { Text(src.title) },
+                                onClick = {
+                                    viewModel.saveSpeedSource(src)
+                                    expandSpeedSource = false
+                                }
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+
+                ExposedDropdownMenuBox(
+                    expanded = expandBattSource,
+                    onExpandedChange = { expandBattSource = it }
+                ) {
+                    OutlinedTextField(
+                        value = battDataSource.title,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("电池数据来源") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandBattSource) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                    )
+                    ExposedDropdownMenu(expanded = expandBattSource, onDismissRequest = { expandBattSource = false }) {
+                        DataSource.entries.forEach { src ->
+                            DropdownMenuItem(
+                                text = { Text(src.title) },
+                                onClick = {
+                                    viewModel.saveBattDataSource(src)
+                                    expandBattSource = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LocalParking,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text("停车结束记录", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("停稳后自动结束行程", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            if (autoRideStopEnabled) {
+                                "当前阈值 ${autoRideStopDelaySeconds} 秒"
+                            } else {
+                                "关闭后只会手动结束，断连保护仍会保留"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = autoRideStopEnabled,
+                        onCheckedChange = { enabled -> viewModel.saveAutoRideStopEnabled(enabled) }
+                    )
+                }
+                Slider(
+                    value = autoRideStopDelayDraft,
+                    onValueChange = { value -> autoRideStopDelayDraft = value },
+                    onValueChangeFinished = {
+                        viewModel.saveAutoRideStopDelaySeconds(autoRideStopDelayDraft.toInt())
+                    },
+                    enabled = autoRideStopEnabled,
+                    valueRange = 15f..300f,
+                    steps = 18
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("15 秒", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("5 分钟", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+
+    val dashcamPage = @Composable {
+        DashcamSettingsCard(
+            autoRecord = dashcamAutoRecord,
+            onAutoRecordChange = viewModel::saveDashcamAutoRecord,
+            recordAudio = dashcamRecordAudio,
+            onRecordAudioChange = viewModel::saveDashcamRecordAudio,
+            segmentDuration = dashcamSegmentDurationMin,
+            onSegmentDurationChange = viewModel::saveDashcamSegmentDurationMin,
+            storageLimitMb = dashcamStorageLimitMb,
+            onStorageLimitMbChange = viewModel::saveDashcamStorageLimitMb,
+            cameraId = dashcamCameraId,
+            onCameraIdChange = viewModel::saveDashcamCameraId,
+            overlayConfig = dashcamOverlayConfig,
+            onOverlayConfigChange = viewModel::saveDashcamOverlayConfig
+        )
+    }
+
+    val uiDisplayPage = @Composable {
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PictureInPicture,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text("悬浮仪表", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                Text(
+                    "切到后台后自动进入系统画中画，显示速度、功率、平均能耗三个核心指标。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("后台自动进入画中画", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "无需额外悬浮权限，点击小窗即可回到应用。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = overlayEnabled,
+                        onCheckedChange = { enabled -> viewModel.saveOverlayEnabled(enabled) }
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.TextFields,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text("界面字体", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                Text(
+                    "支持使用小米 MiSans 字体或系统默认字体。开启后，应用所有场景（含等宽数字）将切换至小米 MiSans 字体。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("使用 MiSans 字体", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "默认开启，关闭后回退至系统字体",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = useMiSansFont,
+                        onCheckedChange = { enabled -> viewModel.saveUseMiSansFont(enabled) }
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        PosterDefaultsCard(
+            settings = posterSettings,
+            onSettingsChange = viewModel::savePosterSettings
+        )
+    }
+
+    val systemDataPage = @Composable {
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FolderZip,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text("本地数据备份与恢复", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                Text(
+                    "将应用的所有数据、记录和设置导出为本地压缩包 (.zip)，或从备份文件导入恢复。适用于手动备份或无网络环境下的数据迁移。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (localBackupProcessing) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.2.dp
+                            )
+                            Text(
+                                text = "正在处理本地备份，请稍候…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            exportBackupLauncher.launch("smartdash_backup_${System.currentTimeMillis()}.zip")
+                        },
+                        enabled = !localBackupProcessing,
+                        shape = bezierPillShape(),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("导出备份 (.zip)")
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            importBackupLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                        },
+                        enabled = !localBackupProcessing,
+                        shape = bezierPillShape(),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("导入恢复 (.zip)")
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudSync,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text("Google Drive 云同步", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                Text(
+                    "换机优先用它。开启后会自动双向同步并智能合并云端/本地数据；局域网直连迁移只作为补充方式。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "系统自动备份已关闭。卸载重装后不会自动恢复旧数据，请使用这里的 Google Drive 云同步或局域网迁移。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.24f)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            "历史版本自动清理",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "最新版本始终保留。每次上传或自动同步写入云端后，按下面规则清理更早的历史版本。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        var expanded by remember { mutableStateOf(false) }
+                        ExposedDropdownMenuBox(
+                            expanded = expanded,
+                            onExpandedChange = { expanded = !expanded }
+                        ) {
+                            OutlinedTextField(
+                                value = driveBackupRetentionPolicy.label,
+                                onValueChange = {},
+                                readOnly = true,
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                                modifier = Modifier.menuAnchor(type = MenuAnchorType.PrimaryEditable, enabled = true),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                                )
+                            )
+                            ExposedDropdownMenu(
+                                expanded = expanded,
+                                onDismissRequest = { expanded = false }
+                            ) {
+                                BackupRetentionPolicy.entries.forEach { policy ->
+                                    DropdownMenuItem(
+                                        text = { Text(policy.label) },
+                                        onClick = {
+                                            viewModel.saveDriveBackupRetentionPolicy(policy)
+                                            expanded = false
+                                        },
+                                        trailingIcon = {
+                                            if (driveBackupRetentionPolicy == policy) {
+                                                Icon(
+                                                    Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            driveBackupRetentionPolicy.summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                LaunchedEffect(driveSyncState) {
+                    when (driveSyncState) {
+                        is com.shawnrain.sdash.data.sync.SyncState.Synced -> {
+                            kotlinx.coroutines.delay(3000)
+                            viewModel.checkDriveSignInStatus()
+                        }
+                        is com.shawnrain.sdash.data.sync.SyncState.Error -> {
+                            kotlinx.coroutines.delay(5000)
+                            viewModel.checkDriveSignInStatus()
+                        }
+                        else -> {}
+                    }
+                }
+
+                val resolvedDriveState = (driveSyncState as? com.shawnrain.sdash.data.sync.SyncState.SignedIn)
+                    ?: stickyDriveSignedInState
+                AnimatedContent(
+                    targetState = Pair(driveSyncState, resolvedDriveState),
+                    transitionSpec = {
+                        (fadeIn(tween(250)) + slideInVertically { it / 4 }).togetherWith(
+                            fadeOut(tween(200)) + slideOutVertically { -it / 4 }
+                        ).using(SizeTransform(clip = false))
+                    },
+                    label = "DriveSyncStateTransition"
+                ) { (transientState, stickyState) ->
+                    when (transientState) {
+                        is com.shawnrain.sdash.data.sync.SyncState.SignedOut -> {
+                            Button(
+                                onClick = handleDriveSignIn,
+                                shape = bezierPillShape()
+                            ) {
+                                Text("登录 Google 账号")
+                            }
+                        }
+                        is com.shawnrain.sdash.data.sync.SyncState.SigningIn -> {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Text("正在跳转登录…", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        else -> {
+                            val state = stickyState
+                            if (state == null) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    Text("正在载入同步状态…", style = MaterialTheme.typography.bodySmall)
+                                }
+                                return@AnimatedContent
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val syncInteractionSource = remember { MutableInteractionSource() }
+                                    Surface(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .combinedClickable(
+                                                interactionSource = syncInteractionSource,
+                                                indication = null,
+                                                onClick = { viewModel.syncDriveNow() },
+                                                onLongClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    showForceDriveUploadConfirm = true
+                                                }
+                                            ),
+                                        shape = bezierPillShape(),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        contentColor = MaterialTheme.colorScheme.onPrimary
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 10.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            ProvideTextStyle(MaterialTheme.typography.labelLarge) {
+                                                Text("同步")
+                                            }
+                                        }
+                                    }
+                                    Button(
+                                        onClick = { showDriveSignOutConfirm = true },
+                                        shape = bezierPillShape(),
+                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                                            contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    ) {
+                                        Text("退出登录")
+                                    }
+                                }
+                                if (state.availableBackups.isNotEmpty()) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            showDriveHistory = true
+                                            val target = state.availableBackups.first()
+                                            selectedDriveHistoryFileId = target.fileId
+                                            viewModel.previewDriveBackup(target)
+                                        },
+                                        shape = bezierPillShape(),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("历史版本")
+                                    }
+                                }
+                                Text(
+                                    "自动同步已开启。仅在异常情况下手动触发同步。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                when (transientState) {
+                                    is com.shawnrain.sdash.data.sync.SyncState.Syncing -> {
+                                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                        Text("同步中…", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    is com.shawnrain.sdash.data.sync.SyncState.Synced -> {
+                                        val msg = when {
+                                            transientState.uploaded && transientState.downloaded -> "已上传并恢复"
+                                            transientState.uploaded -> "上传成功"
+                                            transientState.downloaded -> "恢复成功"
+                                            else -> "同步完成"
+                                        }
+                                        Text(
+                                            msg,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    is com.shawnrain.sdash.data.sync.SyncState.Error -> {
+                                        Surface(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = MaterialTheme.shapes.medium,
+                                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                                        ) {
+                                            Text(
+                                                transientState.message,
+                                                modifier = Modifier.padding(10.dp),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                        }
+                                    }
+                                    else -> Unit
+                                }
+                                Text(
+                                    "已登录：${state.email}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                val latest = state.availableBackups.firstOrNull()
+                                if (latest != null) {
+                                    Text(
+                                        latest.deviceName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                val syncTime = state.lastSyncTime ?: latest?.createdAt
+                                if (syncTime != null) {
+                                    Text(
+                                        "上次同步：${java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(syncTime)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (state.availableBackups.isNotEmpty()) {
+                                    val displayCount = state.availableBackups.size
+                                    Text(
+                                        "可用备份：$displayCount 个",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Terminal,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text("调试日志", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                Text(
+                    "可调日志级别，并导出或分享 BLE 连接、协议识别、指令发送与通知回包日志。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                ExposedDropdownMenuBox(
+                    expanded = expandLogLevel,
+                    onExpandedChange = { expandLogLevel = it }
+                ) {
+                    OutlinedTextField(
+                        value = "${logLevel.name} · ${logLevel.label}",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("日志级别") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandLogLevel) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                    )
+                    ExposedDropdownMenu(expanded = expandLogLevel, onDismissRequest = { expandLogLevel = false }) {
+                        AppLogLevel.entries.forEach { level ->
+                            DropdownMenuItem(
+                                text = { Text("${level.name} · ${level.label}") },
+                                onClick = {
+                                    viewModel.saveLogLevel(level)
+                                    expandLogLevel = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(
+                        onClick = { viewModel.exportLogs() },
+                        modifier = Modifier.weight(1f),
+                        shape = bezierPillShape()
+                    ) {
+                        Text("导出日志")
+                    }
+                    Button(
+                        onClick = {
+                            context.startActivity(viewModel.createLogShareIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = bezierPillShape()
+                    ) {
+                        Text("分享日志")
+                    }
+                }
+
+                TextButton(
+                    onClick = { viewModel.clearLogs() },
+                    shape = bezierPillShape()
+                ) {
+                    Text("清空当前日志")
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("允许未连接控制器记录 (Debug)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                        Text(
+                            "开启后允许无控制器连接时手动记录行程，屏蔽控制器断开连接的自动结束倒计时，并强行保存行程记录（跳过数据量不足的过滤）。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = debugAllowRecordWithoutController,
+                        onCheckedChange = { enabled -> viewModel.saveDebugAllowRecordWithoutController(enabled) }
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text("协议识别", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    "连接后会自动匹配智科、远驱、凌博、APT 等解析器。导出的日志中也会包含协议识别、写特征选择和智科指令收发记录。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        AboutSmartDashEntryCard(
+            appUpdateState = appUpdateState,
+            onOpen = { showAboutSmartDashSheet = true }
+        )
+    }
+
     LaunchedEffect(showDriveHistory, availableBackups) {
         if (!showDriveHistory || availableBackups.isEmpty()) return@LaunchedEffect
         val selected = availableBackups.firstOrNull { it.fileId == selectedDriveHistoryFileId }
@@ -347,8 +1288,9 @@ fun SettingsScreen(
                     .background(MaterialTheme.colorScheme.background)
             ) {
                 P2PageHeader(
-                    title = "设置",
+                    title = activeSubPage?.title ?: "设置",
                     subtitle = "当前活跃车辆「${currentVehicle.name}」",
+                    onBack = activeSubPage?.let { { activeSubPage = null } },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Column(
@@ -359,970 +1301,140 @@ fun SettingsScreen(
                 ) {
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    if (activeSubPage == null) {
+                        // 1. 车辆与连接 (Vehicle & Connection)
+                        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.DirectionsCar,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Text("车辆档案", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                            }
-                            Text(
-                                "按车辆隔离行程记录和最近连接控制器，车辆参数统一放在档案详情里维护。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                shape = MaterialTheme.shapes.large
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(14.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                            Text(
-                                currentVehicle.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Text(
-                                "${formatBatterySpec(currentVehicle)} · 累计 ${formatMileage(currentVehicleDisplayMileageKm)}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Text(
-                                currentVehicle.macAddress.takeIf { it.isNotBlank() }?.let { "控制器 $it" }
-                                    ?: "当前还未绑定最近连接控制器",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
-                            )
-                            if (currentVehicle.learnedInternalResistanceOhm > 0f) {
                                 Text(
-                                    "测试内阻: ${formatResistance(currentVehicle.learnedInternalResistanceOhm)}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
+                                    text = "车辆与连接",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(bottom = 8.dp)
                                 )
-                            }
-                            Text(
-                                "历史累计平均能效: ${formatEfficiency(currentVehicleHistoricalAvgEfficiencyWhKm)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
-                            )
-                            Text(
-                                "电池健康度 / 可用容量: ${formatSohCapacity(currentVehicle)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        vehicleProfiles.forEach { vehicle ->
-                            FilterChip(
-                                selected = vehicle.id == currentVehicle.id,
-                                onClick = { viewModel.selectVehicle(vehicle.id) },
-                                label = { Text(vehicle.name) }
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                        }
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        FilledTonalButton(
-                            onClick = { creatingVehicle = true },
-                            modifier = Modifier.weight(1f),
-                            shape = bezierPillShape()
-                        ) {
-                            Text("新增车辆")
-                        }
-                        OutlinedButton(
-                            onClick = { editingVehicle = currentVehicle },
-                            modifier = Modifier.weight(1f),
-                            shape = bezierPillShape()
-                        ) {
-                            Text("编辑当前")
-                        }
-                    }
-
-                    TextButton(
-                        onClick = { deletingVehicle = currentVehicle },
-                        enabled = vehicleProfiles.size > 1,
-                        shape = bezierPillShape()
-                    ) {
-                        Text(if (vehicleProfiles.size > 1) "删除当前车辆" else "至少保留 1 台车辆")
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(32.dp))
-
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.GpsFixed,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text("GPS 轮径校准", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                    }
-                    Text(
-                        "保存后会直接应用到当前活跃车辆：${currentVehicle.name}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        gpsCalibrationState.hint,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        MetricSummaryChip(
-                            title = "GPS",
-                            value = "${formatWheelInput(gpsCalibrationState.gpsDistanceMeters)} m",
-                            modifier = Modifier.weight(1f)
-                        )
-                        MetricSummaryChip(
-                            title = "控制器",
-                            value = "${formatWheelInput(gpsCalibrationState.controllerDistanceMeters)} m",
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        MetricSummaryChip(
-                            title = "当前建议",
-                            value = gpsCalibrationState.suggestedCircumferenceMm?.let { "${formatWheelInput(it)} mm" } ?: "--",
-                            modifier = Modifier.weight(1f)
-                        )
-                        MetricSummaryChip(
-                            title = "偏差",
-                            value = gpsCalibrationState.deltaPercent?.let { String.format(Locale.getDefault(), "%.1f%%", it) } ?: "--",
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        FilledTonalButton(
-                            onClick = {
-                                if (gpsCalibrationState.isRunning) viewModel.stopGpsCalibration() else viewModel.startGpsCalibration()
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = bezierPillShape()
-                        ) {
-                            Text(
-                                text = if (gpsCalibrationState.isRunning) "停止校准" else "开始校准",
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Button(
-                            onClick = { viewModel.applyGpsCalibrationSuggestion() },
-                            enabled = gpsCalibrationState.suggestedCircumferenceMm != null,
-                            modifier = Modifier.weight(1f),
-                            shape = bezierPillShape()
-                        ) {
-                            Text(
-                                text = "应用",
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Card(
-                modifier = Modifier.fillMaxWidth().clickable { onNavigateToBms() },
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        Icon(Icons.Default.BatteryChargingFull, contentDescription = "BMS", tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Text("电池与BMS", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    }
-                    Icon(Icons.Default.ChevronRight, contentDescription = "Enter", tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Card(
-                modifier = Modifier.fillMaxWidth().clickable { onNavigateToPairing() },
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        Icon(Icons.Default.Smartphone, contentDescription = "Pairing", tint = MaterialTheme.colorScheme.onTertiaryContainer)
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Text("iPhone 配对 (增强模式)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                    }
-                    Icon(Icons.Default.ChevronRight, contentDescription = "Enter", tint = MaterialTheme.colorScheme.onTertiaryContainer)
-                }
-            }
-
-            val activeProtocolId by viewModel.activeProtocolId.collectAsState()
-
-            if (activeProtocolId == "zhike") {
-                Spacer(modifier = Modifier.height(12.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth().clickable { onNavigateToZhikeSettings() },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            Icon(Icons.Default.Settings, contentDescription = "Zhike", tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Text("智科调校", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                        }
-                        Icon(Icons.Default.ChevronRight, contentDescription = "Enter", tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Tune,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-                Text("数据源优先级", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-
-            ExposedDropdownMenuBox(
-                expanded = expandSpeedSource,
-                onExpandedChange = { expandSpeedSource = it }
-            ) {
-                OutlinedTextField(
-                    value = speedSource.title,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("速度数据源") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandSpeedSource) },
-                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                )
-                ExposedDropdownMenu(expanded = expandSpeedSource, onDismissRequest = { expandSpeedSource = false }) {
-                    SpeedSource.entries.forEach { src ->
-                        DropdownMenuItem(
-                            text = { Text(src.title) },
-                            onClick = {
-                                viewModel.saveSpeedSource(src)
-                                expandSpeedSource = false
-                            }
-                        )
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-
-            ExposedDropdownMenuBox(
-                expanded = expandBattSource,
-                onExpandedChange = { expandBattSource = it }
-            ) {
-                OutlinedTextField(
-                    value = battDataSource.title,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("电池数据来源") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandBattSource) },
-                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                )
-                ExposedDropdownMenu(expanded = expandBattSource, onDismissRequest = { expandBattSource = false }) {
-                    DataSource.entries.forEach { src ->
-                        DropdownMenuItem(
-                            text = { Text(src.title) },
-                            onClick = {
-                                viewModel.saveBattDataSource(src)
-                                expandBattSource = false
-                            }
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.LocalParking,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text("停车结束记录", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("停稳后自动结束行程", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                if (autoRideStopEnabled) {
-                                    "当前阈值 ${autoRideStopDelaySeconds} 秒"
-                                } else {
-                                    "关闭后只会手动结束，断连保护仍会保留"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = autoRideStopEnabled,
-                            onCheckedChange = { enabled -> viewModel.saveAutoRideStopEnabled(enabled) }
-                        )
-                    }
-                    Slider(
-                        value = autoRideStopDelayDraft,
-                        onValueChange = { value -> autoRideStopDelayDraft = value },
-                        onValueChangeFinished = {
-                            viewModel.saveAutoRideStopDelaySeconds(autoRideStopDelayDraft.toInt())
-                        },
-                        enabled = autoRideStopEnabled,
-                        valueRange = 15f..300f,
-                        steps = 18
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("15 秒", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("5 分钟", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PictureInPicture,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text("悬浮仪表", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                    }
-                    Text(
-                        "切到后台后自动进入系统画中画，显示速度、功率、平均能耗三个核心指标。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("后台自动进入画中画", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "无需额外悬浮权限，点击小窗即可回到应用。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = overlayEnabled,
-                            onCheckedChange = { enabled -> viewModel.saveOverlayEnabled(enabled) }
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.TextFields,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text("界面字体", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                    }
-                    Text(
-                        "支持使用小米 MiSans 字体或系统默认字体。开启后，应用所有场景（含等宽数字）将切换至小米 MiSans 字体。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("使用 MiSans 字体", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "默认开启，关闭后回退至系统字体",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = useMiSansFont,
-                            onCheckedChange = { enabled -> viewModel.saveUseMiSansFont(enabled) }
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Terminal,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text("调试日志", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                    }
-                    Text(
-                        "可调日志级别，并导出或分享 BLE 连接、协议识别、指令发送与通知回包日志。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    ExposedDropdownMenuBox(
-                        expanded = expandLogLevel,
-                        onExpandedChange = { expandLogLevel = it }
-                    ) {
-                        OutlinedTextField(
-                            value = "${logLevel.name} · ${logLevel.label}",
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("日志级别") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandLogLevel) },
-                            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                        )
-                        ExposedDropdownMenu(expanded = expandLogLevel, onDismissRequest = { expandLogLevel = false }) {
-                            AppLogLevel.entries.forEach { level ->
-                                DropdownMenuItem(
-                                    text = { Text("${level.name} · ${level.label}") },
-                                    onClick = {
-                                        viewModel.saveLogLevel(level)
-                                        expandLogLevel = false
-                                    }
+                                SettingsNavigationItem(
+                                    icon = Icons.Default.DirectionsCar,
+                                    title = "车辆档案",
+                                    subtitle = "活跃车辆「${currentVehicle.name}」",
+                                    onClick = { activeSubPage = SettingsSubPage.VEHICLE_PROFILES }
+                                )
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                SettingsNavigationItem(
+                                    icon = Icons.Default.BatteryChargingFull,
+                                    title = "电池与 BMS",
+                                    subtitle = "连接与管理外部 BMS 遥测硬件",
+                                    onClick = onNavigateToBms
+                                )
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                SettingsNavigationItem(
+                                    icon = Icons.Default.Smartphone,
+                                    title = "iPhone 配对",
+                                    subtitle = "绑定遥控设备实现智能交互",
+                                    onClick = onNavigateToPairing
+                                )
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                SettingsNavigationItem(
+                                    icon = Icons.Default.Tune,
+                                    title = "智科调校",
+                                    subtitle = "固件参数精调及策略控制",
+                                    onClick = onNavigateToZhikeSettings
                                 )
                             }
                         }
-                    }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedButton(
-                            onClick = { viewModel.exportLogs() },
-                            modifier = Modifier.weight(1f),
-                            shape = bezierPillShape()
-                        ) {
-                            Text("导出日志")
-                        }
-                        Button(
-                            onClick = {
-                                context.startActivity(viewModel.createLogShareIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = bezierPillShape()
-                        ) {
-                            Text("分享日志")
-                        }
-                    }
+                        Spacer(modifier = Modifier.height(20.dp))
 
-                    TextButton(
-                        onClick = { viewModel.clearLogs() },
-                        shape = bezierPillShape()
-                    ) {
-                        Text("清空当前日志")
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.FolderZip,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text("本地数据备份与恢复", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                    }
-                    Text(
-                        "将应用的所有数据、记录和设置导出为本地压缩包 (.zip)，或从备份文件导入恢复。适用于手动备份或无网络环境下的数据迁移。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    if (localBackupProcessing) {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.medium,
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        // 2. 记录与行车 (Ride & Tracking)
+                        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.2.dp
-                                )
                                 Text(
-                                    text = "正在处理本地备份，请稍候…",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    text = "记录与行车",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                                SettingsNavigationItem(
+                                    icon = Icons.Default.Videocam,
+                                    title = "行车记录仪",
+                                    subtitle = "自动录制：${if (dashcamAutoRecord) "开启" else "关闭"} · 时长：${dashcamSegmentDurationMin}分钟",
+                                    onClick = { activeSubPage = SettingsSubPage.DASHCAM }
+                                )
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                SettingsNavigationItem(
+                                    icon = Icons.Default.Speed,
+                                    title = "记录与校准",
+                                    subtitle = "速度源：${speedSource.title} · 停车自动结束：${if (autoRideStopEnabled) "${autoRideStopDelaySeconds}秒" else "已禁用"}",
+                                    onClick = { activeSubPage = SettingsSubPage.RIDE_TRACKING }
                                 )
                             }
                         }
-                    }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                exportBackupLauncher.launch("smartdash_backup_${System.currentTimeMillis()}.zip")
-                            },
-                            enabled = !localBackupProcessing,
-                            shape = bezierPillShape(),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("导出备份 (.zip)")
-                        }
+                        Spacer(modifier = Modifier.height(20.dp))
 
-                        OutlinedButton(
-                            onClick = {
-                                importBackupLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
-                            },
-                            enabled = !localBackupProcessing,
-                            shape = bezierPillShape(),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("导入恢复 (.zip)")
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Google Drive Cloud Sync Section
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CloudSync,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text("Google Drive 云同步", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                    }
-                    Text(
-                        "换机优先用它。开启后会自动双向同步并智能合并云端/本地数据；局域网直连迁移只作为补充方式。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        "系统自动备份已关闭。卸载重装后不会自动恢复旧数据，请使用这里的 Google Drive 云同步或局域网迁移。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.large,
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.24f)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Text(
-                                "历史版本自动清理",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                "最新版本始终保留。每次上传或自动同步写入云端后，按下面规则清理更早的历史版本。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            var expanded by remember { mutableStateOf(false) }
-                            ExposedDropdownMenuBox(
-                                expanded = expanded,
-                                onExpandedChange = { expanded = !expanded }
+                        // 3. 界面与个性化 (UI & Display)
+                        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                OutlinedTextField(
-                                    value = driveBackupRetentionPolicy.label,
-                                    onValueChange = {},
-                                    readOnly = true,
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                                    modifier = Modifier.menuAnchor(type = MenuAnchorType.PrimaryEditable, enabled = true),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-                                    )
+                                Text(
+                                    text = "界面与个性化",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(bottom = 8.dp)
                                 )
-                                ExposedDropdownMenu(
-                                    expanded = expanded,
-                                    onDismissRequest = { expanded = false }
-                                ) {
-                                    BackupRetentionPolicy.entries.forEach { policy ->
-                                        DropdownMenuItem(
-                                            text = { Text(policy.label) },
-                                            onClick = {
-                                                viewModel.saveDriveBackupRetentionPolicy(policy)
-                                                expanded = false
-                                            },
-                                            trailingIcon = {
-                                                if (driveBackupRetentionPolicy == policy) {
-                                                    Icon(
-                                                        Icons.Default.Check,
-                                                        contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.primary
-                                                    )
-                                                }
-                                            }
-                                        )
-                                    }
-                                }
+                                SettingsNavigationItem(
+                                    icon = Icons.Default.PictureInPicture,
+                                    title = "界面显示与海报",
+                                    subtitle = "悬浮仪表：${if (overlayEnabled) "开启" else "关闭"} · 字体：${if (useMiSansFont) "MiSans" else "默认"}",
+                                    onClick = { activeSubPage = SettingsSubPage.UI_DISPLAY }
+                                )
                             }
-                            Text(
-                                driveBackupRetentionPolicy.summary,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                         }
-                    }
 
-                    // Auto-reset Synced/Error state back to SignedIn after delay
-                    LaunchedEffect(driveSyncState) {
-                        when (driveSyncState) {
-                            is com.shawnrain.sdash.data.sync.SyncState.Synced -> {
-                                kotlinx.coroutines.delay(3000)
-                                viewModel.checkDriveSignInStatus()
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // 4. 数据与系统 (System & Data)
+                        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "数据与系统",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                                SettingsNavigationItem(
+                                    icon = Icons.Default.Backup,
+                                    title = "数据备份与系统",
+                                    subtitle = if (driveSyncState is SyncState.SignedIn) "云备份已绑定 · 本地备份与恢复" else "云端备份、本地备份与恢复",
+                                    onClick = { activeSubPage = SettingsSubPage.SYSTEM_DATA }
+                                )
                             }
-                            is com.shawnrain.sdash.data.sync.SyncState.Error -> {
-                                kotlinx.coroutines.delay(5000)
-                                viewModel.checkDriveSignInStatus()
-                            }
+                        }
+                    } else {
+                        when (activeSubPage) {
+                            SettingsSubPage.VEHICLE_PROFILES -> vehicleProfilesPage()
+                            SettingsSubPage.RIDE_TRACKING -> rideTrackingPage()
+                            SettingsSubPage.DASHCAM -> dashcamPage()
+                            SettingsSubPage.UI_DISPLAY -> uiDisplayPage()
+                            SettingsSubPage.SYSTEM_DATA -> systemDataPage()
                             else -> {}
                         }
                     }
-
-                    val resolvedDriveState = (driveSyncState as? com.shawnrain.sdash.data.sync.SyncState.SignedIn)
-                        ?: stickyDriveSignedInState
-                    AnimatedContent(
-                        targetState = Pair(driveSyncState, resolvedDriveState),
-                        transitionSpec = {
-                            (fadeIn(tween(250)) + slideInVertically { it / 4 }).togetherWith(
-                                fadeOut(tween(200)) + slideOutVertically { -it / 4 }
-                            ).using(SizeTransform(clip = false))
-                        },
-                        label = "DriveSyncStateTransition"
-                    ) { (transientState, stickyState) ->
-                        when (transientState) {
-                            is com.shawnrain.sdash.data.sync.SyncState.SignedOut -> {
-                                Button(
-                                    onClick = handleDriveSignIn,
-                                    shape = bezierPillShape()
-                                ) {
-                                    Text("登录 Google 账号")
-                                }
-                            }
-                            is com.shawnrain.sdash.data.sync.SyncState.SigningIn -> {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                                    Text("正在跳转登录…", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                            else -> {
-                                val state = stickyState
-                                if (state == null) {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                                        Text("正在载入同步状态…", style = MaterialTheme.typography.bodySmall)
-                                    }
-                                    return@AnimatedContent
-                                }
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        val syncInteractionSource = remember { MutableInteractionSource() }
-                                        Surface(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .combinedClickable(
-                                                    interactionSource = syncInteractionSource,
-                                                    indication = null,
-                                                    onClick = { viewModel.syncDriveNow() },
-                                                    onLongClick = {
-                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        showForceDriveUploadConfirm = true
-                                                    }
-                                                ),
-                                            shape = bezierPillShape(),
-                                            color = MaterialTheme.colorScheme.primary,
-                                            contentColor = MaterialTheme.colorScheme.onPrimary
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(vertical = 10.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                ProvideTextStyle(MaterialTheme.typography.labelLarge) {
-                                                    Text("同步")
-                                                }
-                                            }
-                                        }
-                                        Button(
-                                            onClick = { showDriveSignOutConfirm = true },
-                                            shape = bezierPillShape(),
-                                            modifier = Modifier.weight(1f),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = MaterialTheme.colorScheme.errorContainer,
-                                                contentColor = MaterialTheme.colorScheme.onErrorContainer
-                                            )
-                                        ) {
-                                            Text("退出登录")
-                                        }
-                                    }
-                                    if (state.availableBackups.isNotEmpty()) {
-                                        OutlinedButton(
-                                            onClick = {
-                                                showDriveHistory = true
-                                                val target = state.availableBackups.first()
-                                                selectedDriveHistoryFileId = target.fileId
-                                                viewModel.previewDriveBackup(target)
-                                            },
-                                            shape = bezierPillShape(),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(18.dp))
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text("历史版本")
-                                        }
-                                    }
-                                    Text(
-                                        "自动同步已开启。仅在异常情况下手动触发同步。",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    when (transientState) {
-                                        is com.shawnrain.sdash.data.sync.SyncState.Syncing -> {
-                                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                                            Text("同步中…", style = MaterialTheme.typography.bodySmall)
-                                        }
-                                        is com.shawnrain.sdash.data.sync.SyncState.Synced -> {
-                                            val msg = when {
-                                                transientState.uploaded && transientState.downloaded -> "已上传并恢复"
-                                                transientState.uploaded -> "上传成功"
-                                                transientState.downloaded -> "恢复成功"
-                                                else -> "同步完成"
-                                            }
-                                            Text(
-                                                msg,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-                                        is com.shawnrain.sdash.data.sync.SyncState.Error -> {
-                                            Surface(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                shape = MaterialTheme.shapes.medium,
-                                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-                                            ) {
-                                                Text(
-                                                    transientState.message,
-                                                    modifier = Modifier.padding(10.dp),
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onErrorContainer
-                                                )
-                                            }
-                                        }
-                                        else -> Unit
-                                    }
-                                    Text(
-                                        "已登录：${state.email}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    val latest = state.availableBackups.firstOrNull()
-                                    if (latest != null) {
-                                        Text(
-                                            latest.deviceName,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    val syncTime = state.lastSyncTime ?: latest?.createdAt
-                                    if (syncTime != null) {
-                                        Text(
-                                            "上次同步：${java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(syncTime)}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    if (state.availableBackups.isNotEmpty()) {
-                                        val displayCount = state.availableBackups.size
-                                        Text(
-                                            "可用备份：$displayCount 个",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
             }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text("协议识别", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-                    Text(
-                        "连接后会自动匹配智科、远驱、凌博、APT 等解析器。导出的日志中也会包含协议识别、写特征选择和智科指令收发记录。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            PosterDefaultsCard(
-                settings = posterSettings,
-                onSettingsChange = viewModel::savePosterSettings
-            )
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            DashcamSettingsCard(
-                autoRecord = dashcamAutoRecord,
-                onAutoRecordChange = viewModel::saveDashcamAutoRecord,
-                recordAudio = dashcamRecordAudio,
-                onRecordAudioChange = viewModel::saveDashcamRecordAudio,
-                segmentDuration = dashcamSegmentDurationMin,
-                onSegmentDurationChange = viewModel::saveDashcamSegmentDurationMin,
-                storageLimitMb = dashcamStorageLimitMb,
-                onStorageLimitMbChange = viewModel::saveDashcamStorageLimitMb,
-                cameraId = dashcamCameraId,
-                onCameraIdChange = viewModel::saveDashcamCameraId,
-                overlayConfig = dashcamOverlayConfig,
-                onOverlayConfigChange = viewModel::saveDashcamOverlayConfig
-            )
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            AboutSmartDashEntryCard(
-                appUpdateState = appUpdateState,
-                onOpen = { showAboutSmartDashSheet = true }
-            )
-            }
-        }
         }
     }
 
@@ -3416,6 +3528,70 @@ private fun DashcamSettingsCard(
                     onCheckedChange = { onOverlayConfigChange(overlayConfig.copy(showSoc = it)) }
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun SettingsNavigationItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        color = Color.Transparent,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp, horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = bezierRoundedShape(10.dp),
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (subtitle.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
 }

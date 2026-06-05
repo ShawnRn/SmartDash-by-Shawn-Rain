@@ -143,6 +143,7 @@ class SettingsRepository(private val context: Context) {
         val DASHCAM_OVERLAY_GPS = booleanPreferencesKey("dashcam_overlay_gps")
         val DASHCAM_OVERLAY_SOC = booleanPreferencesKey("dashcam_overlay_soc")
         val DASHCAM_CAMERA_ID = stringPreferencesKey("dashcam_camera_id")
+        val DEBUG_ALLOW_RECORD_WITHOUT_CONTROLLER = booleanPreferencesKey("debug_allow_record_without_controller")
         private val DEFAULT_DASHBOARD_ITEMS = listOf(
             MetricType.SOC,
             MetricType.RANGE,
@@ -422,6 +423,10 @@ class SettingsRepository(private val context: Context) {
 
     val dashcamCameraId: Flow<String> = preferencesFlow.map { pref ->
         pref.safeGet(DASHCAM_CAMERA_ID) ?: "auto"
+    }.distinctUntilChanged()
+
+    val debugAllowRecordWithoutController: Flow<Boolean> = preferencesFlow.map { pref ->
+        pref.safeGet(DEBUG_ALLOW_RECORD_WITHOUT_CONTROLLER) ?: false
     }.distinctUntilChanged()
 
     val rideHistoryNormalizationVersion: Flow<Int> = preferencesFlow.map { pref ->
@@ -771,6 +776,13 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit {
             it[DASHCAM_CAMERA_ID] = cameraId
             markSyncedAt(it, DASHCAM_CAMERA_ID.name)
+        }
+    }
+
+    suspend fun saveDebugAllowRecordWithoutController(enabled: Boolean) {
+        context.dataStore.edit {
+            it[DEBUG_ALLOW_RECORD_WITHOUT_CONTROLLER] = enabled
+            markSyncedAt(it, DEBUG_ALLOW_RECORD_WITHOUT_CONTROLLER.name)
         }
     }
 

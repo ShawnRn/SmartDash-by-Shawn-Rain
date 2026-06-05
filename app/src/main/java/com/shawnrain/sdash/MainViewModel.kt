@@ -54,8 +54,6 @@ import com.shawnrain.sdash.data.GpsCalibrationState
 import com.shawnrain.sdash.data.SettingsRepository
 import com.shawnrain.sdash.data.RideSession
 import com.shawnrain.sdash.data.VehicleProfile
-import com.shawnrain.sdash.data.migration.LanBackupQrPayload
-import com.shawnrain.sdash.data.migration.LanBackupTransfer
 import com.shawnrain.sdash.data.transfer.SmartDashPackageReader
 import com.shawnrain.sdash.data.transfer.SmartDashPackageWriter
 import com.shawnrain.sdash.data.sync.GoogleDriveSyncManager
@@ -255,7 +253,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val bmsBleManager = BleManager(application)
     private val settingsRepository = SettingsRepository(application)
     private val rideHistoryRepository = RideHistoryRepository(application)
-    private val lanBackupTransfer = LanBackupTransfer()
     private val smartDashPackageWriter = SmartDashPackageWriter(settingsRepository, rideHistoryRepository)
     private val smartDashPackageReader = SmartDashPackageReader(settingsRepository, rideHistoryRepository)
     private val driveSyncManager = GoogleDriveSyncManager(application)
@@ -412,6 +409,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         SharingStarted.Eagerly,
         75
     )
+    val dashcamAutoRecordEnabled = settingsRepository.dashcamAutoRecord.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    val dashcamRecordAudio = settingsRepository.dashcamRecordAudio.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val dashcamSegmentDurationMin = settingsRepository.dashcamSegmentDurationMin.stateIn(viewModelScope, SharingStarted.Eagerly, 3)
+    val dashcamStorageLimitMb = settingsRepository.dashcamStorageLimitMb.stateIn(viewModelScope, SharingStarted.Eagerly, 4096)
+    val dashcamOverlayConfig = settingsRepository.dashcamOverlayConfig.stateIn(
+        viewModelScope, SharingStarted.Eagerly,
+        com.shawnrain.sdash.data.dashcam.DashcamOverlayConfig()
+    )
+    val dashcamCameraId = settingsRepository.dashcamCameraId.stateIn(viewModelScope, SharingStarted.Eagerly, "auto")
     val vehicleProfiles = settingsRepository.vehicleProfiles.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
@@ -971,14 +977,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _calibrationMessage = MutableStateFlow<String?>(null)
     val calibrationMessage: StateFlow<String?> = _calibrationMessage
     fun clearCalibrationMessage() { _calibrationMessage.value = null }
-    private val _lanBackupShare = MutableStateFlow(LanBackupShareUiState())
-    val lanBackupShare: StateFlow<LanBackupShareUiState> = _lanBackupShare.asStateFlow()
-    private val _lanBackupRestoring = MutableStateFlow(false)
-    val lanBackupRestoring: StateFlow<Boolean> = _lanBackupRestoring.asStateFlow()
-    private val _lanBackupMessage = MutableStateFlow<String?>(null)
-    val lanBackupMessage: StateFlow<String?> = _lanBackupMessage.asStateFlow()
-    fun clearLanBackupMessage() { _lanBackupMessage.value = null }
-    fun showLanBackupMessage(message: String) { _lanBackupMessage.value = message }
+    private val _localBackupMessage = MutableStateFlow<String?>(null)
+    val localBackupMessage: StateFlow<String?> = _localBackupMessage.asStateFlow()
+    fun clearLocalBackupMessage() { _localBackupMessage.value = null }
+
+    private val _localBackupProcessing = MutableStateFlow(false)
+    val localBackupProcessing: StateFlow<Boolean> = _localBackupProcessing.asStateFlow()
 
     private var lastMileageHealingAtMs = 0L
 
@@ -3903,6 +3907,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _calibrationMessage.value = "停车结束阈值已设为 ${safeSeconds} 秒"
     }
 
+    fun saveDashcamAutoRecord(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.saveDashcamAutoRecord(enabled)
+        }
+    }
+
+    fun saveDashcamRecordAudio(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.saveDashcamRecordAudio(enabled)
+        }
+    }
+
+    fun saveDashcamSegmentDurationMin(minutes: Int) {
+        viewModelScope.launch {
+            settingsRepository.saveDashcamSegmentDurationMin(minutes)
+        }
+    }
+
+    fun saveDashcamStorageLimitMb(limitMb: Int) {
+        viewModelScope.launch {
+            settingsRepository.saveDashcamStorageLimitMb(limitMb)
+        }
+    }
+
+    fun saveDashcamOverlayConfig(config: com.shawnrain.sdash.data.dashcam.DashcamOverlayConfig) {
+        viewModelScope.launch {
+            settingsRepository.saveDashcamOverlayConfig(config)
+        }
+    }
+
+    fun saveDashcamCameraId(cameraId: String) {
+        viewModelScope.launch {
+            settingsRepository.saveDashcamCameraId(cameraId)
+        }
+    }
+
     fun clearLogs() {
         AppLogger.clear()
         _calibrationMessage.value = "调试日志已清空"
@@ -3944,77 +3984,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return summary
     }
 
-    fun startLanBackupShare(): kotlinx.coroutines.Job = viewModelScope.launch {
-        if (_lanBackupShare.value.isSharing) return@launch
-        val code = Random.nextInt(100000, 999999).toString()
-        runCatching {
-            lanBackupTransfer.start(
-                scope = viewModelScope,
-                code = code,
-                onRestoreApplied = {
-                    _lanBackupShare.value = LanBackupShareUiState()
-                    _lanBackupMessage.value = "新设备恢复成功，已自动停止发送"
+    fun exportBackupToUri(uri: Uri) {
+        if (_localBackupProcessing.value) return
+        _localBackupProcessing.value = true
+        viewModelScope.launch {
+            try {
+                val bytes = withContext(Dispatchers.IO) {
+                    smartDashPackageWriter.buildPackageBytes()
                 }
-            ) { smartDashPackageWriter.buildPackageBytes() }
-        }.onSuccess { offer ->
-            _lanBackupShare.value = LanBackupShareUiState(
-                isSharing = true,
-                host = offer.host,
-                port = offer.port,
-                code = offer.code
-            )
-            _lanBackupMessage.value = "局域网迁移已开启，请在新设备输入地址与配对码"
-        }.onFailure { error ->
-            _lanBackupMessage.value = "开启迁移失败：${error.message ?: "未知错误"}"
-        }
-    }
-
-    fun stopLanBackupShare(): kotlinx.coroutines.Job = viewModelScope.launch {
-        runCatching { lanBackupTransfer.stop() }
-        _lanBackupShare.value = LanBackupShareUiState()
-        _lanBackupMessage.value = "局域网迁移已关闭"
-    }
-
-    fun currentLanBackupQrPayload(): String? {
-        val state = _lanBackupShare.value
-        if (!state.isSharing || state.host.isBlank() || state.port !in 1..65535 || state.code.isBlank()) {
-            return null
-        }
-        return LanBackupQrPayload(
-            host = state.host,
-            port = state.port,
-            code = state.code
-        ).encodeToQrText()
-    }
-
-    fun restoreFromLanBackup(
-        host: String,
-        portText: String,
-        code: String
-    ): kotlinx.coroutines.Job = viewModelScope.launch {
-        val cleanHost = host.trim()
-        val cleanCode = code.trim()
-        val port = portText.trim().toIntOrNull()
-        if (cleanHost.isBlank() || cleanCode.isBlank() || port == null || port !in 1..65535) {
-            _lanBackupMessage.value = "请输入正确的地址、端口和配对码"
-            return@launch
-        }
-        if (_lanBackupRestoring.value) return@launch
-        _lanBackupRestoring.value = true
-        _lanBackupMessage.value = "二维码识别成功，正在恢复数据..."
-        try {
-            val count = withContext(Dispatchers.IO) {
-                val payload = lanBackupTransfer.pull(cleanHost, port, cleanCode)
-                val result = smartDashPackageReader.importPackageBytes(payload)
-                runCatching { lanBackupTransfer.notifyRestoreApplied(cleanHost, port, cleanCode) }
-                result.settingsImported + result.ridesImported
+                withContext(Dispatchers.IO) {
+                    getApplication<Application>().contentResolver.openOutputStream(uri)?.use { outputStream ->
+                        outputStream.write(bytes)
+                    } ?: throw java.io.IOException("无法打开输出流")
+                }
+                _localBackupMessage.value = "备份成功并导出到本地文件"
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "导出备份失败", e)
+                _localBackupMessage.value = "备份导出失败：${e.message ?: "未知错误"}"
+            } finally {
+                _localBackupProcessing.value = false
             }
-            _lanBackupMessage.value = "恢复完成：已应用 $count 项资料"
-            autoReconnectAttemptedAddress = null
-        } catch (error: Throwable) {
-            _lanBackupMessage.value = "恢复失败：${error.message ?: "网络或配对码错误"}"
-        } finally {
-            _lanBackupRestoring.value = false
+        }
+    }
+
+    fun importBackupFromUri(uri: Uri) {
+        if (_localBackupProcessing.value) return
+        _localBackupProcessing.value = true
+        _localBackupMessage.value = "正在读取备份文件并恢复数据..."
+        viewModelScope.launch {
+            try {
+                val bytes = withContext(Dispatchers.IO) {
+                    getApplication<Application>().contentResolver.openInputStream(uri)?.use { inputStream ->
+                        val byteBuffer = java.io.ByteArrayOutputStream()
+                        val buffer = ByteArray(1024)
+                        var len: Int
+                        while (inputStream.read(buffer).also { len = it } != -1) {
+                            byteBuffer.write(buffer, 0, len)
+                        }
+                        byteBuffer.toByteArray()
+                    } ?: throw java.io.IOException("无法打开输入流")
+                }
+                val result = withContext(Dispatchers.IO) {
+                    smartDashPackageReader.importPackageBytes(bytes)
+                }
+                val count = result.settingsImported + result.ridesImported
+                _localBackupMessage.value = "数据恢复完成：已应用 $count 项资料"
+                autoReconnectAttemptedAddress = null
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "恢复备份失败", e)
+                _localBackupMessage.value = "数据恢复失败：${e.message ?: "未知错误"}"
+            } finally {
+                _localBackupProcessing.value = false
+            }
         }
     }
     fun handleAppVisibilityChanged(isForeground: Boolean) {
@@ -4535,7 +4556,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Disconnect BLE managers to prevent lingering connections
         bleManager.disconnect()
         bmsBleManager.disconnect()
-        runCatching { lanBackupTransfer.stop() }
         headingTracker.stop()
         gpsTracker.stopTracking()
         super.onCleared()

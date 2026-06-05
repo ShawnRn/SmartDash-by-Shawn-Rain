@@ -602,7 +602,6 @@ fun MainScreen(
     val pipEnabled by viewModel.overlayEnabled.collectAsState()
     val pendingRideStop by viewModel.pendingRideStop.collectAsState()
     val calibrationMessage by viewModel.calibrationMessage.collectAsState()
-    val lanBackupMessage by viewModel.lanBackupMessage.collectAsState()
     val driveSyncMessage by viewModel.driveSyncMessage.collectAsState()
     val globalSnackbarHostState = remember { SnackbarHostState() }
 
@@ -632,12 +631,6 @@ fun MainScreen(
         viewModel.clearCalibrationMessage()
     }
 
-    LaunchedEffect(lanBackupMessage) {
-        val message = lanBackupMessage ?: return@LaunchedEffect
-        globalSnackbarHostState.currentSnackbarData?.dismiss()
-        globalSnackbarHostState.showSnackbar(message)
-        viewModel.clearLanBackupMessage()
-    }
 
     LaunchedEffect(driveSyncMessage) {
         val message = driveSyncMessage ?: return@LaunchedEffect

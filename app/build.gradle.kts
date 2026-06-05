@@ -6,24 +6,35 @@ plugins {
     id("com.google.devtools.ksp") version "2.0.0-1.0.24"
 }
 
-val releaseStoreFile = System.getenv("HABE_RELEASE_STORE_FILE")
-val releaseStorePassword = System.getenv("HABE_RELEASE_STORE_PASSWORD")
-val releaseKeyAlias = System.getenv("HABE_RELEASE_KEY_ALIAS")
-val releaseKeyPassword = System.getenv("HABE_RELEASE_KEY_PASSWORD")
+val releaseStoreFile = (project.findProperty("HABE_RELEASE_STORE_FILE")?.toString() ?: System.getenv("HABE_RELEASE_STORE_FILE"))?.trim('\'', '"')
+val releaseStorePassword = (project.findProperty("HABE_RELEASE_STORE_PASSWORD")?.toString() ?: System.getenv("HABE_RELEASE_STORE_PASSWORD"))?.trim('\'', '"')
+val releaseKeyAlias = (project.findProperty("HABE_RELEASE_KEY_ALIAS")?.toString() ?: System.getenv("HABE_RELEASE_KEY_ALIAS"))?.trim('\'', '"')
+val releaseKeyPassword = (project.findProperty("HABE_RELEASE_KEY_PASSWORD")?.toString() ?: System.getenv("HABE_RELEASE_KEY_PASSWORD"))?.trim('\'', '"')
 
 android {
     namespace = "com.shawnrain.sdash"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.shawnrain.sdash"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2026060201
-        versionName = "1.2.18"
+        versionCode = 2026060502
+        versionName = "1.2.19-wide"
         
         vectorDrawables {
             useSupportLibrary = true
+        }
+    }
+
+    flavorDimensions.add("channel")
+    productFlavors {
+        create("normal") {
+            dimension = "channel"
+            applicationId = "com.shawnrain.sdash"
+        }
+        create("vivo") {
+            dimension = "channel"
+            applicationId = "com.vivo.bsptest"
         }
     }
 
@@ -55,6 +66,8 @@ android {
         create("devRelease") {
             initWith(getByName("release"))
             isDebuggable = false
+            isMinifyEnabled = false
+            isShrinkResources = false
             matchingFallbacks += listOf("release")
             if (!releaseStoreFile.isNullOrBlank()) {
                 signingConfig = signingConfigs.getByName("release")
@@ -77,6 +90,9 @@ android {
     }
     kotlin {
         jvmToolchain(17)
+        compilerOptions {
+            freeCompilerArgs.add("-Xbackend-threads=0")
+        }
     }
     buildFeatures {
         compose = true
@@ -108,6 +124,7 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.3.4")
     implementation("androidx.camera:camera-lifecycle:1.3.4")
     implementation("androidx.camera:camera-view:1.3.4")
+    implementation("androidx.camera:camera-video:1.3.4")
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")

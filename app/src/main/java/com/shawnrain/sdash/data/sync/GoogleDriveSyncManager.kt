@@ -38,6 +38,8 @@ import javax.net.ssl.SSLHandshakeException
  */
 class GoogleDriveSyncManager(private val context: Context) {
 
+    private val sharedConnectionPool = ConnectionPool(5, 5, TimeUnit.MINUTES)
+
     companion object {
         private const val TAG = "GDriveSync"
         private const val DRIVE_API_BASE = "https://www.googleapis.com"
@@ -123,8 +125,8 @@ class GoogleDriveSyncManager(private val context: Context) {
             .retryOnConnectionFailure(true)
             .followRedirects(true)
             .followSslRedirects(true)
-            .protocols(listOf(Protocol.HTTP_1_1))
-            .connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
+            .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
+            .connectionPool(sharedConnectionPool)
             .connectTimeout(DRIVE_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(DRIVE_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .writeTimeout(DRIVE_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -191,7 +193,8 @@ class GoogleDriveSyncManager(private val context: Context) {
                 val encrypted = EncryptionService.encryptWithPassword(
                     plainText = plainBytes,
                     password = password,
-                    salt = EncryptionService.generateSalt()
+                    salt = EncryptionService.generateSalt(),
+                    version = EncryptionService.VERSION_PASSWORD_RANDOM_SALT_GZIP
                 )
                 val encryptedPayload = encrypted.toJson().toByteArray(Charsets.UTF_8)
 

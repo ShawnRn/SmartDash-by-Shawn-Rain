@@ -134,6 +134,15 @@ class SettingsRepository(private val context: Context) {
         val AUTO_RIDE_STOP_DELAY_SECONDS = intPreferencesKey("auto_ride_stop_delay_seconds")
         val RIDE_HISTORY_NORMALIZATION_VERSION = intPreferencesKey("ride_history_normalization_version")
         val RIDE_HISTORY_STORAGE_MIGRATION_VERSION = intPreferencesKey("ride_history_storage_migration_version")
+        val DASHCAM_AUTO_RECORD = booleanPreferencesKey("dashcam_auto_record")
+        val DASHCAM_RECORD_AUDIO = booleanPreferencesKey("dashcam_record_audio")
+        val DASHCAM_SEGMENT_DURATION_MIN = intPreferencesKey("dashcam_segment_duration_min")
+        val DASHCAM_STORAGE_LIMIT_MB = intPreferencesKey("dashcam_storage_limit_mb")
+        val DASHCAM_OVERLAY_SPEED = booleanPreferencesKey("dashcam_overlay_speed")
+        val DASHCAM_OVERLAY_TIME = booleanPreferencesKey("dashcam_overlay_time")
+        val DASHCAM_OVERLAY_GPS = booleanPreferencesKey("dashcam_overlay_gps")
+        val DASHCAM_OVERLAY_SOC = booleanPreferencesKey("dashcam_overlay_soc")
+        val DASHCAM_CAMERA_ID = stringPreferencesKey("dashcam_camera_id")
         private val DEFAULT_DASHBOARD_ITEMS = listOf(
             MetricType.SOC,
             MetricType.RANGE,
@@ -384,6 +393,35 @@ class SettingsRepository(private val context: Context) {
 
     val autoRideStopDelaySeconds: Flow<Int> = preferencesFlow.map { pref ->
         (pref.safeGet(AUTO_RIDE_STOP_DELAY_SECONDS) ?: 75).coerceIn(15, 600)
+    }.distinctUntilChanged()
+
+    val dashcamAutoRecord: Flow<Boolean> = preferencesFlow.map { pref ->
+        pref.safeGet(DASHCAM_AUTO_RECORD) ?: true
+    }.distinctUntilChanged()
+
+    val dashcamRecordAudio: Flow<Boolean> = preferencesFlow.map { pref ->
+        pref.safeGet(DASHCAM_RECORD_AUDIO) ?: false
+    }.distinctUntilChanged()
+
+    val dashcamSegmentDurationMin: Flow<Int> = preferencesFlow.map { pref ->
+        (pref.safeGet(DASHCAM_SEGMENT_DURATION_MIN) ?: 3).coerceIn(1, 15)
+    }.distinctUntilChanged()
+
+    val dashcamStorageLimitMb: Flow<Int> = preferencesFlow.map { pref ->
+        (pref.safeGet(DASHCAM_STORAGE_LIMIT_MB) ?: 4096).coerceAtLeast(1024)
+    }.distinctUntilChanged()
+
+    val dashcamOverlayConfig: Flow<com.shawnrain.sdash.data.dashcam.DashcamOverlayConfig> = preferencesFlow.map { pref ->
+        com.shawnrain.sdash.data.dashcam.DashcamOverlayConfig(
+            showSpeed = pref.safeGet(DASHCAM_OVERLAY_SPEED) ?: true,
+            showTime = pref.safeGet(DASHCAM_OVERLAY_TIME) ?: true,
+            showDirection = pref.safeGet(DASHCAM_OVERLAY_GPS) ?: true,
+            showSoc = pref.safeGet(DASHCAM_OVERLAY_SOC) ?: false
+        )
+    }.distinctUntilChanged()
+
+    val dashcamCameraId: Flow<String> = preferencesFlow.map { pref ->
+        pref.safeGet(DASHCAM_CAMERA_ID) ?: "auto"
     }.distinctUntilChanged()
 
     val rideHistoryNormalizationVersion: Flow<Int> = preferencesFlow.map { pref ->
@@ -688,6 +726,51 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit {
             it[USE_MISANS_FONT] = enabled
             markSyncedAt(it, USE_MISANS_FONT.name)
+        }
+    }
+
+    suspend fun saveDashcamAutoRecord(enabled: Boolean) {
+        context.dataStore.edit {
+            it[DASHCAM_AUTO_RECORD] = enabled
+            markSyncedAt(it, DASHCAM_AUTO_RECORD.name)
+        }
+    }
+
+    suspend fun saveDashcamRecordAudio(enabled: Boolean) {
+        context.dataStore.edit {
+            it[DASHCAM_RECORD_AUDIO] = enabled
+            markSyncedAt(it, DASHCAM_RECORD_AUDIO.name)
+        }
+    }
+
+    suspend fun saveDashcamSegmentDurationMin(minutes: Int) {
+        context.dataStore.edit {
+            it[DASHCAM_SEGMENT_DURATION_MIN] = minutes.coerceIn(1, 15)
+            markSyncedAt(it, DASHCAM_SEGMENT_DURATION_MIN.name)
+        }
+    }
+
+    suspend fun saveDashcamStorageLimitMb(limitMb: Int) {
+        context.dataStore.edit {
+            it[DASHCAM_STORAGE_LIMIT_MB] = limitMb.coerceAtLeast(1024)
+            markSyncedAt(it, DASHCAM_STORAGE_LIMIT_MB.name)
+        }
+    }
+
+    suspend fun saveDashcamOverlayConfig(config: com.shawnrain.sdash.data.dashcam.DashcamOverlayConfig) {
+        context.dataStore.edit {
+            it[DASHCAM_OVERLAY_SPEED] = config.showSpeed
+            it[DASHCAM_OVERLAY_TIME] = config.showTime
+            it[DASHCAM_OVERLAY_GPS] = config.showDirection
+            it[DASHCAM_OVERLAY_SOC] = config.showSoc
+            markSyncedAt(it, DASHCAM_OVERLAY_SPEED.name, DASHCAM_OVERLAY_TIME.name, DASHCAM_OVERLAY_GPS.name, DASHCAM_OVERLAY_SOC.name)
+        }
+    }
+
+    suspend fun saveDashcamCameraId(cameraId: String) {
+        context.dataStore.edit {
+            it[DASHCAM_CAMERA_ID] = cameraId
+            markSyncedAt(it, DASHCAM_CAMERA_ID.name)
         }
     }
 

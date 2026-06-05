@@ -77,6 +77,10 @@ import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.*
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.FolderZip
+import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MenuAnchorType
@@ -115,7 +119,6 @@ import com.shawnrain.sdash.data.DataSource
 import com.shawnrain.sdash.data.SpeedSource
 import com.shawnrain.sdash.data.VehicleProfile
 import com.shawnrain.sdash.data.WheelPresets
-import com.shawnrain.sdash.data.migration.LanBackupQrPayload
 import com.shawnrain.sdash.data.sync.BackupMetadata
 import com.shawnrain.sdash.data.sync.BackupPreview
 import com.shawnrain.sdash.data.sync.BackupRetentionPolicy
@@ -169,12 +172,18 @@ fun SettingsScreen(
     val useMiSansFont by viewModel.useMiSansFont.collectAsState()
     val autoRideStopEnabled by viewModel.autoRideStopEnabled.collectAsState()
     val autoRideStopDelaySeconds by viewModel.autoRideStopDelaySeconds.collectAsState()
+    val dashcamAutoRecord by viewModel.dashcamAutoRecordEnabled.collectAsState()
+    val dashcamRecordAudio by viewModel.dashcamRecordAudio.collectAsState()
+    val dashcamSegmentDurationMin by viewModel.dashcamSegmentDurationMin.collectAsState()
+    val dashcamStorageLimitMb by viewModel.dashcamStorageLimitMb.collectAsState()
+    val dashcamOverlayConfig by viewModel.dashcamOverlayConfig.collectAsState()
+    val dashcamCameraId by viewModel.dashcamCameraId.collectAsState()
     val vehicleProfiles by viewModel.vehicleProfiles.collectAsState()
     val currentVehicle by viewModel.currentVehicle.collectAsState()
     val rideHistory by viewModel.rideHistory.collectAsState()
     val gpsCalibrationState by viewModel.gpsCalibrationState.collectAsState()
-    val lanBackupShare by viewModel.lanBackupShare.collectAsState()
-    val lanBackupRestoring by viewModel.lanBackupRestoring.collectAsState()
+    val localBackupMessage by viewModel.localBackupMessage.collectAsState()
+    val localBackupProcessing by viewModel.localBackupProcessing.collectAsState()
     val driveSyncState by viewModel.driveSyncState.collectAsState()
     val driveBackupPreview by viewModel.driveBackupPreview.collectAsState()
     val driveBackupRetentionPolicy by viewModel.driveBackupRetentionPolicy.collectAsState()
@@ -196,10 +205,6 @@ fun SettingsScreen(
     var editingVehicle by remember { mutableStateOf<VehicleProfile?>(null) }
     var creatingVehicle by remember { mutableStateOf(false) }
     var deletingVehicle by remember { mutableStateOf<VehicleProfile?>(null) }
-    var lanRestoreHost by remember { mutableStateOf("") }
-    var lanRestorePort by remember { mutableStateOf("") }
-    var lanRestoreCode by remember { mutableStateOf("") }
-    var showLanQrDialog by remember { mutableStateOf(false) }
     val currentVehicleHistoricalDistanceKm = remember(currentVehicle.id, rideHistory) {
         (rideHistory.sumOf { it.distanceMeters.toDouble() } / 1000.0).toFloat()
     }
@@ -219,7 +224,6 @@ fun SettingsScreen(
             0f
         }
     }
-    var showLanScannerDialog by remember { mutableStateOf(false) }
     var showDriveSignOutConfirm by remember { mutableStateOf(false) }
     var showForceDriveUploadConfirm by remember { mutableStateOf(false) }
     var showDriveHistory by remember { mutableStateOf(false) }
@@ -230,15 +234,24 @@ fun SettingsScreen(
     LaunchedEffect(autoRideStopDelaySeconds) {
         autoRideStopDelayDraft = autoRideStopDelaySeconds.toFloat()
     }
-    val qrPayload = remember(lanBackupShare) { viewModel.currentLanBackupQrPayload() }
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            showLanScannerDialog = true
-        } else {
-            viewModel.showLanBackupMessage("未授予相机权限，无法扫码迁移")
+
+    LaunchedEffect(localBackupMessage) {
+        localBackupMessage?.let { msg ->
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            viewModel.clearLocalBackupMessage()
         }
+    }
+
+    val exportBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        uri?.let { viewModel.exportBackupToUri(it) }
+    }
+
+    val importBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { viewModel.importBackupFromUri(it) }
     }
 
     val appContext = LocalContext.current
@@ -300,11 +313,6 @@ fun SettingsScreen(
         )
     }
 
-    LaunchedEffect(lanBackupShare.isSharing) {
-        if (!lanBackupShare.isSharing) {
-            showLanQrDialog = false
-        }
-    }
     LaunchedEffect(Unit) {
         viewModel.checkDriveSignInStatus()
         viewModel.checkForAppUpdate(silent = true)
@@ -907,110 +915,20 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Wifi,
+                            imageVector = Icons.Default.FolderZip,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
-                        Text("局域网直连迁移", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                        Text("本地数据备份与恢复", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                     }
                     Text(
-                        "默认推荐直接使用下方的 Google Drive 云同步完成换机；如果两台设备在同一局域网，或暂时不方便使用 Google 服务，再用这里直接迁移。",
+                        "将应用的所有数据、记录和设置导出为本地压缩包 (.zip)，或从备份文件导入恢复。适用于手动备份或无网络环境下的数据迁移。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    AnimatedContent(
-                        targetState = lanBackupShare.isSharing,
-                        transitionSpec = {
-                            (
-                                fadeIn(
-                                    animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing)
-                                ) + slideInVertically(
-                                    animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
-                                    initialOffsetY = { fullHeight -> fullHeight / 5 }
-                                )
-                            ).togetherWith(
-                                fadeOut(
-                                    animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing)
-                                ) + slideOutVertically(
-                                    animationSpec = tween(durationMillis = 220, easing = FastOutLinearInEasing),
-                                    targetOffsetY = { fullHeight -> -fullHeight / 6 }
-                                )
-                            ).using(SizeTransform(clip = false))
-                        },
-                        label = "LanShareStateSwap"
-                    ) { isSharing ->
-                        if (isSharing) {
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Surface(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = MaterialTheme.shapes.medium,
-                                    color = MaterialTheme.colorScheme.primaryContainer
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Text(
-                                            "发送中：${lanBackupShare.host}:${lanBackupShare.port}",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                        Text(
-                                            "配对码：${lanBackupShare.code}",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                    }
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    OutlinedButton(
-                                        onClick = { showLanQrDialog = true },
-                                        shape = bezierPillShape(),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(Icons.Default.QrCode2, contentDescription = null)
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("显示二维码")
-                                    }
-                                    OutlinedButton(
-                                        onClick = { viewModel.stopLanBackupShare() },
-                                        shape = bezierPillShape(),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text("停止发送")
-                                    }
-                                }
-                            }
-                        } else {
-                            FilledTonalButton(
-                                onClick = { viewModel.startLanBackupShare() },
-                                shape = bezierPillShape()
-                            ) {
-                                Text("开启局域网发送")
-                            }
-                        }
-                    }
-
-                    HorizontalDivider()
-
-                    Text("在本设备恢复", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-                    AnimatedVisibility(
-                        visible = lanBackupRestoring,
-                        enter = fadeIn(
-                            animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing)
-                        ) + slideInVertically(
-                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
-                            initialOffsetY = { fullHeight -> fullHeight / 3 }
-                        ),
-                        exit = fadeOut(
-                            animationSpec = tween(durationMillis = 160, easing = FastOutLinearInEasing)
-                        ) + slideOutVertically(
-                            animationSpec = tween(durationMillis = 220, easing = FastOutLinearInEasing),
-                            targetOffsetY = { fullHeight -> -fullHeight / 4 }
-                        )
-                    ) {
+                    if (localBackupProcessing) {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = MaterialTheme.shapes.medium,
@@ -1026,69 +944,44 @@ fun SettingsScreen(
                                     strokeWidth = 2.2.dp
                                 )
                                 Text(
-                                    text = "正在从旧设备恢复数据，请保持网络稳定…",
+                                    text = "正在处理本地备份，请稍候…",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                             }
                         }
                     }
-                    OutlinedButton(
-                        onClick = {
-                            val granted = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.CAMERA
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (granted) {
-                                showLanScannerDialog = true
-                            } else {
-                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                            }
-                        },
-                        shape = bezierPillShape()
-                    ) {
-                        Icon(Icons.Default.QrCodeScanner, contentDescription = null)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("扫码迁移")
-                    }
-                    OutlinedTextField(
-                        value = lanRestoreHost,
-                        onValueChange = { lanRestoreHost = it.trim() },
-                        label = { Text("旧设备地址") },
-                        supportingText = { Text("示例：192.168.1.23") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = lanRestorePort,
-                        onValueChange = { lanRestorePort = it.filter(Char::isDigit) },
-                        label = { Text("端口") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = lanRestoreCode,
-                        onValueChange = { lanRestoreCode = it.filter(Char::isDigit).take(6) },
-                        label = { Text("配对码") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Button(
-                        onClick = {
-                            viewModel.restoreFromLanBackup(
-                                host = lanRestoreHost,
-                                portText = lanRestorePort,
-                                code = lanRestoreCode
-                            )
-                        },
-                        enabled = !lanBackupRestoring,
-                        shape = bezierPillShape()
-                    ) {
-                        Text("立即恢复")
-                    }
 
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                exportBackupLauncher.launch("smartdash_backup_${System.currentTimeMillis()}.zip")
+                            },
+                            enabled = !localBackupProcessing,
+                            shape = bezierPillShape(),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("导出备份 (.zip)")
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                importBackupLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                            },
+                            enabled = !localBackupProcessing,
+                            shape = bezierPillShape(),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("导入恢复 (.zip)")
+                        }
+                    }
                 }
             }
 
@@ -1407,6 +1300,23 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
+            DashcamSettingsCard(
+                autoRecord = dashcamAutoRecord,
+                onAutoRecordChange = viewModel::saveDashcamAutoRecord,
+                recordAudio = dashcamRecordAudio,
+                onRecordAudioChange = viewModel::saveDashcamRecordAudio,
+                segmentDuration = dashcamSegmentDurationMin,
+                onSegmentDurationChange = viewModel::saveDashcamSegmentDurationMin,
+                storageLimitMb = dashcamStorageLimitMb,
+                onStorageLimitMbChange = viewModel::saveDashcamStorageLimitMb,
+                cameraId = dashcamCameraId,
+                onCameraIdChange = viewModel::saveDashcamCameraId,
+                overlayConfig = dashcamOverlayConfig,
+                onOverlayConfigChange = viewModel::saveDashcamOverlayConfig
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
             AboutSmartDashEntryCard(
                 appUpdateState = appUpdateState,
                 onOpen = { showAboutSmartDashSheet = true }
@@ -1414,34 +1324,6 @@ fun SettingsScreen(
             }
         }
         }
-    }
-
-    if (showLanQrDialog && qrPayload != null) {
-        LanBackupQrDialog(
-            payload = qrPayload,
-            onDismiss = { showLanQrDialog = false }
-        )
-    }
-    if (showLanScannerDialog) {
-        LanBackupScanDialog(
-            onDismiss = { showLanScannerDialog = false },
-            onScanResult = { raw ->
-                val payload = LanBackupQrPayload.decode(raw)
-                if (payload == null) {
-                    viewModel.showLanBackupMessage("二维码无效：不是 SmartDash 换机码")
-                } else {
-                    showLanScannerDialog = false
-                    lanRestoreHost = payload.host
-                    lanRestorePort = payload.port.toString()
-                    lanRestoreCode = payload.code
-                    viewModel.restoreFromLanBackup(
-                        host = payload.host,
-                        portText = payload.port.toString(),
-                        code = payload.code
-                    )
-                }
-            }
-        )
     }
 
     if (creatingVehicle || editingVehicle != null) {
@@ -2838,365 +2720,7 @@ private fun formatBackupTimestamp(timestampMs: Long): String {
     return java.text.SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(java.util.Date(timestampMs))
 }
 
-@Composable
-@androidx.annotation.OptIn(markerClass = [ExperimentalGetImage::class])
-private fun LanBackupScanDialog(
-    onDismiss: () -> Unit,
-    onScanResult: (String) -> Unit
-) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val scanExecutor = remember { Executors.newSingleThreadExecutor() }
-    val scanOptions = remember {
-        com.google.mlkit.vision.barcode.BarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-            .build()
-    }
-    val barcodeScanner = remember(scanOptions) { BarcodeScanning.getClient(scanOptions) }
-    val consumed = remember { AtomicBoolean(false) }
-    val cameraController = remember(context) {
-        LifecycleCameraController(context).apply {
-            cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-            setEnabledUseCases(CameraController.IMAGE_ANALYSIS)
-            imageAnalysisBackpressureStrategy = ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
-        }
-    }
-    var bindError by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-    val enterDurationMs = 320
-    val exitDurationMs = 220
-    var isDialogVisible by remember { mutableStateOf(false) }
-    var dismissInFlight by remember { mutableStateOf(false) }
-    val entryProgress by animateFloatAsState(
-        targetValue = if (isDialogVisible) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = if (isDialogVisible) enterDurationMs else exitDurationMs,
-            easing = if (isDialogVisible) FastOutSlowInEasing else FastOutLinearInEasing
-        ),
-        label = "LanBackupScanDialogEntry"
-    )
 
-    fun requestDismiss() {
-        if (dismissInFlight) return
-        dismissInFlight = true
-        isDialogVisible = false
-        scope.launch {
-            kotlinx.coroutines.delay(exitDurationMs.toLong())
-            onDismiss()
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        dismissInFlight = false
-        isDialogVisible = true
-    }
-
-    DisposableEffect(Unit) {
-        runCatching {
-            cameraController.bindToLifecycle(lifecycleOwner)
-            cameraController.setImageAnalysisAnalyzer(scanExecutor) { imageProxy ->
-                val mediaImage = imageProxy.image
-                if (mediaImage == null || consumed.get()) {
-                    imageProxy.close()
-                    return@setImageAnalysisAnalyzer
-                }
-                val image = InputImage.fromMediaImage(
-                    mediaImage,
-                    imageProxy.imageInfo.rotationDegrees
-                )
-                barcodeScanner.process(image)
-                    .addOnSuccessListener { barcodes ->
-                        if (consumed.get()) return@addOnSuccessListener
-                        val raw = barcodes
-                            .firstNotNullOfOrNull { it.rawValue?.trim() }
-                            ?.takeIf { it.isNotBlank() }
-                        if (raw != null && consumed.compareAndSet(false, true)) {
-                            onScanResult(raw)
-                        }
-                    }
-                    .addOnFailureListener {
-                        // Keep scanning; occasional frame decode failures are expected.
-                    }
-                    .addOnCompleteListener {
-                        imageProxy.close()
-                    }
-            }
-            bindError = null
-        }.onFailure {
-            bindError = "相机绑定失败"
-        }
-        onDispose {
-            runCatching { cameraController.clearImageAnalysisAnalyzer() }
-            runCatching { cameraController.unbind() }
-            runCatching { barcodeScanner.close() }
-            scanExecutor.shutdown()
-        }
-    }
-
-    Dialog(
-        onDismissRequest = ::requestDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
-        )
-    ) {
-        ApplyDialogWindowBlurEffect(blurRadius = 28.dp)
-        BoxWithConstraints(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            val density = LocalDensity.current
-            val motion = rememberPredictiveBackMotion(
-                width = maxWidth,
-                onBack = ::requestDismiss,
-                maxHorizontalInset = 10.dp,
-                maxVerticalInset = 8.dp,
-                maxCorner = 16.dp,
-                maxScaleTravelFraction = 0.1f
-            )
-            val scale = 1f - (0.045f * motion.progress)
-            PopupBackdropBlurLayer(
-                blurRadius = 28.dp,
-                scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.24f * entryProgress),
-                onDismissRequest = ::requestDismiss
-            )
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 460.dp)
-                    .padding(horizontal = 24.dp)
-                    .padding(horizontal = motion.insetHorizontal, vertical = motion.insetVertical)
-                    .graphicsLayer {
-                        translationX = motion.translationX
-                        translationY = with(density) { (1f - entryProgress) * 24.dp.toPx() } + motion.insetVertical.toPx()
-                        scaleX = scale * (0.95f + 0.05f * entryProgress)
-                        scaleY = scale * (0.95f + 0.05f * entryProgress)
-                        alpha = motion.alpha * entryProgress
-                    },
-                shape = bezierRoundedShape(28.dp + motion.corner),
-                color = MaterialTheme.colorScheme.surface
-            ) {
-                Column(
-                    modifier = Modifier
-                        .padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text("扫码迁移", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        "请将旧设备的换机二维码放入取景框内，支持连续自动对焦。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.large,
-                        color = Color.Black
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(3f / 4f)
-                                .clip(MaterialTheme.shapes.large)
-                                .background(Color.Black)
-                        ) {
-                            AndroidView(
-                                factory = { ctx ->
-                                    PreviewView(ctx).apply {
-                                        scaleType = PreviewView.ScaleType.FILL_CENTER
-                                        // Use TextureView path so preview participates in the same
-                                        // transform stack as the dialog card animation.
-                                        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                                        setBackgroundColor(AndroidColor.BLACK)
-                                        controller = cameraController
-                                    }
-                                },
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer {
-                                        // Force a slight crop to hide device-specific letterboxing strips.
-                                        scaleX = 1.08f
-                                        scaleY = 1.08f
-                                    }
-                            )
-                        }
-                    }
-                    bindError?.let { message ->
-                        Text(
-                            text = message,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-                    Button(
-                        onClick = ::requestDismiss,
-                        shape = bezierPillShape(),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("取消")
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LanBackupQrDialog(
-    payload: String,
-    onDismiss: () -> Unit
-) {
-    val clipboardManager = LocalClipboardManager.current
-    val density = LocalDensity.current
-    val scope = rememberCoroutineScope()
-    val enterDurationMs = 320
-    val exitDurationMs = 220
-    var isDialogVisible by remember(payload) { mutableStateOf(false) }
-    var dismissInFlight by remember(payload) { mutableStateOf(false) }
-    val entryProgress by animateFloatAsState(
-        targetValue = if (isDialogVisible) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = if (isDialogVisible) enterDurationMs else exitDurationMs,
-            easing = if (isDialogVisible) FastOutSlowInEasing else FastOutLinearInEasing
-        ),
-        label = "LanBackupQrDialogEntry"
-    )
-    val qrBitmap = remember(payload) {
-        generateLanBackupQrBitmap(payload = payload, sizePx = 900)
-    }
-
-    fun requestDismiss() {
-        if (dismissInFlight) return
-        dismissInFlight = true
-        isDialogVisible = false
-        scope.launch {
-            kotlinx.coroutines.delay(exitDurationMs.toLong())
-            onDismiss()
-        }
-    }
-
-    LaunchedEffect(payload) {
-        dismissInFlight = false
-        isDialogVisible = true
-    }
-
-    Dialog(
-        onDismissRequest = ::requestDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
-        )
-    ) {
-        ApplyDialogWindowBlurEffect(blurRadius = 28.dp)
-        BoxWithConstraints(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            val motion = rememberPredictiveBackMotion(
-                width = maxWidth,
-                onBack = ::requestDismiss,
-                maxHorizontalInset = 10.dp,
-                maxVerticalInset = 8.dp,
-                maxCorner = 16.dp,
-                maxScaleTravelFraction = 0.1f
-            )
-            val scale = 1f - (0.045f * motion.progress)
-            PopupBackdropBlurLayer(
-                blurRadius = 28.dp,
-                scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.24f * entryProgress),
-                onDismissRequest = ::requestDismiss
-            )
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 420.dp)
-                    .padding(horizontal = 24.dp)
-                    .padding(horizontal = motion.insetHorizontal, vertical = motion.insetVertical)
-                    .graphicsLayer {
-                        translationX = motion.translationX
-                        translationY = with(density) { (1f - entryProgress) * 26.dp.toPx() } + motion.insetVertical.toPx()
-                        scaleX = scale * (0.94f + 0.06f * entryProgress)
-                        scaleY = scale * (0.94f + 0.06f * entryProgress)
-                        alpha = motion.alpha * entryProgress
-                    },
-                shape = bezierRoundedShape(28.dp + motion.corner),
-                color = MaterialTheme.colorScheme.surface
-            ) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Text("换机二维码", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        "新设备在“换机助手”里点“扫码迁移”即可自动恢复。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (qrBitmap != null) {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.large,
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f)
-                        ) {
-                            Image(
-                                bitmap = qrBitmap.asImageBitmap(),
-                                contentDescription = "换机二维码",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(1f)
-                                    .padding(4.dp)
-                            )
-                        }
-                    } else {
-                        Text(
-                            "二维码生成失败，请改用手动输入地址、端口、配对码。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                clipboardManager.setText(AnnotatedString(payload))
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = bezierPillShape()
-                        ) {
-                            Text("复制字符串")
-                        }
-                        Button(
-                            onClick = ::requestDismiss,
-                            modifier = Modifier.weight(1f),
-                            shape = bezierPillShape()
-                        ) {
-                            Text("完成")
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun generateLanBackupQrBitmap(payload: String, sizePx: Int): Bitmap? {
-    if (payload.isBlank() || sizePx < 120) return null
-    return runCatching {
-        val hints = mapOf(
-            EncodeHintType.MARGIN to 0,
-            EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M
-        )
-        val matrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, sizePx, sizePx, hints)
-        val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
-        for (x in 0 until sizePx) {
-            for (y in 0 until sizePx) {
-                bitmap.setPixel(x, y, if (matrix[x, y]) AndroidColor.BLACK else AndroidColor.WHITE)
-            }
-        }
-        bitmap
-    }.getOrNull()
-}
 
 @Composable
 private fun MetricSummaryChip(
@@ -3679,4 +3203,219 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DashcamSettingsCard(
+    autoRecord: Boolean,
+    onAutoRecordChange: (Boolean) -> Unit,
+    recordAudio: Boolean,
+    onRecordAudioChange: (Boolean) -> Unit,
+    segmentDuration: Int,
+    onSegmentDurationChange: (Int) -> Unit,
+    storageLimitMb: Int,
+    onStorageLimitMbChange: (Int) -> Unit,
+    cameraId: String,
+    onCameraIdChange: (String) -> Unit,
+    overlayConfig: com.shawnrain.sdash.data.dashcam.DashcamOverlayConfig,
+    onOverlayConfigChange: (com.shawnrain.sdash.data.dashcam.DashcamOverlayConfig) -> Unit
+) {
+    var expandDurationMenu by remember { mutableStateOf(false) }
+    var expandStorageMenu by remember { mutableStateOf(false) }
+    var expandCameraMenu by remember { mutableStateOf(false) }
+
+    val segmentDurationOptions = listOf(1, 3, 5, 10, 15)
+    val storageLimitOptions = listOf(
+        1024 to "1 GB",
+        2048 to "2 GB",
+        4096 to "4 GB",
+        8192 to "8 GB",
+        16384 to "16 GB",
+        32768 to "32 GB",
+        65536 to "64 GB"
+    )
+    val cameraOptions = listOf(
+        "auto" to "自动选择 (默认)",
+        "0" to "镜头 0 (超广角/主摄)",
+        "1" to "镜头 1 (前置)",
+        "2" to "镜头 2",
+        "3" to "镜头 3",
+        "4" to "镜头 4",
+        "5" to "镜头 5"
+    )
+
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Videocam,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text("行车记录仪", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("自动录制", style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = autoRecord, onCheckedChange = onAutoRecordChange)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("录制声音", style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = recordAudio, onCheckedChange = onRecordAudioChange)
+            }
+
+            ExposedDropdownMenuBox(
+                expanded = expandDurationMenu,
+                onExpandedChange = { expandDurationMenu = it }
+            ) {
+                OutlinedTextField(
+                    value = "${segmentDuration} 分钟",
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("片段时长") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandDurationMenu) },
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                )
+                ExposedDropdownMenu(
+                    expanded = expandDurationMenu,
+                    onDismissRequest = { expandDurationMenu = false }
+                ) {
+                    segmentDurationOptions.forEach { opt ->
+                        DropdownMenuItem(
+                            text = { Text("$opt 分钟") },
+                            onClick = {
+                                onSegmentDurationChange(opt)
+                                expandDurationMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            ExposedDropdownMenuBox(
+                expanded = expandStorageMenu,
+                onExpandedChange = { expandStorageMenu = it }
+            ) {
+                val currentStorageText = storageLimitOptions.firstOrNull { it.first == storageLimitMb }?.second ?: "${storageLimitMb} MB"
+                OutlinedTextField(
+                    value = currentStorageText,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("存储上限") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandStorageMenu) },
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                )
+                ExposedDropdownMenu(
+                    expanded = expandStorageMenu,
+                    onDismissRequest = { expandStorageMenu = false }
+                ) {
+                    storageLimitOptions.forEach { opt ->
+                        DropdownMenuItem(
+                            text = { Text(opt.second) },
+                            onClick = {
+                                onStorageLimitMbChange(opt.first)
+                                expandStorageMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            ExposedDropdownMenuBox(
+                expanded = expandCameraMenu,
+                onExpandedChange = { expandCameraMenu = it }
+            ) {
+                val currentCameraText = cameraOptions.firstOrNull { it.first == cameraId }?.second ?: cameraId
+                OutlinedTextField(
+                    value = currentCameraText,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("记录仪摄像头") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandCameraMenu) },
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                )
+                ExposedDropdownMenu(
+                    expanded = expandCameraMenu,
+                    onDismissRequest = { expandCameraMenu = false }
+                ) {
+                    cameraOptions.forEach { opt ->
+                        DropdownMenuItem(
+                            text = { Text(opt.second) },
+                            onClick = {
+                                onCameraIdChange(opt.first)
+                                expandCameraMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+            Text("水印叠加", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("速度", style = MaterialTheme.typography.bodyMedium)
+                Switch(
+                    checked = overlayConfig.showSpeed,
+                    onCheckedChange = { onOverlayConfigChange(overlayConfig.copy(showSpeed = it)) }
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("时间", style = MaterialTheme.typography.bodyMedium)
+                Switch(
+                    checked = overlayConfig.showTime,
+                    onCheckedChange = { onOverlayConfigChange(overlayConfig.copy(showTime = it)) }
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("方向", style = MaterialTheme.typography.bodyMedium)
+                Switch(
+                    checked = overlayConfig.showDirection,
+                    onCheckedChange = { onOverlayConfigChange(overlayConfig.copy(showDirection = it)) }
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("电量", style = MaterialTheme.typography.bodyMedium)
+                Switch(
+                    checked = overlayConfig.showSoc,
+                    onCheckedChange = { onOverlayConfigChange(overlayConfig.copy(showSoc = it)) }
+                )
+            }
+        }
+    }
 }

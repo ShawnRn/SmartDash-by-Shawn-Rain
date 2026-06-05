@@ -27,14 +27,16 @@ class AppUpdateManager(
     private val context: Context,
     private val client: OkHttpClient = OkHttpClient()
 ) {
+    private val isVivoPackage = context.packageName == "com.vivo.bsptest"
+    private val manifestFileName = if (isVivoPackage) "release-manifest-vivo.json" else "release-manifest.json"
+    private val manifestUrl = "$RELEASES_LATEST_DOWNLOAD_BASE_URL/$manifestFileName"
+
     companion object {
         private const val TAG = "AppUpdateManager"
         private const val REPO_BASE_URL =
             "https://github.com/ShawnRn/SmartDash-by-Shawn-Rain"
         private const val RELEASES_LATEST_DOWNLOAD_BASE_URL =
             "$REPO_BASE_URL/releases/latest/download"
-        private const val RELEASES_LATEST_MANIFEST_URL =
-            "$RELEASES_LATEST_DOWNLOAD_BASE_URL/release-manifest.json"
         private const val RELEASES_LATEST_URL =
             "https://api.github.com/repos/ShawnRn/SmartDash-by-Shawn-Rain/releases/latest"
         private val versionRegex = Regex("""(\d+)\.(\d+)\.(\d+)""")
@@ -145,7 +147,7 @@ class AppUpdateManager(
             val body = response.body?.string().orEmpty()
             val githubRelease = json.decodeFromString<GithubReleaseResponse>(body)
             val manifestAsset = githubRelease.assets.firstOrNull {
-                it.name.equals("release-manifest.json", ignoreCase = true) ||
+                it.name.equals(manifestFileName, ignoreCase = true) ||
                     it.name.endsWith("-manifest.json", ignoreCase = true)
             }
             val pkg = if (manifestAsset != null) {
@@ -159,7 +161,7 @@ class AppUpdateManager(
 
     private suspend fun fetchStaticManifestPackage(etag: String?): LatestReleaseFetchResult? {
         val request = Request.Builder()
-            .url(RELEASES_LATEST_MANIFEST_URL)
+            .url(manifestUrl)
             .header("Accept", "application/json")
             .header("User-Agent", "${context.packageName}/android")
             .apply {
@@ -210,7 +212,7 @@ class AppUpdateManager(
                     else -> {
                         AppLogger.w(
                             TAG,
-                            "Static release manifest failed: HTTP ${response.code} url=$RELEASES_LATEST_MANIFEST_URL"
+                            "Static release manifest failed: HTTP ${response.code} url=$manifestUrl"
                         )
                         null
                     }
@@ -219,7 +221,7 @@ class AppUpdateManager(
         }.getOrElse { error ->
             AppLogger.w(
                 TAG,
-                "Static release manifest fetch failed: ${error.javaClass.simpleName}: ${error.message} url=$RELEASES_LATEST_MANIFEST_URL"
+                "Static release manifest fetch failed: ${error.javaClass.simpleName}: ${error.message} url=$manifestUrl"
             )
             null
         }
@@ -495,6 +497,14 @@ class AppUpdateManager(
         return release.assets
             .asSequence()
             .filter { it.name.endsWith(".apk", ignoreCase = true) && it.downloadUrl.isNotBlank() }
+            .filter { asset ->
+                val lower = asset.name.lowercase()
+                if (isVivoPackage) {
+                    "vivo" in lower
+                } else {
+                    "vivo" !in lower
+                }
+            }
             .map { asset -> asset to apkAssetScore(asset.name, channel) }
             .sortedByDescending { it.second }
             .firstOrNull { it.second > Int.MIN_VALUE }?.first

@@ -6,9 +6,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
-import androidx.compose.material.icons.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material3.*
@@ -98,7 +98,7 @@ fun PairingScreen(
                                 .alpha(pulseAlpha)
                                 .background(
                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                                    shape = bezierRoundedShape(90.dp)
+                                shape = bezierRoundedShape(90.dp)
                                 )
                         )
                     }
@@ -119,8 +119,8 @@ fun PairingScreen(
                             Icon(
                                 imageVector = when {
                                     isHidSubscribed -> Icons.Default.BluetoothConnected
-                                    isHidConnected -> Icons.Default.BluetoothSearching
-                                    isHogpActive -> Icons.Default.BluetoothSearching
+                                    isHidConnected -> Icons.AutoMirrored.Filled.BluetoothSearching
+                                    isHogpActive -> Icons.AutoMirrored.Filled.BluetoothSearching
                                     else -> Icons.Default.Bluetooth
                                 },
                                 contentDescription = null,

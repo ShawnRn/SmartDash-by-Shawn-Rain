@@ -212,8 +212,17 @@ fun SettingsScreen(
     }
 
     var activeSubPage by rememberSaveable { mutableStateOf<SettingsSubPage?>(null) }
+    val mainScrollState = rememberScrollState()
     BackHandler(enabled = activeSubPage != null) {
         activeSubPage = null
+    }
+    LaunchedEffect(activeSubPage) {
+        viewModel.setSettingsSubPageActive(activeSubPage != null)
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.setSettingsSubPageActive(false)
+        }
     }
     var expandSpeedSource by remember { mutableStateOf(false) }
     var expandBattSource by remember { mutableStateOf(false) }
@@ -337,337 +346,355 @@ fun SettingsScreen(
         ?.availableBackups
         .orEmpty()
     val vehicleProfilesPage = @Composable {
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.DirectionsCar,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Text("车辆档案", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                }
-                Text(
-                    "按车辆隔离行程记录和最近连接控制器，车辆参数统一放在档案详情里维护。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = MaterialTheme.shapes.large
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            currentVehicle.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        Icon(
+                            imageVector = Icons.Default.DirectionsCar,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
                         )
-                        Text(
-                            "${formatBatterySpec(currentVehicle)} · 累计 ${formatMileage(currentVehicleDisplayMileageKm)}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Text(
-                            currentVehicle.macAddress.takeIf { it.isNotBlank() }?.let { "控制器 $it" }
-                                ?: "当前还未绑定最近连接控制器",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
-                        )
-                        if (currentVehicle.learnedInternalResistanceOhm > 0f) {
+                        Text("当前车辆状态", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = MaterialTheme.shapes.large
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
                             Text(
-                                "测试内阻: ${formatResistance(currentVehicle.learnedInternalResistanceOhm)}",
+                                currentVehicle.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                "${formatBatterySpec(currentVehicle)} · 累计 ${formatMileage(currentVehicleDisplayMileageKm)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                currentVehicle.macAddress.takeIf { it.isNotBlank() }?.let { "控制器 $it" }
+                                    ?: "当前还未绑定最近连接控制器",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
+                            )
+                            if (currentVehicle.learnedInternalResistanceOhm > 0f) {
+                                Text(
+                                    "测试内阻: ${formatResistance(currentVehicle.learnedInternalResistanceOhm)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
+                                )
+                            }
+                            Text(
+                                "历史累计平均能效: ${formatEfficiency(currentVehicleHistoricalAvgEfficiencyWhKm)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
+                            )
+                            Text(
+                                "电池健康度 / 可用容量: ${formatSohCapacity(currentVehicle)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
                             )
                         }
-                        Text(
-                            "历史累计平均能效: ${formatEfficiency(currentVehicleHistoricalAvgEfficiencyWhKm)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
-                        )
-                        Text(
-                            "电池健康度 / 可用容量: ${formatSohCapacity(currentVehicle)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f)
-                        )
                     }
                 }
+            }
 
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    vehicleProfiles.forEach { vehicle ->
-                        FilterChip(
-                            selected = vehicle.id == currentVehicle.id,
-                            onClick = { viewModel.selectVehicle(vehicle.id) },
-                            label = { Text(vehicle.name) }
+                    Text("切换与管理", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "按车辆隔离行程记录和最近连接控制器，车辆参数统一放在档案详情里维护。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        vehicleProfiles.forEach { vehicle ->
+                            FilterChip(
+                                selected = vehicle.id == currentVehicle.id,
+                                onClick = { viewModel.selectVehicle(vehicle.id) },
+                                label = { Text(vehicle.name) }
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(
+                            onClick = { creatingVehicle = true },
+                            modifier = Modifier.weight(1f),
+                            shape = bezierPillShape()
+                        ) {
+                            Text("新增车辆")
+                        }
+                        OutlinedButton(
+                            onClick = { editingVehicle = currentVehicle },
+                            modifier = Modifier.weight(1f),
+                            shape = bezierPillShape()
+                        ) {
+                            Text("编辑当前")
+                        }
+                    }
+
+                    TextButton(
+                        onClick = { deletingVehicle = currentVehicle },
+                        enabled = vehicleProfiles.size > 1,
+                        shape = bezierPillShape(),
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
-                    }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    FilledTonalButton(
-                        onClick = { creatingVehicle = true },
-                        modifier = Modifier.weight(1f),
-                        shape = bezierPillShape()
                     ) {
-                        Text("新增车辆")
+                        Text(if (vehicleProfiles.size > 1) "删除当前车辆" else "至少保留 1 台车辆")
                     }
-                    OutlinedButton(
-                        onClick = { editingVehicle = currentVehicle },
-                        modifier = Modifier.weight(1f),
-                        shape = bezierPillShape()
-                    ) {
-                        Text("编辑当前")
-                    }
-                }
-
-                TextButton(
-                    onClick = { deletingVehicle = currentVehicle },
-                    enabled = vehicleProfiles.size > 1,
-                    shape = bezierPillShape()
-                ) {
-                    Text(if (vehicleProfiles.size > 1) "删除当前车辆" else "至少保留 1 台车辆")
                 }
             }
         }
     }
 
     val rideTrackingPage = @Composable {
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.GpsFixed,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Text("GPS 轮径校准", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                }
-                Text(
-                    "保存后会直接应用到当前活跃车辆：${currentVehicle.name}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    gpsCalibrationState.hint,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    MetricSummaryChip(
-                        title = "GPS",
-                        value = "${formatWheelInput(gpsCalibrationState.gpsDistanceMeters)} m",
-                        modifier = Modifier.weight(1f)
-                    )
-                    MetricSummaryChip(
-                        title = "控制器",
-                        value = "${formatWheelInput(gpsCalibrationState.controllerDistanceMeters)} m",
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    MetricSummaryChip(
-                        title = "当前建议",
-                        value = gpsCalibrationState.suggestedCircumferenceMm?.let { "${formatWheelInput(it)} mm" } ?: "--",
-                        modifier = Modifier.weight(1f)
-                    )
-                    MetricSummaryChip(
-                        title = "偏差",
-                        value = gpsCalibrationState.deltaPercent?.let { String.format(Locale.getDefault(), "%.1f%%", it) } ?: "--",
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    FilledTonalButton(
-                        onClick = {
-                            if (gpsCalibrationState.isRunning) viewModel.stopGpsCalibration() else viewModel.startGpsCalibration()
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = bezierPillShape()
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = if (gpsCalibrationState.isRunning) "停止校准" else "开始校准",
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Ellipsis
+                        Icon(
+                            imageVector = Icons.Default.GpsFixed,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text("GPS 轮径校准", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                    Text(
+                        "保存后会直接应用到当前活跃车辆：${currentVehicle.name}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        gpsCalibrationState.hint,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        MetricSummaryChip(
+                            title = "GPS",
+                            value = "${formatWheelInput(gpsCalibrationState.gpsDistanceMeters)} m",
+                            modifier = Modifier.weight(1f)
+                        )
+                        MetricSummaryChip(
+                            title = "控制器",
+                            value = "${formatWheelInput(gpsCalibrationState.controllerDistanceMeters)} m",
+                            modifier = Modifier.weight(1f)
                         )
                     }
-                    Button(
-                        onClick = { viewModel.applyGpsCalibrationSuggestion() },
-                        enabled = gpsCalibrationState.suggestedCircumferenceMm != null,
-                        modifier = Modifier.weight(1f),
-                        shape = bezierPillShape()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text(
-                            text = "应用",
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Ellipsis
+                        MetricSummaryChip(
+                            title = "当前建议",
+                            value = gpsCalibrationState.suggestedCircumferenceMm?.let { "${formatWheelInput(it)} mm" } ?: "--",
+                            modifier = Modifier.weight(1f)
+                        )
+                        MetricSummaryChip(
+                            title = "偏差",
+                            value = gpsCalibrationState.deltaPercent?.let { String.format(Locale.getDefault(), "%.1f%%", it) } ?: "--",
+                            modifier = Modifier.weight(1f)
                         )
                     }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Tune,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Text("数据源优先级", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                }
-                Text(
-                    "设置车速和电池遥测数据的首选来源渠道。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                ExposedDropdownMenuBox(
-                    expanded = expandSpeedSource,
-                    onExpandedChange = { expandSpeedSource = it }
-                ) {
-                    OutlinedTextField(
-                        value = speedSource.title,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("速度数据源") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandSpeedSource) },
-                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                    )
-                    ExposedDropdownMenu(expanded = expandSpeedSource, onDismissRequest = { expandSpeedSource = false }) {
-                        SpeedSource.entries.forEach { src ->
-                            DropdownMenuItem(
-                                text = { Text(src.title) },
-                                onClick = {
-                                    viewModel.saveSpeedSource(src)
-                                    expandSpeedSource = false
-                                }
-                            )
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-
-                ExposedDropdownMenuBox(
-                    expanded = expandBattSource,
-                    onExpandedChange = { expandBattSource = it }
-                ) {
-                    OutlinedTextField(
-                        value = battDataSource.title,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("电池数据来源") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandBattSource) },
-                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                    )
-                    ExposedDropdownMenu(expanded = expandBattSource, onDismissRequest = { expandBattSource = false }) {
-                        DataSource.entries.forEach { src ->
-                            DropdownMenuItem(
-                                text = { Text(src.title) },
-                                onClick = {
-                                    viewModel.saveBattDataSource(src)
-                                    expandBattSource = false
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.LocalParking,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Text("停车结束记录", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("停稳后自动结束行程", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            if (autoRideStopEnabled) {
-                                "当前阈值 ${autoRideStopDelaySeconds} 秒"
-                            } else {
-                                "关闭后只会手动结束，断连保护仍会保留"
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        FilledTonalButton(
+                            onClick = {
+                                if (gpsCalibrationState.isRunning) viewModel.stopGpsCalibration() else viewModel.startGpsCalibration()
                             },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            modifier = Modifier.weight(1f),
+                            shape = bezierPillShape()
+                        ) {
+                            Text(
+                                text = if (gpsCalibrationState.isRunning) "停止校准" else "开始校准",
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Button(
+                            onClick = { viewModel.applyGpsCalibrationSuggestion() },
+                            enabled = gpsCalibrationState.suggestedCircumferenceMm != null,
+                            modifier = Modifier.weight(1f),
+                            shape = bezierPillShape()
+                        ) {
+                            Text(
+                                text = "应用",
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text("数据源优先级", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                    Text(
+                        "设置车速和电池遥测数据的首选来源渠道。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    ExposedDropdownMenuBox(
+                        expanded = expandSpeedSource,
+                        onExpandedChange = { expandSpeedSource = it }
+                    ) {
+                        OutlinedTextField(
+                            value = speedSource.title,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("速度数据源") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandSpeedSource) },
+                            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                        )
+                        ExposedDropdownMenu(expanded = expandSpeedSource, onDismissRequest = { expandSpeedSource = false }) {
+                            SpeedSource.entries.forEach { src ->
+                                DropdownMenuItem(
+                                    text = { Text(src.title) },
+                                    onClick = {
+                                        viewModel.saveSpeedSource(src)
+                                        expandSpeedSource = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    ExposedDropdownMenuBox(
+                        expanded = expandBattSource,
+                        onExpandedChange = { expandBattSource = it }
+                    ) {
+                        OutlinedTextField(
+                            value = battDataSource.title,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("电池数据来源") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandBattSource) },
+                            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                        )
+                        ExposedDropdownMenu(expanded = expandBattSource, onDismissRequest = { expandBattSource = false }) {
+                            DataSource.entries.forEach { src ->
+                                DropdownMenuItem(
+                                    text = { Text(src.title) },
+                                    onClick = {
+                                        viewModel.saveBattDataSource(src)
+                                        expandBattSource = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocalParking,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text("停车结束记录", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("停稳后自动结束行程", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                if (autoRideStopEnabled) {
+                                    "当前阈值 ${autoRideStopDelaySeconds} 秒"
+                                } else {
+                                    "关闭后只会手动结束，断连保护仍会保留"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = autoRideStopEnabled,
+                            onCheckedChange = { enabled -> viewModel.saveAutoRideStopEnabled(enabled) }
                         )
                     }
-                    Switch(
-                        checked = autoRideStopEnabled,
-                        onCheckedChange = { enabled -> viewModel.saveAutoRideStopEnabled(enabled) }
+                    Slider(
+                        value = autoRideStopDelayDraft,
+                        onValueChange = { value -> autoRideStopDelayDraft = value },
+                        onValueChangeFinished = {
+                            viewModel.saveAutoRideStopDelaySeconds(autoRideStopDelayDraft.toInt())
+                        },
+                        enabled = autoRideStopEnabled,
+                        valueRange = 15f..300f,
+                        steps = 18
                     )
-                }
-                Slider(
-                    value = autoRideStopDelayDraft,
-                    onValueChange = { value -> autoRideStopDelayDraft = value },
-                    onValueChangeFinished = {
-                        viewModel.saveAutoRideStopDelaySeconds(autoRideStopDelayDraft.toInt())
-                    },
-                    enabled = autoRideStopEnabled,
-                    valueRange = 15f..300f,
-                    steps = 18
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("15 秒", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("5 分钟", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("15 秒", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("5 分钟", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         }
@@ -1315,10 +1342,11 @@ fun SettingsScreen(
                         onBack = subPage?.let { { activeSubPage = null } },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    val scrollState = if (subPage == null) mainScrollState else rememberScrollState()
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(scrollState)
                             .padding(start = 24.dp, end = 24.dp, bottom = bottomContentPadding)
                     ) {
                         Spacer(modifier = Modifier.height(8.dp))
@@ -3379,176 +3407,182 @@ private fun DashcamSettingsCard(
         "5" to "镜头 5"
     )
 
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Videocam,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-                Text("行车记录仪", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Videocam,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text("行车记录仪", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("自动录制", style = MaterialTheme.typography.bodyMedium)
-                Switch(checked = autoRecord, onCheckedChange = onAutoRecordChange)
-            }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("自动录制", style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = autoRecord, onCheckedChange = onAutoRecordChange)
+                }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("录制声音", style = MaterialTheme.typography.bodyMedium)
-                Switch(checked = recordAudio, onCheckedChange = onRecordAudioChange)
-            }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("录制声音", style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = recordAudio, onCheckedChange = onRecordAudioChange)
+                }
 
-            ExposedDropdownMenuBox(
-                expanded = expandDurationMenu,
-                onExpandedChange = { expandDurationMenu = it }
-            ) {
-                OutlinedTextField(
-                    value = "${segmentDuration} 分钟",
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("片段时长") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandDurationMenu) },
-                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                )
-                ExposedDropdownMenu(
+                ExposedDropdownMenuBox(
                     expanded = expandDurationMenu,
-                    onDismissRequest = { expandDurationMenu = false }
+                    onExpandedChange = { expandDurationMenu = it }
                 ) {
-                    segmentDurationOptions.forEach { opt ->
-                        DropdownMenuItem(
-                            text = { Text("$opt 分钟") },
-                            onClick = {
-                                onSegmentDurationChange(opt)
-                                expandDurationMenu = false
-                            }
-                        )
+                    OutlinedTextField(
+                        value = "${segmentDuration} 分钟",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("片段时长") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandDurationMenu) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expandDurationMenu,
+                        onDismissRequest = { expandDurationMenu = false }
+                    ) {
+                        segmentDurationOptions.forEach { opt ->
+                            DropdownMenuItem(
+                                text = { Text("$opt 分钟") },
+                                onClick = {
+                                    onSegmentDurationChange(opt)
+                                    expandDurationMenu = false
+                                }
+                            )
+                        }
                     }
                 }
-            }
 
-            ExposedDropdownMenuBox(
-                expanded = expandStorageMenu,
-                onExpandedChange = { expandStorageMenu = it }
-            ) {
-                val currentStorageText = storageLimitOptions.firstOrNull { it.first == storageLimitMb }?.second ?: "${storageLimitMb} MB"
-                OutlinedTextField(
-                    value = currentStorageText,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("存储上限") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandStorageMenu) },
-                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                )
-                ExposedDropdownMenu(
+                ExposedDropdownMenuBox(
                     expanded = expandStorageMenu,
-                    onDismissRequest = { expandStorageMenu = false }
+                    onExpandedChange = { expandStorageMenu = it }
                 ) {
-                    storageLimitOptions.forEach { opt ->
-                        DropdownMenuItem(
-                            text = { Text(opt.second) },
-                            onClick = {
-                                onStorageLimitMbChange(opt.first)
-                                expandStorageMenu = false
-                            }
-                        )
+                    val currentStorageText = storageLimitOptions.firstOrNull { it.first == storageLimitMb }?.second ?: "${storageLimitMb} MB"
+                    OutlinedTextField(
+                        value = currentStorageText,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("存储上限") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandStorageMenu) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expandStorageMenu,
+                        onDismissRequest = { expandStorageMenu = false }
+                    ) {
+                        storageLimitOptions.forEach { opt ->
+                            DropdownMenuItem(
+                                text = { Text(opt.second) },
+                                onClick = {
+                                    onStorageLimitMbChange(opt.first)
+                                    expandStorageMenu = false
+                                }
+                            )
+                        }
                     }
                 }
-            }
 
-            ExposedDropdownMenuBox(
-                expanded = expandCameraMenu,
-                onExpandedChange = { expandCameraMenu = it }
-            ) {
-                val currentCameraText = cameraOptions.firstOrNull { it.first == cameraId }?.second ?: cameraId
-                OutlinedTextField(
-                    value = currentCameraText,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("记录仪摄像头") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandCameraMenu) },
-                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                )
-                ExposedDropdownMenu(
+                ExposedDropdownMenuBox(
                     expanded = expandCameraMenu,
-                    onDismissRequest = { expandCameraMenu = false }
+                    onExpandedChange = { expandCameraMenu = it }
                 ) {
-                    cameraOptions.forEach { opt ->
-                        DropdownMenuItem(
-                            text = { Text(opt.second) },
-                            onClick = {
-                                onCameraIdChange(opt.first)
-                                expandCameraMenu = false
-                            }
-                        )
+                    val currentCameraText = cameraOptions.firstOrNull { it.first == cameraId }?.second ?: cameraId
+                    OutlinedTextField(
+                        value = currentCameraText,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("记录仪摄像头") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandCameraMenu) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expandCameraMenu,
+                        onDismissRequest = { expandCameraMenu = false }
+                    ) {
+                        cameraOptions.forEach { opt ->
+                            DropdownMenuItem(
+                                text = { Text(opt.second) },
+                                onClick = {
+                                    onCameraIdChange(opt.first)
+                                    expandCameraMenu = false
+                                }
+                            )
+                        }
                     }
                 }
             }
+        }
 
-            Spacer(modifier = Modifier.height(4.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("水印叠加", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
 
-            Text("水印叠加", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("速度", style = MaterialTheme.typography.bodyMedium)
-                Switch(
-                    checked = overlayConfig.showSpeed,
-                    onCheckedChange = { onOverlayConfigChange(overlayConfig.copy(showSpeed = it)) }
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("时间", style = MaterialTheme.typography.bodyMedium)
-                Switch(
-                    checked = overlayConfig.showTime,
-                    onCheckedChange = { onOverlayConfigChange(overlayConfig.copy(showTime = it)) }
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("方向", style = MaterialTheme.typography.bodyMedium)
-                Switch(
-                    checked = overlayConfig.showDirection,
-                    onCheckedChange = { onOverlayConfigChange(overlayConfig.copy(showDirection = it)) }
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("电量", style = MaterialTheme.typography.bodyMedium)
-                Switch(
-                    checked = overlayConfig.showSoc,
-                    onCheckedChange = { onOverlayConfigChange(overlayConfig.copy(showSoc = it)) }
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("速度", style = MaterialTheme.typography.bodyMedium)
+                    Switch(
+                        checked = overlayConfig.showSpeed,
+                        onCheckedChange = { onOverlayConfigChange(overlayConfig.copy(showSpeed = it)) }
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("时间", style = MaterialTheme.typography.bodyMedium)
+                    Switch(
+                        checked = overlayConfig.showTime,
+                        onCheckedChange = { onOverlayConfigChange(overlayConfig.copy(showTime = it)) }
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("方向", style = MaterialTheme.typography.bodyMedium)
+                    Switch(
+                        checked = overlayConfig.showDirection,
+                        onCheckedChange = { onOverlayConfigChange(overlayConfig.copy(showDirection = it)) }
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("电量", style = MaterialTheme.typography.bodyMedium)
+                    Switch(
+                        checked = overlayConfig.showSoc,
+                        onCheckedChange = { onOverlayConfigChange(overlayConfig.copy(showSoc = it)) }
+                    )
+                }
             }
         }
     }

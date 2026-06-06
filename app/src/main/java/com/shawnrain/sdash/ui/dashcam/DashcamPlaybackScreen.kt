@@ -284,7 +284,12 @@ fun DashcamPlaybackScreen(
                 modifier = Modifier.fillMaxSize(),
                 onRelease = { view ->
                     runCatching {
-                        view.stopPlayback()
+                        view.pause()
+                    }
+                    view.post {
+                        runCatching {
+                            view.stopPlayback()
+                        }
                     }
                     videoViewInstance = null
                 }

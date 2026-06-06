@@ -164,14 +164,14 @@ Release 签名约定：
 - `.agents/scripts/sync-github.sh` 会阻止任何签名文件被提交或推送
 
 > **⚠️ 重要强约束 (AI Agent 必读)**
-> 当用户要求"输出/编译一个 APK 给我测试"或"提供最新安装包"时，**必须**调用 `.agents/scripts/build-release.sh` 生成 Release 签名包！
-> 绝对不要默认通过 `build-debug.sh` 输出给用户，因为用户的物理真机已安装了 Release 签名版本，使用 Debug 签名会导致覆盖安装失败或需要清除数据！
+> 当用户要求"输出/编译一个 APK 给我测试"或"提供最新安装包"时，**必须**优先调用 `.agents/scripts/build-release.sh` 生成正式 Release 签名包！
+> **在本地调试、测试交付或打包双版本时，必须使用 `devRelease` 变体（通过 `.agents/scripts/build-dev-release.sh` 构建）代替普通的 `debug` 变体，以确保签名一致性（使用 Release 签名可以无缝覆盖真机上的当前版本），并防止 debug 版由于未启用 R8 优化与代码压缩而导致的运行性能差或卡顿问题。**
 > 当用户明确要求"装到手机上""安装到手机""adb 安装"或语义等价的真机安装诉求时，**默认直接执行安装流程，不要再次征求确认**；除非用户明确要求"先别装"或"只出包不安装"。
 > 对 `compile / assemble / test` 也有同等级硬约束：**不要直接跑 `./gradlew`。不要在非主编译机本地跑 Gradle。不要绕过 `.agents/scripts/*`。**
 > 若当前不是 `shawn-rains-macbook-pro`，任何直接本地 Gradle 执行都应视为错误操作，必须立刻停止并改走远端路由脚本。
 > 远端路由脚本在执行前必须先同步本地工作区到主编译机；如果不能确认主编译机已经拿到最新代码，就不允许开始远端编译或测试。
 >
-> `devRelease` 仅用于本地高频联调提速：
+> `devRelease` 仅用于本地高频联调提速与开发版本打包：
 > - `.agents/scripts/build-dev-release.sh`
 > - `.agents/scripts/install-dev-release.sh`
 > - 仍使用 release 签名，可覆盖用户现有安装

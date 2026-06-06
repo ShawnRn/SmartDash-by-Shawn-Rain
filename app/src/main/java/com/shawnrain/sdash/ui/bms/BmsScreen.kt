@@ -20,7 +20,11 @@ import com.shawnrain.sdash.ui.theme.bezierRoundedShape
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun BmsScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
+fun BmsScreen(
+    viewModel: MainViewModel,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val bmsMetrics by viewModel.bmsMetrics.collectAsState()
     val bmsLabel by viewModel.bmsActiveProtocolLabel.collectAsState()
 
@@ -31,7 +35,8 @@ fun BmsScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     ) {
         P2PageHeader(
             title = "电池与BMS",
-            subtitle = bmsLabel
+            subtitle = bmsLabel,
+            onBack = onBack
         )
         
         LazyColumn(modifier = Modifier.padding(horizontal = 24.dp)) {
@@ -50,28 +55,41 @@ fun BmsScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             
             item {
                 Spacer(modifier = Modifier.height(24.dp))
-                Text("单体电压", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                FlowRow(
+                Text("单体电压", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
+                ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    maxItemsInEachRow = 4
+                    shape = bezierRoundedShape(16.dp)
                 ) {
-                    bmsMetrics.cellVoltages.forEachIndexed { index, volt ->
-                        CellCard(index + 1, volt)
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            maxItemsInEachRow = 4
+                        ) {
+                            bmsMetrics.cellVoltages.forEachIndexed { index, volt ->
+                                CellCard(index + 1, volt)
+                            }
+                        }
                     }
                 }
             }
             
             item {
                 Spacer(modifier = Modifier.height(24.dp))
-                Text("状态监控", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(modifier = Modifier.height(16.dp))
-                StatusRow("充电 MOS", bmsMetrics.chargeMosOn)
-                StatusRow("放电 MOS", bmsMetrics.dischargeMosOn)
-                StatusRow("均衡状态", bmsMetrics.balanceOn)
+                Text("状态监控", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = bezierRoundedShape(16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        StatusRow("充电 MOS", bmsMetrics.chargeMosOn)
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        StatusRow("放电 MOS", bmsMetrics.dischargeMosOn)
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        StatusRow("均衡状态", bmsMetrics.balanceOn)
+                    }
+                }
                 Spacer(modifier = Modifier.height(48.dp))
             }
         }

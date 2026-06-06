@@ -1295,6 +1295,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val driveSyncMessage: StateFlow<String?> = _driveSyncMessage.asStateFlow()
     fun clearDriveSyncMessage() { _driveSyncMessage.value = null }
 
+    private val _isSettingsSubPageActive = MutableStateFlow(false)
+    val isSettingsSubPageActive: StateFlow<Boolean> = _isSettingsSubPageActive.asStateFlow()
+    fun setSettingsSubPageActive(active: Boolean) {
+        _isSettingsSubPageActive.value = active
+    }
+
+
     // ======== Auto Sync Detection ========
     private var lastKnownRemoteTimestamp: Long = 0L
     private var autoSyncJob: kotlinx.coroutines.Job? = null

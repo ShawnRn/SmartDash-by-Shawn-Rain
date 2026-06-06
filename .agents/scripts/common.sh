@@ -15,7 +15,7 @@ export SMARTDASH_BUILD_HOST_IP="${SMARTDASH_BUILD_HOST_IP:-100.103.86.124}"
 export SMARTDASH_REMOTE_PROJECT_ROOT="${SMARTDASH_REMOTE_PROJECT_ROOT:-$PROJECT_ROOT}"
 export SMARTDASH_REMOTE_JAVA_HOME="${SMARTDASH_REMOTE_JAVA_HOME:-$JAVA_HOME_DEFAULT}"
 
-APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/debug/app-debug.apk"
+APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/normal/debug/app-normal-debug.apk"
 DEV_RELEASE_APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/devRelease/app-devRelease.apk"
 FAST_DEV_RELEASE_APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/fastDevRelease/app-fastDevRelease.apk"
 RELEASE_APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/normal/release/app-normal-release.apk"

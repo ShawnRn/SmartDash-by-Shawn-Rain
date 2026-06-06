@@ -34,7 +34,7 @@ ensure_base_env
 STAMP="$(timestamp)"
 LOG_FILE="$LOG_DIR/test-debug-$STAMP.log"
 
-run_gradle_logged "$LOG_FILE" :app:testDebugUnitTest
+run_gradle_logged "$LOG_FILE" :app:testNormalDebugUnitTest
 
 grep "BUILD SUCCESSFUL" "$LOG_FILE" >/dev/null
 

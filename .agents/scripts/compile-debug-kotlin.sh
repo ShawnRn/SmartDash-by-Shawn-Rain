@@ -30,7 +30,7 @@ ensure_base_env
 STAMP="$(timestamp)"
 LOG_FILE="$LOG_DIR/compile-debug-kotlin-$STAMP.log"
 
-run_gradle_logged "$LOG_FILE" :app:compileDebugKotlin
+run_gradle_logged "$LOG_FILE" :app:compileNormalDebugKotlin
 
 grep "BUILD SUCCESSFUL" "$LOG_FILE" >/dev/null
 

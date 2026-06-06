@@ -65,6 +65,7 @@ object ProtocolParser {
     private val _activeProtocolId = MutableStateFlow<String?>(null)
     val activeProtocolId: StateFlow<String?> = _activeProtocolId.asStateFlow()
 
+    @Volatile
     private var activeProtocol: ControllerProtocol? = null
     fun getActiveProtocolId(): String? = activeProtocolId.value
 
@@ -165,7 +166,7 @@ object ProtocolParser {
 
         // --- Fallback / Legacy Heuristic Parsing ---
         val hexString = data.joinToString("") { "%02X".format(it) }
-        try {
+        runCatching {
             when {
                 data.size >= 9 && hexString.startsWith("010304") -> {
                     val polePairs = ((data[3].toInt() and 0xFF) shl 8) or (data[4].toInt() and 0xFF)
@@ -174,8 +175,8 @@ object ProtocolParser {
                     }
                 }
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
+        }.onFailure { e ->
+            AppLogger.e(TAG, "解析降级回退帧异常 hex=$hexString", e)
         }
     }
 }

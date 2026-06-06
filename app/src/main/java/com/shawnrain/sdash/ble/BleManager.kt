@@ -30,8 +30,8 @@ import kotlinx.coroutines.flow.update
 import java.util.UUID
 
 sealed class ConnectionState {
-    object Disconnected : ConnectionState()
-    object Connecting : ConnectionState()
+    data object Disconnected : ConnectionState()
+    data object Connecting : ConnectionState()
     data class Connected(val device: BluetoothDevice) : ConnectionState()
     data class Error(val message: String) : ConnectionState()
 }
@@ -40,7 +40,7 @@ sealed class ConnectionState {
  * Represents the result of a BLE write operation.
  */
 sealed class WriteResult {
-    object Success : WriteResult()
+    data object Success : WriteResult()
     data class Dropped(val reason: String) : WriteResult()
     data class Failed(val status: Int) : WriteResult()
 }

@@ -26,24 +26,23 @@ class DirectionStabilizer {
         val dtSec = ((input.nowMs - lastUpdateMs).coerceAtLeast(0L) / 1000f)
             .takeIf { it > 0f } ?: 0.016f
 
-        val gpsUsable = isGpsCourseUsable(input)
-        val sensorUsable = isSensorHeadingUsable(input)
+        val gpsCourse = getUsableGpsCourse(input)
+        val sensorHeading = getUsableSensorHeading(input)
 
         // --- Step 1: Select direction source ---
         val source = when {
             input.speedKmh < FREEZE_SPEED_KMH && initialized -> DirectionSource.FROZEN
-            gpsUsable -> DirectionSource.GPS_COURSE
-            sensorUsable && input.speedKmh >= LOW_SPEED_KMH -> DirectionSource.SENSOR_HEADING
+            gpsCourse != null -> DirectionSource.GPS_COURSE
+            sensorHeading != null && input.speedKmh >= LOW_SPEED_KMH -> DirectionSource.SENSOR_HEADING
             initialized -> DirectionSource.FROZEN
-            sensorUsable -> DirectionSource.SENSOR_HEADING
+            sensorHeading != null -> DirectionSource.SENSOR_HEADING
             else -> DirectionSource.NONE
         }
 
         val target = when (source) {
-            DirectionSource.GPS_COURSE -> input.gpsCourseDeg!!
-            DirectionSource.SENSOR_HEADING -> input.sensorHeadingDeg!!
-            DirectionSource.FROZEN -> stableDirectionDeg
-            DirectionSource.NONE -> stableDirectionDeg
+            DirectionSource.GPS_COURSE -> gpsCourse ?: stableDirectionDeg
+            DirectionSource.SENSOR_HEADING -> sensorHeading ?: stableDirectionDeg
+            DirectionSource.FROZEN, DirectionSource.NONE -> stableDirectionDeg
         }
 
         // --- Step 2: First-time initialization ---
@@ -74,25 +73,25 @@ class DirectionStabilizer {
     }
 
     // --- Source quality gates ---
-    private fun isGpsCourseUsable(input: DirectionInput): Boolean {
-        val deg = input.gpsCourseDeg ?: return false
-        val age = input.gpsCourseAgeMs ?: return false
+    private fun getUsableGpsCourse(input: DirectionInput): Float? {
+        val deg = input.gpsCourseDeg ?: return null
+        val age = input.gpsCourseAgeMs ?: return null
         val acc = input.gpsAccuracyM ?: Float.MAX_VALUE
         val step = input.gpsStepDistanceM ?: Float.MAX_VALUE
-        if (!deg.isFinite()) return false
-        if (age !in 0..GPS_MAX_AGE_MS) return false
-        if (acc > GPS_MAX_ACCURACY_M) return false
-        if (input.speedKmh < FREEZE_SPEED_KMH) return false
-        if (input.speedKmh < LOW_SPEED_KMH && step < GPS_MIN_STEP_DISTANCE_M) return false
-        return true
+        if (!deg.isFinite()) return null
+        if (age !in 0..GPS_MAX_AGE_MS) return null
+        if (acc > GPS_MAX_ACCURACY_M) return null
+        if (input.speedKmh < FREEZE_SPEED_KMH) return null
+        if (input.speedKmh < LOW_SPEED_KMH && step < GPS_MIN_STEP_DISTANCE_M) return null
+        return deg
     }
 
-    private fun isSensorHeadingUsable(input: DirectionInput): Boolean {
-        val deg = input.sensorHeadingDeg ?: return false
-        val age = input.sensorAgeMs ?: return false
-        if (!deg.isFinite()) return false
-        if (age !in 0..SENSOR_MAX_AGE_MS) return false
-        return true
+    private fun getUsableSensorHeading(input: DirectionInput): Float? {
+        val deg = input.sensorHeadingDeg ?: return null
+        val age = input.sensorAgeMs ?: return null
+        if (!deg.isFinite()) return null
+        if (age !in 0..SENSOR_MAX_AGE_MS) return null
+        return deg
     }
 
     // --- Speed-layered smoothing parameters ---

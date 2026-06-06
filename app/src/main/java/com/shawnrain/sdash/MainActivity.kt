@@ -727,7 +727,8 @@ fun MainScreen(
                 )
             },
             bottomBar = {
-                val showBottomBar = currentDestination?.route in topLevelRoutes
+                val isSettingsSubActive by viewModel.isSettingsSubPageActive.collectAsState()
+                val showBottomBar = currentDestination?.route in topLevelRoutes && !isSettingsSubActive
                 if (showBottomBar && !isDashboardLandscape) {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.88f),
@@ -897,7 +898,10 @@ fun MainScreen(
                     }
                 ) {
                     PredictiveBackPage(onBack = { navController.popBackStack() }) {
-                        BmsScreen(viewModel = viewModel)
+                        BmsScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
                     }
                 }
                 composable(Screen.Speedtest.route) { SpeedtestScreen(viewModel = viewModel) }
@@ -970,15 +974,18 @@ fun MainScreen(
                         ) + fadeOut(animationSpec = tween(durationMillis = 200))
                     }
                 ) {
+                    DisposableEffect(Unit) {
+                        onDispose {
+                            viewModel.setShowDashcamRecordingsSheet(true)
+                        }
+                    }
                     PredictiveBackPage(onBack = {
-                        viewModel.setShowDashcamRecordingsSheet(true)
                         navController.popBackStack()
                     }) {
                         DashcamPlaybackScreen(
                             segmentId = viewModel.selectedPlaybackSegmentId.collectAsState().value ?: "",
                             dashcamManager = DashcamManager.getInstance(LocalContext.current),
                             onBack = {
-                                viewModel.setShowDashcamRecordingsSheet(true)
                                 navController.popBackStack()
                             }
                         )

@@ -47,10 +47,10 @@ run_gradle_capture() {
   return "${status}"
 }
 
-run_gradle_capture ":app:compileDebugKotlin" "${KOTLIN_LOG}"
-run_gradle_capture ":app:assembleDebug" "${DEBUG_LOG}" "${ROOT_DIR}/app/build/intermediates/project_dex_archive/debug"
-run_gradle_capture ":app:assembleRelease" "${RELEASE_LOG}" "${ROOT_DIR}/app/build/intermediates/project_dex_archive/release"
-run_gradle_capture ":app:lintDebug" "${LINT_LOG}"
+run_gradle_capture ":app:compileNormalDebugKotlin" "${KOTLIN_LOG}"
+run_gradle_capture ":app:assembleNormalDebug" "${DEBUG_LOG}" "${ROOT_DIR}/app/build/intermediates/project_dex_archive/normalDebug"
+run_gradle_capture ":app:assembleNormalRelease" "${RELEASE_LOG}" "${ROOT_DIR}/app/build/intermediates/project_dex_archive/normalRelease"
+run_gradle_capture ":app:lintNormalDebug" "${LINT_LOG}"
 
 {
   echo "# SmartDash Build Warning Snapshot"

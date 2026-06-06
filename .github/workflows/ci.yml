@@ -61,7 +61,7 @@ jobs:
 
       - name: Lint + Unit Test + Debug Build
         shell: bash
-        run: ./gradlew :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --console plain
+        run: ./gradlew :app:lintNormalDebug :app:testNormalDebugUnitTest :app:assembleNormalDebug --console plain
 
       - name: Upload warning reports
         if: always()
@@ -81,6 +81,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: habe-debug-${{ github.run_number }}
-          path: app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/normal/debug/*.apk
           if-no-files-found: error
           retention-days: 7

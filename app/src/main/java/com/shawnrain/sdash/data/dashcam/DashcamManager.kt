@@ -757,6 +757,7 @@ class DashcamManager private constructor(private val context: Context) {
         }
     }
 
+    @android.annotation.SuppressLint("MissingPermission")
     private fun startNextSegment() {
         if (!isRecordingRequested) return
 

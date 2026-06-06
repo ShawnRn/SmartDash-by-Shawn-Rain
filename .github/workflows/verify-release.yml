@@ -69,10 +69,23 @@ jobs:
       - name: Verify APK output
         shell: bash
         run: |
-          APK_PATH="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' ! -name '*-unsigned.apk' | head -n 1)"
-          test -n "${APK_PATH}"
-          echo "APK_PATH=${APK_PATH}"
-          sha256sum "${APK_PATH}"
+          NORMAL_APK="app/build/outputs/apk/normal/release/app-normal-release.apk"
+          VIVO_APK="app/build/outputs/apk/vivo/release/app-vivo-release.apk"
+          
+          if [[ ! -f "${NORMAL_APK}" ]]; then
+            echo "ERROR: Normal Release APK not found" >&2
+            exit 1
+          fi
+          if [[ ! -f "${VIVO_APK}" ]]; then
+            echo "ERROR: Vivo Release APK not found" >&2
+            exit 1
+          fi
+          
+          echo "Normal APK_PATH=${NORMAL_APK}"
+          sha256sum "${NORMAL_APK}"
+          
+          echo "Vivo APK_PATH=${VIVO_APK}"
+          sha256sum "${VIVO_APK}"
 
       - name: Verify manifest fields
         shell: bash
@@ -89,6 +102,7 @@ jobs:
         with:
           name: verify-release-${{ github.run_id }}
           path: |
-            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/normal/release/*.apk
+            app/build/outputs/apk/vivo/release/*.apk
           if-no-files-found: error
           retention-days: 7

@@ -61,3 +61,6 @@ tools/unveilr/
 # Local OAuth client secrets
 .local/
 client_secret_*.json
+
+# Ignore local keystore directory
+keystore/

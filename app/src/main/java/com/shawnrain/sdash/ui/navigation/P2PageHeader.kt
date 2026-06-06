@@ -26,33 +26,41 @@ fun P2PageHeader(
     onBack: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 20.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(start = 20.dp, top = 8.dp, end = 20.dp, bottom = 12.dp)
     ) {
-        if (onBack != null) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (onBack != null) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                }
+                Spacer(modifier = Modifier.width(4.dp))
             }
-            Spacer(modifier = Modifier.width(4.dp))
-        }
-        Column {
             Text(
                 text = title,
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Black
             )
-            subtitle
-                ?.takeIf { it.isNotBlank() }
-                ?.let {
-                    Spacer(modifier = Modifier.height(8.dp))
+        }
+        subtitle
+            ?.takeIf { it.isNotBlank() }
+            ?.let {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    if (onBack != null) {
+                        Spacer(modifier = Modifier.width(52.dp)) // IconButton 48.dp + Spacer 4.dp = 52.dp
+                    }
                     Text(
                         text = it,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium
                     )
                 }
-        }
+            }
     }
 }

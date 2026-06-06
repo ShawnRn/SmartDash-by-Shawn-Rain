@@ -10,6 +10,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.widget.Toast
 import android.graphics.Color as AndroidColor
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.IntentSenderRequest
@@ -30,7 +31,9 @@ import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
@@ -199,7 +202,7 @@ fun SettingsScreen(
     val appUpdateState by viewModel.appUpdateState.collectAsState()
     val appUpdateLastCheckedAt by viewModel.appUpdateLastCheckedAt.collectAsState()
     val posterSettings by viewModel.posterSettings.collectAsState()
-    val bottomContentPadding = 28.dp
+    val bottomContentPadding = 100.dp
     var stickyDriveSignedInState by remember { mutableStateOf<SyncState.SignedIn?>(null) }
     LaunchedEffect(driveSyncState) {
         val signedIn = driveSyncState as? SyncState.SignedIn
@@ -209,6 +212,9 @@ fun SettingsScreen(
     }
 
     var activeSubPage by rememberSaveable { mutableStateOf<SettingsSubPage?>(null) }
+    BackHandler(enabled = activeSubPage != null) {
+        activeSubPage = null
+    }
     var expandSpeedSource by remember { mutableStateOf(false) }
     var expandBattSource by remember { mutableStateOf(false) }
     var expandLogLevel by remember { mutableStateOf(false) }
@@ -1282,155 +1288,172 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-            ) {
-                P2PageHeader(
-                    title = activeSubPage?.title ?: "设置",
-                    subtitle = "当前活跃车辆「${currentVehicle.name}」",
-                    onBack = activeSubPage?.let { { activeSubPage = null } },
-                    modifier = Modifier.fillMaxWidth()
-                )
+            AnimatedContent(
+                targetState = activeSubPage,
+                transitionSpec = {
+                    if (targetState != null) {
+                        (slideInHorizontally { width -> width } + fadeIn(tween(300))).togetherWith(
+                            slideOutHorizontally { width -> -width } + fadeOut(tween(300))
+                        )
+                    } else {
+                        (slideInHorizontally { width -> -width } + fadeIn(tween(300))).togetherWith(
+                            slideOutHorizontally { width -> width } + fadeOut(tween(300))
+                        )
+                    }
+                },
+                label = "SettingsSubPageTransition",
+                modifier = Modifier.fillMaxSize()
+            ) { subPage ->
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(start = 24.dp, end = 24.dp, bottom = bottomContentPadding)
+                        .background(MaterialTheme.colorScheme.background)
                 ) {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    P2PageHeader(
+                        title = subPage?.title ?: "设置",
+                        subtitle = "当前活跃车辆「${currentVehicle.name}」",
+                        onBack = subPage?.let { { activeSubPage = null } },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(start = 24.dp, end = 24.dp, bottom = bottomContentPadding)
+                    ) {
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                    if (activeSubPage == null) {
-                        // 1. 车辆与连接 (Vehicle & Connection)
-                        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = "车辆与连接",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(bottom = 8.dp)
-                                )
-                                SettingsNavigationItem(
-                                    icon = Icons.Default.DirectionsCar,
-                                    title = "车辆档案",
-                                    subtitle = "活跃车辆「${currentVehicle.name}」",
-                                    onClick = { activeSubPage = SettingsSubPage.VEHICLE_PROFILES }
-                                )
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                SettingsNavigationItem(
-                                    icon = Icons.Default.BatteryChargingFull,
-                                    title = "电池与 BMS",
-                                    subtitle = "连接与管理外部 BMS 遥测硬件",
-                                    onClick = onNavigateToBms
-                                )
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                SettingsNavigationItem(
-                                    icon = Icons.Default.Smartphone,
-                                    title = "iPhone 配对",
-                                    subtitle = "绑定遥控设备实现智能交互",
-                                    onClick = onNavigateToPairing
-                                )
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                SettingsNavigationItem(
-                                    icon = Icons.Default.Tune,
-                                    title = "智科调校",
-                                    subtitle = "固件参数精调及策略控制",
-                                    onClick = onNavigateToZhikeSettings
-                                )
+                        if (subPage == null) {
+                            // 1. 车辆与连接 (Vehicle & Connection)
+                            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "车辆与连接",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+                                    SettingsNavigationItem(
+                                        icon = Icons.Default.DirectionsCar,
+                                        title = "车辆档案",
+                                        subtitle = "活跃车辆「${currentVehicle.name}」",
+                                        onClick = { activeSubPage = SettingsSubPage.VEHICLE_PROFILES }
+                                    )
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                    SettingsNavigationItem(
+                                        icon = Icons.Default.BatteryChargingFull,
+                                        title = "电池与 BMS",
+                                        subtitle = "连接与管理外部 BMS 遥测硬件",
+                                        onClick = onNavigateToBms
+                                    )
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                    SettingsNavigationItem(
+                                        icon = Icons.Default.Smartphone,
+                                        title = "iPhone 配对",
+                                        subtitle = "绑定遥控设备实现智能交互",
+                                        onClick = onNavigateToPairing
+                                    )
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                    SettingsNavigationItem(
+                                        icon = Icons.Default.Tune,
+                                        title = "智科调校",
+                                        subtitle = "固件参数精调及策略控制",
+                                        onClick = onNavigateToZhikeSettings
+                                    )
+                                }
                             }
-                        }
 
-                        Spacer(modifier = Modifier.height(20.dp))
+                            Spacer(modifier = Modifier.height(20.dp))
 
-                        // 2. 记录与行车 (Ride & Tracking)
-                        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = "记录与行车",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(bottom = 8.dp)
-                                )
-                                SettingsNavigationItem(
-                                    icon = Icons.Default.Videocam,
-                                    title = "行车记录仪",
-                                    subtitle = "自动录制：${if (dashcamAutoRecord) "开启" else "关闭"} · 时长：${dashcamSegmentDurationMin}分钟",
-                                    onClick = { activeSubPage = SettingsSubPage.DASHCAM }
-                                )
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                SettingsNavigationItem(
-                                    icon = Icons.Default.Speed,
-                                    title = "记录与校准",
-                                    subtitle = "速度源：${speedSource.title} · 停车自动结束：${if (autoRideStopEnabled) "${autoRideStopDelaySeconds}秒" else "已禁用"}",
-                                    onClick = { activeSubPage = SettingsSubPage.RIDE_TRACKING }
-                                )
+                            // 2. 记录与行车 (Ride & Tracking)
+                            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "记录与行车",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+                                    SettingsNavigationItem(
+                                        icon = Icons.Default.Videocam,
+                                        title = "行车记录仪",
+                                        subtitle = "自动录制：${if (dashcamAutoRecord) "开启" else "关闭"} · 时长：${dashcamSegmentDurationMin}分钟",
+                                        onClick = { activeSubPage = SettingsSubPage.DASHCAM }
+                                    )
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                    SettingsNavigationItem(
+                                        icon = Icons.Default.Speed,
+                                        title = "记录与校准",
+                                        subtitle = "速度源：${speedSource.title} · 停车自动结束：${if (autoRideStopEnabled) "${autoRideStopDelaySeconds}秒" else "已禁用"}",
+                                        onClick = { activeSubPage = SettingsSubPage.RIDE_TRACKING }
+                                    )
+                                }
                             }
-                        }
 
-                        Spacer(modifier = Modifier.height(20.dp))
+                            Spacer(modifier = Modifier.height(20.dp))
 
-                        // 3. 界面与个性化 (UI & Display)
-                        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = "界面与个性化",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(bottom = 8.dp)
-                                )
-                                SettingsNavigationItem(
-                                    icon = Icons.Default.PictureInPicture,
-                                    title = "界面显示与海报",
-                                    subtitle = "悬浮仪表：${if (overlayEnabled) "开启" else "关闭"} · 字体：${if (useMiSansFont) "MiSans" else "默认"}",
-                                    onClick = { activeSubPage = SettingsSubPage.UI_DISPLAY }
-                                )
+                            // 3. 界面与个性化 (UI & Display)
+                            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "界面与个性化",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+                                    SettingsNavigationItem(
+                                        icon = Icons.Default.PictureInPicture,
+                                        title = "界面显示与海报",
+                                        subtitle = "悬浮仪表：${if (overlayEnabled) "开启" else "关闭"} · 字体：${if (useMiSansFont) "MiSans" else "默认"}",
+                                        onClick = { activeSubPage = SettingsSubPage.UI_DISPLAY }
+                                    )
+                                }
                             }
-                        }
 
-                        Spacer(modifier = Modifier.height(20.dp))
+                            Spacer(modifier = Modifier.height(20.dp))
 
-                        // 4. 数据与系统 (System & Data)
-                        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = "数据与系统",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(bottom = 8.dp)
-                                )
-                                SettingsNavigationItem(
-                                    icon = Icons.Default.Backup,
-                                    title = "数据备份与系统",
-                                    subtitle = if (driveSyncState is SyncState.SignedIn) "云备份已绑定 · 本地备份与恢复" else "云端备份、本地备份与恢复",
-                                    onClick = { activeSubPage = SettingsSubPage.SYSTEM_DATA }
-                                )
+                            // 4. 数据与系统 (System & Data)
+                            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "数据与系统",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+                                    SettingsNavigationItem(
+                                        icon = Icons.Default.Backup,
+                                        title = "数据备份与系统",
+                                        subtitle = if (driveSyncState is SyncState.SignedIn) "云备份已绑定 · 本地备份与恢复" else "云端备份、本地备份与恢复",
+                                        onClick = { activeSubPage = SettingsSubPage.SYSTEM_DATA }
+                                    )
+                                }
                             }
-                        }
-                    } else {
-                        when (activeSubPage) {
-                            SettingsSubPage.VEHICLE_PROFILES -> vehicleProfilesPage()
-                            SettingsSubPage.RIDE_TRACKING -> rideTrackingPage()
-                            SettingsSubPage.DASHCAM -> dashcamPage()
-                            SettingsSubPage.UI_DISPLAY -> uiDisplayPage()
-                            SettingsSubPage.SYSTEM_DATA -> systemDataPage()
-                            else -> {}
+                        } else {
+                            when (subPage) {
+                                SettingsSubPage.VEHICLE_PROFILES -> vehicleProfilesPage()
+                                SettingsSubPage.RIDE_TRACKING -> rideTrackingPage()
+                                SettingsSubPage.DASHCAM -> dashcamPage()
+                                SettingsSubPage.UI_DISPLAY -> uiDisplayPage()
+                                SettingsSubPage.SYSTEM_DATA -> systemDataPage()
+                                else -> {}
+                            }
                         }
                     }
                 }
@@ -3174,7 +3197,7 @@ private fun VehicleEditorDialog(
                                         }
 
                                         if (showResetConfirm) {
-                                            AlertDialog(
+                                            BlurredAlertDialog(
                                                 onDismissRequest = { showResetConfirm = false },
                                                 confirmButton = {
                                                     TextButton(
@@ -3192,8 +3215,7 @@ private fun VehicleEditorDialog(
                                                     }
                                                 },
                                                 title = { Text("重置学习数据？") },
-                                                text = { Text("这将清除已学习的电池内阻、能耗效率以及可用容量估计。建议仅在更换了新电池后执行此操作。") },
-                                                shape = bezierRoundedShape(24.dp)
+                                                text = { Text("这将清除已学习的电池内阻、能耗效率以及可用容量估计。建议仅在更换了新电池后执行此操作。") }
                                             )
                                         }
                                     }

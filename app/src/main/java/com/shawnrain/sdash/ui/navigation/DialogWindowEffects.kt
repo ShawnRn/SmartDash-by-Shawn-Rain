@@ -7,6 +7,7 @@ import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.view.Window
 import android.view.WindowManager
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -346,30 +347,161 @@ fun BlurredModalBottomSheet(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.BottomCenter
             ) {
+                PredictiveBackPopupTransform(
+                    onBack = ::requestDismiss,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp)
+                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .graphicsLayer {
+                                alpha = entryProgress
+                                translationY = with(density) { (1f - entryProgress) * 38.dp.toPx() }
+                                val scale = 0.985f + (0.015f * entryProgress)
+                                scaleX = scale
+                                scaleY = scale
+                            },
+                        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 2.dp,
+                        shadowElevation = 0.dp,
+                        border = BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f)
+                        )
+                    ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp, bottom = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.12f)
+                                    .widthIn(min = 40.dp, max = 64.dp)
+                                    .background(
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.34f),
+                                        RoundedCornerShape(999.dp)
+                                    )
+                                    .padding(vertical = 2.dp)
+                            )
+                        }
+                        content(::requestDismiss)
+                    }
+                }
+            }
+            }
+        }
+    }
+}
+
+@Composable
+fun BlurredInlineBottomSheet(
+    isVisible: Boolean,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+    immersive: Boolean = false,
+    content: @Composable (requestDismiss: () -> Unit) -> Unit
+) {
+    val density = LocalDensity.current
+    val enterDurationMs = 300
+    val exitDurationMs = 220
+
+    var shouldRender by remember { mutableStateOf(isVisible) }
+    val entryProgress = remember { Animatable(if (isVisible) 1f else 0f) }
+
+    LaunchedEffect(isVisible) {
+        if (isVisible) {
+            shouldRender = true
+            entryProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = enterDurationMs,
+                    easing = FastOutSlowInEasing
+                )
+            )
+        } else {
+            entryProgress.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = exitDurationMs,
+                    easing = FastOutLinearInEasing
+                )
+            )
+            shouldRender = false
+        }
+    }
+
+    if (!shouldRender) return
+
+    fun requestDismiss() {
+        onDismissRequest()
+    }
+
+    androidx.activity.compose.BackHandler(enabled = isVisible) {
+        requestDismiss()
+    }
+
+    Box(
+        modifier = modifier.fillMaxSize()
+    ) {
+        // Scrim background
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.30f * entryProgress.value))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    requestDismiss()
+                }
+        )
+
+        // Bottom sheet surface
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            PredictiveBackPopupTransform(
+                onBack = ::requestDismiss,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 6.dp)
-                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        // Removed: .padding(horizontal = 6.dp)
+                        // Removed: .windowInsetsPadding(WindowInsets.navigationBars) to let it reach the bottom edge
                         .graphicsLayer {
-                            alpha = entryProgress
-                            translationY = with(density) { (1f - entryProgress) * 38.dp.toPx() }
-                            val scale = 0.985f + (0.015f * entryProgress)
+                            alpha = entryProgress.value
+                            translationY = with(density) { (1f - entryProgress.value) * 600.dp.toPx() }
+                            val scale = 0.985f + (0.015f * entryProgress.value)
                             scaleX = scale
                             scaleY = scale
                         },
-                    shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 2.dp,
-                    shadowElevation = 0.dp,
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f), // Made more opaque so it doesn't look like dirty glass without blur
+                    tonalElevation = 0.dp,
+                    shadowElevation = 8.dp * entryProgress.value,
                     border = BorderStroke(
                         1.dp,
-                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f)
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.24f)
                     )
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .then(
+                                if (!immersive) Modifier.windowInsetsPadding(WindowInsets.navigationBars)
+                                else Modifier
+                            )
                     ) {
                         Box(
                             modifier = Modifier

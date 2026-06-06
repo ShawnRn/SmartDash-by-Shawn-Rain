@@ -6,10 +6,23 @@ plugins {
     id("com.google.devtools.ksp") version "2.0.0-1.0.24"
 }
 
-val releaseStoreFile = (project.findProperty("HABE_RELEASE_STORE_FILE")?.toString() ?: System.getenv("HABE_RELEASE_STORE_FILE"))?.trim('\'', '"')
-val releaseStorePassword = (project.findProperty("HABE_RELEASE_STORE_PASSWORD")?.toString() ?: System.getenv("HABE_RELEASE_STORE_PASSWORD"))?.trim('\'', '"')
-val releaseKeyAlias = (project.findProperty("HABE_RELEASE_KEY_ALIAS")?.toString() ?: System.getenv("HABE_RELEASE_KEY_ALIAS"))?.trim('\'', '"')
-val releaseKeyPassword = (project.findProperty("HABE_RELEASE_KEY_PASSWORD")?.toString() ?: System.getenv("HABE_RELEASE_KEY_PASSWORD"))?.trim('\'', '"')
+import java.util.Properties
+import java.io.FileInputStream
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("keystore/keystore.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+
+fun getProp(key: String): String? {
+    return (keystoreProperties.getProperty(key) ?: project.findProperty(key)?.toString() ?: System.getenv(key))?.trim('\'', '"')
+}
+
+val releaseStoreFile = getProp("HABE_RELEASE_STORE_FILE")
+val releaseStorePassword = getProp("HABE_RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = getProp("HABE_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = getProp("HABE_RELEASE_KEY_PASSWORD")
 
 android {
     namespace = "com.shawnrain.sdash"
@@ -146,5 +159,8 @@ dependencies {
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
+    implementation("androidx.media3:media3-transformer:1.3.1")
+    implementation("androidx.media3:media3-effect:1.3.1")
+    implementation("androidx.media3:media3-common:1.3.1")
     testImplementation("junit:junit:4.13.2")
 }

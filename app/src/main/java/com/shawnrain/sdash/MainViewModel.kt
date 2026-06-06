@@ -78,6 +78,7 @@ import com.shawnrain.sdash.data.update.InstalledAppVersion
 import com.shawnrain.sdash.data.history.RideHistoryRecord
 import com.shawnrain.sdash.data.history.RideHistoryRepository
 import com.shawnrain.sdash.data.history.RideHistorySummary
+import com.shawnrain.sdash.data.dashcam.DashcamManager
 import com.shawnrain.sdash.data.history.RideRecordNormalizer
 import com.shawnrain.sdash.data.history.RideMetricSampleSchema
 import com.shawnrain.sdash.data.history.RideMetricSample
@@ -250,6 +251,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val bleManager = BleManager(application)
+    private val dashcamManager = DashcamManager.getInstance(application)
     private val bmsBleManager = BleManager(application)
     private val settingsRepository = SettingsRepository(application)
     private val rideHistoryRepository = RideHistoryRepository(application)
@@ -300,6 +302,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
     private val localMediaManager = LocalMediaManager(application)
     private val hidRemoteManager = HidRemoteManager(application)
+
+    private val _selectedPlaybackSegmentId = MutableStateFlow<String?>(null)
+    val selectedPlaybackSegmentId = _selectedPlaybackSegmentId.asStateFlow()
+
+    private val _shouldReopenRecordingsSheet = MutableStateFlow(false)
+    val shouldReopenRecordingsSheet = _shouldReopenRecordingsSheet.asStateFlow()
+
+    fun setShouldReopenRecordingsSheet(shouldReopen: Boolean) {
+        _shouldReopenRecordingsSheet.value = shouldReopen
+    }
+
+    private val _showDashcamRecordingsSheet = MutableStateFlow(false)
+    val showDashcamRecordingsSheet = _showDashcamRecordingsSheet.asStateFlow()
+
+    fun setShowDashcamRecordingsSheet(show: Boolean) {
+        _showDashcamRecordingsSheet.value = show
+    }
+
+    fun selectPlaybackSegment(id: String?) {
+        _selectedPlaybackSegmentId.value = id
+    }
 
     private val _mediaTarget = MutableStateFlow(MediaTarget.SYSTEM)
     val mediaTarget = _mediaTarget.asStateFlow()
@@ -2231,6 +2254,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         
         _isRideActive.value = true
         startRideElapsedTicker()
+
+        // 同步启动行车记录仪录像
+        val telemetryProvider = {
+            val currentMetrics = metrics.value
+            val currentDirection = rideDirectionLabel.value
+            com.shawnrain.sdash.data.dashcam.DashcamTelemetrySample(
+                offsetMs = 0L,
+                speedKmH = currentMetrics.speedKmH,
+                powerKw = currentMetrics.totalPowerW / 1000f,
+                direction = currentDirection,
+                voltage = currentMetrics.voltage,
+                soc = currentMetrics.soc,
+                efficiency = currentMetrics.efficiencyWhKm
+            )
+        }
+        dashcamManager.startRecording(null, telemetryProvider)
     }
 
     private fun startRideElapsedTicker() {
@@ -2263,6 +2302,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val accState = rideAccumulator.state
         _isRideActive.value = false
         stopRideElapsedTicker()
+        dashcamManager.stopRecording()
         
         val shouldAppendFinalSample = rideSamples.isEmpty() ||
             rideSamples.last().timestampMs < endedAtMs
@@ -4060,6 +4100,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     tryAutoReconnect(address, reason = "app-foreground")
                 }
             }
+            DashcamManager.getInstance(getApplication()).onAppVisibilityChanged(true)
         } else {
             // App 进入后台：启动低功耗后台扫描
             lastControllerDeviceAddress.value
@@ -4068,6 +4109,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             // 触发自动同步上传 (后台/息屏)
             syncScheduler.onAppBackground()
+            DashcamManager.getInstance(getApplication()).onAppVisibilityChanged(false)
         }
     }
 

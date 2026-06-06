@@ -56,6 +56,13 @@ import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.PlayArrow
+import com.shawnrain.sdash.ui.dashcam.DashcamPlaybackScreen
+import com.shawnrain.sdash.data.dashcam.DashcamManager
+import com.shawnrain.sdash.ui.dashcam.DashcamRecordingsSheet
+import com.shawnrain.sdash.data.dashcam.DashcamState
+import androidx.compose.ui.draw.blur
+import kotlinx.coroutines.launch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -70,6 +77,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -656,6 +664,7 @@ fun MainScreen(
     val isDashboardLandscape =
         currentDestination?.hierarchy?.any { it.route == Screen.Dashboard.route } == true &&
             configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val showDashcamRecordingsSheet by viewModel.showDashcamRecordingsSheet.collectAsState()
 
     LaunchedEffect(navController) {
         MainActivityRouteRequests.current.collect { request ->
@@ -674,51 +683,56 @@ fun MainScreen(
         return
     }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = {
-            SnackbarHost(
-                hostState = globalSnackbarHostState,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
-                snackbar = { data ->
-                    Surface(
-                        color = MaterialTheme.colorScheme.inverseSurface,
-                        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-                        shape = bezierRoundedShape(16.dp),
-                        tonalElevation = 6.dp,
-                        shadowElevation = 8.dp,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically
+    Box(modifier = Modifier.fillMaxSize()) {
+        val dashcamManager = remember { DashcamManager.getInstance(context) }
+        val dashcamState by dashcamManager.state.collectAsState()
+
+        Scaffold(
+            modifier = Modifier.fillMaxSize().blur(if (showDashcamRecordingsSheet) 20.dp else 0.dp),
+            containerColor = MaterialTheme.colorScheme.background,
+            snackbarHost = {
+                SnackbarHost(
+                    hostState = globalSnackbarHostState,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
+                    snackbar = { data ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.inverseSurface,
+                            contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                            shape = bezierRoundedShape(16.dp),
+                            tonalElevation = 6.dp,
+                            shadowElevation = 8.dp,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                text = data.visuals.message,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.inverseOnSurface,
-                                modifier = Modifier.weight(1f)
-                            )
-                            data.visuals.actionLabel?.let { action ->
-                                TextButton(
-                                    onClick = { data.performAction() },
-                                    modifier = Modifier.padding(start = 8.dp)
-                                ) {
-                                    Text(action, color = MaterialTheme.colorScheme.inversePrimary)
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = data.visuals.message,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.inverseOnSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                data.visuals.actionLabel?.let { action ->
+                                    TextButton(
+                                        onClick = { data.performAction() },
+                                        modifier = Modifier.padding(start = 8.dp)
+                                    ) {
+                                        Text(action, color = MaterialTheme.colorScheme.inversePrimary)
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            )
-        },
-        bottomBar = {
-            if (!isDashboardLandscape) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.88f),
-                    tonalElevation = 3.dp
-                ) {
+                )
+            },
+            bottomBar = {
+                val showBottomBar = currentDestination?.route in topLevelRoutes
+                if (showBottomBar && !isDashboardLandscape) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.88f),
+                        tonalElevation = 3.dp
+                    ) {
                     NavigationBar(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -814,22 +828,38 @@ fun MainScreen(
                 composable(Screen.Dashboard.route) { 
                     DashboardScreen(
                         viewModel = viewModel,
-                        onNavigateToZhikeSettings = { navController.navigate(Screen.ZhikeSettings.route) }
+                        onNavigateToZhikeSettings = { navController.navigate(Screen.ZhikeSettings.route) },
+                        onNavigateToPlayback = { segmentId ->
+                            viewModel.selectPlaybackSegment(segmentId)
+                            navController.navigate(Screen.DashcamPlayback.route)
+                        }
                     ) 
                 }
                 composable(
                     route = Screen.Pairing.route,
                     enterTransition = {
-                        slideInVertically(
-                            animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
-                            initialOffsetY = { fullHeight -> fullHeight }
-                        ) + fadeIn(animationSpec = tween(durationMillis = 300))
+                        slideInHorizontally(
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> fullWidth }
+                        ) + fadeIn(animationSpec = tween(durationMillis = 200))
                     },
                     exitTransition = {
-                        slideOutVertically(
-                            animationSpec = tween(durationMillis = 350, easing = FastOutLinearInEasing),
-                            targetOffsetY = { fullHeight -> fullHeight }
-                        ) + fadeOut(animationSpec = tween(durationMillis = 250))
+                        slideOutHorizontally(
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            targetOffsetX = { fullWidth -> -fullWidth / 3 }
+                        ) + fadeOut(animationSpec = tween(durationMillis = 200))
+                    },
+                    popEnterTransition = {
+                        slideInHorizontally(
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> -fullWidth / 3 }
+                        ) + fadeIn(animationSpec = tween(durationMillis = 200))
+                    },
+                    popExitTransition = {
+                        slideOutHorizontally(
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            targetOffsetX = { fullWidth -> fullWidth }
+                        ) + fadeOut(animationSpec = tween(durationMillis = 200))
                     }
                 ) {
                     com.shawnrain.sdash.ui.navigation.PredictiveBackPage(onBack = { navController.popBackStack() }) { 
@@ -843,21 +873,27 @@ fun MainScreen(
                     route = Screen.Bms.route,
                     enterTransition = {
                         slideInHorizontally(
-                            animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
-                            initialOffsetX = { fullWidth -> (fullWidth * 0.14f).toInt() }
-                        ) + fadeIn(animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing))
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> fullWidth }
+                        ) + fadeIn(animationSpec = tween(durationMillis = 200))
                     },
                     exitTransition = {
-                        fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutLinearInEasing))
+                        slideOutHorizontally(
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            targetOffsetX = { fullWidth -> -fullWidth / 3 }
+                        ) + fadeOut(animationSpec = tween(durationMillis = 200))
                     },
                     popEnterTransition = {
-                        fadeIn(animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing))
+                        slideInHorizontally(
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> -fullWidth / 3 }
+                        ) + fadeIn(animationSpec = tween(durationMillis = 200))
                     },
                     popExitTransition = {
                         slideOutHorizontally(
-                            animationSpec = tween(durationMillis = 260, easing = FastOutLinearInEasing),
-                            targetOffsetX = { fullWidth -> (fullWidth * 0.16f).toInt() }
-                        ) + fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing))
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            targetOffsetX = { fullWidth -> fullWidth }
+                        ) + fadeOut(animationSpec = tween(durationMillis = 200))
                     }
                 ) {
                     PredictiveBackPage(onBack = { navController.popBackStack() }) {
@@ -877,27 +913,74 @@ fun MainScreen(
                     route = Screen.ZhikeSettings.route,
                     enterTransition = {
                         slideInHorizontally(
-                            animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
-                            initialOffsetX = { fullWidth -> (fullWidth * 0.14f).toInt() }
-                        ) + fadeIn(animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing))
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> fullWidth }
+                        ) + fadeIn(animationSpec = tween(durationMillis = 200))
                     },
                     exitTransition = {
-                        fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutLinearInEasing))
+                        slideOutHorizontally(
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            targetOffsetX = { fullWidth -> -fullWidth / 3 }
+                        ) + fadeOut(animationSpec = tween(durationMillis = 200))
                     },
                     popEnterTransition = {
-                        fadeIn(animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing))
+                        slideInHorizontally(
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> -fullWidth / 3 }
+                        ) + fadeIn(animationSpec = tween(durationMillis = 200))
                     },
                     popExitTransition = {
                         slideOutHorizontally(
-                            animationSpec = tween(durationMillis = 260, easing = FastOutLinearInEasing),
-                            targetOffsetX = { fullWidth -> (fullWidth * 0.16f).toInt() }
-                        ) + fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing))
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            targetOffsetX = { fullWidth -> fullWidth }
+                        ) + fadeOut(animationSpec = tween(durationMillis = 200))
                     }
                 ) {
                     PredictiveBackPage(onBack = { navController.popBackStack() }) {
                         com.shawnrain.sdash.ui.settings.zhike.ZhikeSettingsScreen(
                             viewModel = viewModel,
                             onBack = { navController.popBackStack() }
+                        )
+                    }
+                }
+                composable(
+                    route = Screen.DashcamPlayback.route,
+                    enterTransition = {
+                        slideInHorizontally(
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> fullWidth }
+                        ) + fadeIn(animationSpec = tween(durationMillis = 200))
+                    },
+                    exitTransition = {
+                        slideOutHorizontally(
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            targetOffsetX = { fullWidth -> -fullWidth / 3 }
+                        ) + fadeOut(animationSpec = tween(durationMillis = 200))
+                    },
+                    popEnterTransition = {
+                        slideInHorizontally(
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> -fullWidth / 3 }
+                        ) + fadeIn(animationSpec = tween(durationMillis = 200))
+                    },
+                    popExitTransition = {
+                        slideOutHorizontally(
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            targetOffsetX = { fullWidth -> fullWidth }
+                        ) + fadeOut(animationSpec = tween(durationMillis = 200))
+                    }
+                ) {
+                    PredictiveBackPage(onBack = {
+                        viewModel.setShowDashcamRecordingsSheet(true)
+                        navController.popBackStack()
+                    }) {
+                        DashcamPlaybackScreen(
+                            segmentId = viewModel.selectedPlaybackSegmentId.collectAsState().value ?: "",
+                            dashcamManager = DashcamManager.getInstance(LocalContext.current),
+                            onBack = {
+                                viewModel.setShowDashcamRecordingsSheet(true)
+                                navController.popBackStack()
+                            }
                         )
                     }
                 }
@@ -931,6 +1014,40 @@ fun MainScreen(
                 )
             }
         }
+    }
+
+    val segments by dashcamManager.repository.segments.collectAsState()
+    val scope = rememberCoroutineScope()
+    DashcamRecordingsSheet(
+        isVisible = showDashcamRecordingsSheet,
+        segments = segments,
+        dashcamManager = dashcamManager,
+        onDismissRequest = {
+            viewModel.setShowDashcamRecordingsSheet(false)
+            val hasCameraPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.CAMERA
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (hasCameraPermission && dashcamManager.state.value == DashcamState.IDLE) {
+                dashcamManager.startPreviewOnly()
+            }
+        },
+        onPlaySegment = { segment ->
+            viewModel.setShowDashcamRecordingsSheet(false)
+            viewModel.selectPlaybackSegment(segment.id)
+            navController.navigate(Screen.DashcamPlayback.route)
+        },
+        onDeleteSegment = { segmentId ->
+            scope.launch {
+                dashcamManager.repository.deleteSegment(segmentId)
+            }
+        },
+        onDeleteAll = {
+            scope.launch {
+                dashcamManager.repository.deleteAllSegments()
+            }
+        }
+    )
     }
 }
 
@@ -1246,4 +1363,5 @@ sealed class Screen(
     data object Bms : Screen("bms", "电池与BMS", Icons.Filled.BatteryChargingFull)
     data object ZhikeSettings : Screen("zhike_settings", "智科调校", Icons.Filled.Settings)
     data object Pairing : Screen("pairing", "iPhone 配对", Icons.Filled.Bluetooth)
+    data object DashcamPlayback : Screen("dashcam_playback", "录像回放", Icons.Filled.PlayArrow)
 }

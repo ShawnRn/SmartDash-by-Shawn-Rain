@@ -77,6 +77,7 @@ class DashcamManager private constructor(private val context: Context) {
 
     private val settingsRepository = SettingsRepository(context)
     val repository = DashcamRepository(context)
+    val dashcamOverlayConfig = settingsRepository.dashcamOverlayConfig
 
     private val _state = MutableStateFlow(DashcamState.IDLE)
     val state: StateFlow<DashcamState> = _state.asStateFlow()
@@ -107,8 +108,10 @@ class DashcamManager private constructor(private val context: Context) {
     private var camera: androidx.camera.core.Camera? = null
 
     private var surfaceProvider: Preview.SurfaceProvider? = null
+    private var wasPreviewingBeforeBackground = false
 
     private var isRecordingRequested = false
+    private var pendingStartPreview = false
     private var currentSegmentId: String? = null
     private var currentSegmentStartedAt = 0L
     private var currentSegmentRideId: String? = null
@@ -123,6 +126,10 @@ class DashcamManager private constructor(private val context: Context) {
             try {
                 cameraProvider = cameraProviderFuture.get()
                 AppLogger.i(TAG, "Camera provider initialized successfully")
+                if (pendingStartPreview) {
+                    AppLogger.i(TAG, "Executing pending preview start request after initialization")
+                    startPreviewOnly()
+                }
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed to initialize camera provider", e)
             }
@@ -296,6 +303,24 @@ class DashcamManager private constructor(private val context: Context) {
                         "fov=${candidate.diagonalFovDegrees} zoom=${candidate.zoomMin}..${candidate.zoomMax} " +
                         "logical=${candidate.isLogicalMultiCamera} physical=${candidate.physicalIds}"
                 )
+            }
+
+            // 优先选择 Standalone 物理超广角摄像头（焦距 < 2.5mm，FOV 最大）
+            val physicalUltraWide = candidates
+                .filter { !it.isLogicalMultiCamera && it.focalLengthMm != null && it.focalLengthMm < 3.2f }
+                .maxByOrNull { it.diagonalFovDegrees ?: 0.0f }
+
+            if (physicalUltraWide != null) {
+                val target = DashcamCameraTarget(
+                    bindCameraId = physicalUltraWide.id,
+                    zoomRatio = 1.0f,
+                    zoomMin = physicalUltraWide.zoomMin,
+                    zoomMax = physicalUltraWide.zoomMax,
+                    useVendorUltraWideRequest = false,
+                    description = "physical standalone ultra-wide camera ${physicalUltraWide.id}"
+                )
+                AppLogger.i(TAG, "Selected standalone physical ultra-wide camera target: $target")
+                return target
             }
 
             val logicalUltraWide = candidates
@@ -480,9 +505,15 @@ class DashcamManager private constructor(private val context: Context) {
     }
 
     @androidx.annotation.OptIn(androidx.camera.camera2.interop.ExperimentalCamera2Interop::class)
-    private fun startPreviewOnly() {
+    internal fun startPreviewOnly() {
         if (_state.value != DashcamState.IDLE) return
-        val provider = cameraProvider ?: return
+        val provider = cameraProvider
+        if (provider == null) {
+            AppLogger.i(TAG, "Camera provider not ready when startPreviewOnly() called. Queueing request.")
+            pendingStartPreview = true
+            return
+        }
+        pendingStartPreview = false
         
         try {
             provider.unbindAll()
@@ -542,7 +573,7 @@ class DashcamManager private constructor(private val context: Context) {
         }
     }
 
-    private fun stopPreviewOnly() {
+    internal fun stopPreviewOnly() {
         if (_state.value != DashcamState.PREVIEWING && _state.value != DashcamState.ERROR) return
         try {
             cameraProvider?.unbindAll()
@@ -555,6 +586,26 @@ class DashcamManager private constructor(private val context: Context) {
             AppLogger.i(TAG, "Camera preview stopped and resources released")
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to stop camera preview", e)
+        }
+    }
+
+    fun onAppVisibilityChanged(isForeground: Boolean) {
+        AppLogger.i(TAG, "onAppVisibilityChanged: isForeground=$isForeground, state=${_state.value}, hasSurfaceProvider=${surfaceProvider != null}, wasPreviewingBeforeBackground=$wasPreviewingBeforeBackground")
+        if (isForeground) {
+            if (wasPreviewingBeforeBackground) {
+                wasPreviewingBeforeBackground = false
+                AppLogger.i(TAG, "Restoring preview automatically after returning to foreground")
+                startPreviewOnly()
+            } else if (surfaceProvider != null && _state.value == DashcamState.IDLE) {
+                startPreviewOnly()
+            }
+        } else {
+            if (_state.value == DashcamState.PREVIEWING) {
+                wasPreviewingBeforeBackground = true
+                stopPreviewOnly()
+            } else {
+                wasPreviewingBeforeBackground = false
+            }
         }
     }
 

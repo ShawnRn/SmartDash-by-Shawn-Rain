@@ -46,20 +46,47 @@ ensure_release_signing
 
 STAMP="$(timestamp)"
 LOG_FILE="$LOG_DIR/build-dev-release-$STAMP.log"
-ARCHIVE_APK="$ARTIFACT_DIR/habe-dev-release-$STAMP.apk"
+ARCHIVE_NORMAL_APK="$ARTIFACT_DIR/habe-dev-release-$STAMP-normal.apk"
+ARCHIVE_VIVO_APK="$ARTIFACT_DIR/habe-dev-release-$STAMP-vivo.apk"
 
 ./gradlew --stop
 run_gradle_logged_with_dex_retry "$LOG_FILE" devRelease :app:assembleDevRelease
 
 grep "BUILD SUCCESSFUL" "$LOG_FILE" >/dev/null
-test -f "$DEV_RELEASE_APK_PATH"
-cp "$DEV_RELEASE_APK_PATH" "$ARCHIVE_APK"
 
-SHA="$(shasum -a 256 "$DEV_RELEASE_APK_PATH" | awk '{print $1}')"
-SIZE="$(ls -lh "$DEV_RELEASE_APK_PATH" | awk '{print $5}')"
+DEV_NORMAL_APK="$PROJECT_ROOT/app/build/outputs/apk/normal/devRelease/app-normal-devRelease.apk"
+DEV_VIVO_APK="$PROJECT_ROOT/app/build/outputs/apk/vivo/devRelease/app-vivo-devRelease.apk"
 
-echo "DEV_RELEASE_APK_PATH=$DEV_RELEASE_APK_PATH"
-echo "ARCHIVE_APK=$ARCHIVE_APK"
-echo "APK_SIZE=$SIZE"
-echo "APK_SHA256=$SHA"
+test -f "$DEV_NORMAL_APK"
+test -f "$DEV_VIVO_APK"
+
+cp "$DEV_NORMAL_APK" "$ARCHIVE_NORMAL_APK"
+cp "$DEV_VIVO_APK" "$ARCHIVE_VIVO_APK"
+
+SHA_NORMAL="$(shasum -a 256 "$DEV_NORMAL_APK" | awk '{print $1}')"
+SIZE_NORMAL="$(ls -lh "$DEV_NORMAL_APK" | awk '{print $5}')"
+SHA_VIVO="$(shasum -a 256 "$DEV_VIVO_APK" | awk '{print $1}')"
+SIZE_VIVO="$(ls -lh "$DEV_VIVO_APK" | awk '{print $5}')"
+
+echo "DEV_NORMAL_APK=$DEV_NORMAL_APK"
+echo "DEV_VIVO_APK=$DEV_VIVO_APK"
+echo "ARCHIVE_NORMAL_APK=$ARCHIVE_NORMAL_APK"
+echo "ARCHIVE_VIVO_APK=$ARCHIVE_VIVO_APK"
+echo "NORMAL_APK_SIZE=$SIZE_NORMAL"
+echo "NORMAL_APK_SHA256=$SHA_NORMAL"
+echo "VIVO_APK_SIZE=$SIZE_VIVO"
+echo "VIVO_APK_SHA256=$SHA_VIVO"
 echo "BUILD_LOG=$LOG_FILE"
+
+# 复制普通版和 vivo 版到桌面并重命名
+DESKTOP_DIR="/Users/shawnrain/Desktop"
+if [[ -d "$DESKTOP_DIR" ]]; then
+  echo "Copying built devRelease APKs to Desktop..."
+  cp "$DEV_NORMAL_APK" "$DESKTOP_DIR/SmartDash-normal-devRelease.apk"
+  cp "$DEV_VIVO_APK" "$DESKTOP_DIR/SmartDash-vivo-devRelease.apk"
+  echo "Successfully copied to Desktop:"
+  echo "  - $DESKTOP_DIR/SmartDash-normal-devRelease.apk"
+  echo "  - $DESKTOP_DIR/SmartDash-vivo-devRelease.apk"
+else
+  echo "Warning: Desktop directory not found at $DESKTOP_DIR"
+fi

@@ -78,6 +78,9 @@ import com.shawnrain.sdash.ui.navigation.PredictiveBackPopupTransform
 import com.shawnrain.sdash.ui.theme.bezierPillShape
 import com.shawnrain.sdash.ui.theme.bezierRoundedShape
 import com.shawnrain.sdash.ui.theme.icon
+import android.graphics.Bitmap
+import androidx.compose.animation.animateColorAsState
+import kotlinx.coroutines.delay
 import com.shawnrain.sdash.ui.theme.tintColor
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.material.icons.filled.BatteryChargingFull
@@ -89,6 +92,14 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.draw.blur
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.camera.view.PreviewView
+import androidx.compose.ui.viewinterop.AndroidView
+import com.shawnrain.sdash.data.dashcam.DashcamManager
+import com.shawnrain.sdash.data.dashcam.DashcamState
+import com.shawnrain.sdash.ui.dashcam.DashcamRecordingsSheet
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.roundToInt
@@ -205,8 +216,49 @@ private fun VehicleMetrics.withProfileAverageWhenDisconnected(
 fun DashboardScreen(
     viewModel: MainViewModel,
     onNavigateToZhikeSettings: () -> Unit,
+    onNavigateToPlayback: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val dashcamManager = remember { DashcamManager.getInstance(context) }
+    val dashcamState by dashcamManager.state.collectAsState()
+    val showDashcamRecordingsSheet by viewModel.showDashcamRecordingsSheet.collectAsState()
+    var isNavigatingToPlayback by remember { mutableStateOf(false) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                isNavigatingToPlayback = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        val hasCameraPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.CAMERA
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (hasCameraPermission && 
+            dashcamManager.state.value == DashcamState.IDLE && 
+            !showDashcamRecordingsSheet
+        ) {
+            dashcamManager.startPreviewOnly()
+        }
+    }
+
+    LaunchedEffect(showDashcamRecordingsSheet) {
+        if (showDashcamRecordingsSheet) {
+            if (dashcamManager.state.value == DashcamState.PREVIEWING) {
+                dashcamManager.stopPreviewOnly()
+            }
+        }
+    }
+
     val metrics = viewModel.metrics.collectAsStateWithLifecycle().value
     val currentVehicle by viewModel.currentVehicle.collectAsStateWithLifecycle()
     val rideHistory by viewModel.rideHistory.collectAsStateWithLifecycle()
@@ -228,7 +280,6 @@ fun DashboardScreen(
 
     val haptic = LocalHapticFeedback.current
     val view = LocalView.current
-    val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
 
     var isEditMode by remember { mutableStateOf(false) }
@@ -371,7 +422,11 @@ fun DashboardScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        if (!isLandscape) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+        ) {
+            if (!isLandscape) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -400,12 +455,9 @@ fun DashboardScreen(
                 ) {
                     DashboardStatusStrip(
                         metrics = dashboardMetrics,
-                        connectionStatusLabel = connectionStatusLabel,
                         isControllerConnected = isControllerConnected,
-                        onConnectionClick = { showConnectionSheet = true },
-                        onTuningClick = if (activeProtocol == "zhike") {
-                            onNavigateToZhikeSettings
-                        } else null
+                        dashcamState = dashcamState,
+                        onRecClick = { viewModel.setShowDashcamRecordingsSheet(true) }
                     )
                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                         SquareSpeedIndicator(
@@ -570,6 +622,7 @@ fun DashboardScreen(
                         shadowElevation = 16f
                     }
             )
+        }
         }
     }
 }
@@ -968,12 +1021,109 @@ fun StatCardWrap(
 }
 
 @Composable
+private fun DashcamStatusBadge(
+    state: DashcamState,
+    onClick: () -> Unit
+) {
+    val isRecording = state == DashcamState.RECORDING
+    val isReady = state == DashcamState.PREVIEWING || state == DashcamState.SEGMENT_GAP
+    val isError = state == DashcamState.ERROR
+
+    val dotColor = when {
+        isRecording -> Color(0xFFDC2626)
+        isReady -> Color(0xFF16A34A)
+        isError -> Color(0xFFEAB308)
+        else -> MaterialTheme.colorScheme.outline
+    }
+
+    val containerColor = when {
+        isRecording -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+        isReady -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+
+    val textColor = when {
+        isRecording -> MaterialTheme.colorScheme.error
+        isReady -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    val label = when {
+        isRecording -> "REC"
+        isReady -> "D-CAM 就绪"
+        isError -> "记录仪错误"
+        else -> "行车记录仪"
+    }
+
+    Surface(
+        color = containerColor,
+        shape = bezierPillShape(),
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(10.dp)
+            ) {
+                if (isRecording) {
+                    val infiniteTransition = rememberInfiniteTransition(label = "rec_pulse")
+                    val pulseScale by infiniteTransition.animateFloat(
+                        initialValue = 1.0f,
+                        targetValue = 2.0f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1500, easing = LinearOutSlowInEasing),
+                            repeatMode = RepeatMode.Restart
+                        ),
+                        label = "rec_pulse_scale"
+                    )
+                    val pulseAlpha by infiniteTransition.animateFloat(
+                        initialValue = 0.6f,
+                        targetValue = 0.0f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1500, easing = LinearOutSlowInEasing),
+                            repeatMode = RepeatMode.Restart
+                        ),
+                        label = "rec_pulse_alpha"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                scaleX = pulseScale
+                                scaleY = pulseScale
+                                alpha = pulseAlpha
+                            }
+                            .clip(CircleShape)
+                            .background(dotColor)
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(dotColor)
+                )
+            }
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = textColor
+            )
+        }
+    }
+}
+
+@Composable
 private fun DashboardStatusStrip(
     metrics: VehicleMetrics,
-    connectionStatusLabel: String,
     isControllerConnected: Boolean,
-    onConnectionClick: () -> Unit,
-    onTuningClick: (() -> Unit)? = null
+    dashcamState: DashcamState,
+    onRecClick: () -> Unit
 ) {
     val accentColor = MaterialTheme.colorScheme.primary
     val socIcon = if (isControllerConnected) {
@@ -1005,11 +1155,9 @@ private fun DashboardStatusStrip(
             )
         }
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-            ConnectionStatusBadge(
-                label = if (isControllerConnected) connectionStatusLabel else "点击连接",
-                isConnected = isControllerConnected,
-                onClick = onConnectionClick,
-                onTuningClick = onTuningClick
+            DashcamStatusBadge(
+                state = dashcamState,
+                onClick = onRecClick
             )
         }
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
@@ -1041,6 +1189,9 @@ fun SquareSpeedIndicator(
         label = "speed_anim"
     )
 
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -1050,6 +1201,80 @@ fun SquareSpeedIndicator(
         tonalElevation = 0.5.dp
     ) {
         Box {
+            val context = LocalContext.current
+            val dashcamManager = remember { DashcamManager.getInstance(context) }
+            val dashcamState by dashcamManager.state.collectAsState()
+            val scope = rememberCoroutineScope()
+
+            if (dashcamState == DashcamState.PREVIEWING || dashcamState == DashcamState.RECORDING || dashcamState == DashcamState.SEGMENT_GAP) {
+                AndroidView(
+                    factory = { ctx ->
+                        PreviewView(ctx).apply {
+                            scaleType = PreviewView.ScaleType.FILL_CENTER
+                            val view = this
+                            scope.launch {
+                                delay(400)
+                                dashcamManager.setPreviewSurfaceProvider(view.surfaceProvider)
+                            }
+                        }
+                    },
+                    update = { view ->
+                        view.scaleType = PreviewView.ScaleType.FILL_CENTER
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    onRelease = {
+                        dashcamManager.setPreviewSurfaceProvider(null)
+                    }
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.65f))
+                )
+            }
+
+            val hasPreview = dashcamState == DashcamState.PREVIEWING || 
+                             dashcamState == DashcamState.RECORDING || 
+                             dashcamState == DashcamState.SEGMENT_GAP
+
+            val targetValColor = if (hasPreview) Color.White else MaterialTheme.colorScheme.onSurface
+            val valueColor by animateColorAsState(
+                targetValue = targetValColor,
+                animationSpec = tween(durationMillis = 300),
+                label = "value_color"
+            )
+
+            val targetLabelColor = if (hasPreview) Color.White.copy(alpha = 0.88f) else MaterialTheme.colorScheme.onSurfaceVariant
+            val labelColor by animateColorAsState(
+                targetValue = targetLabelColor,
+                animationSpec = tween(durationMillis = 300),
+                label = "label_color"
+            )
+
+            val valueStyle = if (hasPreview) {
+                MaterialTheme.typography.titleMedium.copy(
+                    shadow = androidx.compose.ui.graphics.Shadow(
+                        color = Color.Black.copy(alpha = 0.85f),
+                        offset = androidx.compose.ui.geometry.Offset(1.2f, 1.2f),
+                        blurRadius = 3f
+                    )
+                )
+            } else {
+                MaterialTheme.typography.titleMedium
+            }
+
+            val labelStyle = if (hasPreview) {
+                MaterialTheme.typography.labelSmall.copy(
+                    shadow = androidx.compose.ui.graphics.Shadow(
+                        color = Color.Black.copy(alpha = 0.85f),
+                        offset = androidx.compose.ui.geometry.Offset(1f, 1f),
+                        blurRadius = 2f
+                    )
+                )
+            } else {
+                MaterialTheme.typography.labelSmall
+            }
+
             Column {
                 Row(
                     modifier = Modifier
@@ -1066,9 +1291,9 @@ fun SquareSpeedIndicator(
                     ) {
                         Text(
                             text = String.format("%.2f", metrics.totalPowerW / 1000f),
-                            style = MaterialTheme.typography.titleMedium,
+                            style = valueStyle,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = valueColor
                         )
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -1077,13 +1302,13 @@ fun SquareSpeedIndicator(
                             Icon(
                                 imageVector = Icons.Default.Bolt,
                                 contentDescription = null,
-                                tint = color,
+                                tint = if (hasPreview) valueColor else color,
                                 modifier = Modifier.size(12.dp)
                             )
                             Text(
                                 text = "功率 kW",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                style = labelStyle,
+                                color = labelColor
                             )
                         }
                     }
@@ -1096,7 +1321,7 @@ fun SquareSpeedIndicator(
                         BaselineMetricValue(
                             value = String.format("%.0f", animatedSpeed),
                             unit = "",
-                            valueColor = color,
+                            valueColor = if (hasPreview) valueColor else color,
                             unitColor = Color.Transparent,
                             valueFontSize = 64.sp,
                             unitFontSize = 14.sp,
@@ -1104,7 +1329,14 @@ fun SquareSpeedIndicator(
                             valueLineHeight = 64.sp,
                             horizontalArrangement = Arrangement.Center,
                             textAlign = TextAlign.Center,
-                            singleLine = true
+                            singleLine = true,
+                            shadow = if (hasPreview) {
+                                androidx.compose.ui.graphics.Shadow(
+                                    color = Color.Black.copy(alpha = 0.85f),
+                                    offset = androidx.compose.ui.geometry.Offset(2f, 2f),
+                                    blurRadius = 4f
+                                )
+                            } else null
                         )
                     }
 
@@ -1115,9 +1347,9 @@ fun SquareSpeedIndicator(
                     ) {
                         Text(
                             text = String.format("%.1f", metrics.avgEfficiencyWhKm),
-                            style = MaterialTheme.typography.titleMedium,
+                            style = valueStyle,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = valueColor
                         )
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -1126,13 +1358,13 @@ fun SquareSpeedIndicator(
                             Icon(
                                 imageVector = Icons.Default.BarChart,
                                 contentDescription = null,
-                                tint = color,
+                                tint = if (hasPreview) valueColor else color,
                                 modifier = Modifier.size(12.dp)
                             )
                             Text(
                                 text = "平均 Wh/km",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                style = labelStyle,
+                                color = labelColor
                             )
                         }
                     }
@@ -1328,27 +1560,70 @@ private fun PowerBalanceBar(
     val hasActivePower = abs(powerKw) >= 0.08f
     val accentColor = MaterialTheme.colorScheme.primary
 
-    Box(
+    Row(
         modifier = modifier
             .clip(bezierRoundedShape(999.dp))
-            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f))
+            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f)),
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        // 左半边（动能回收，向左延伸，颜色由绿变红）
         Box(
             modifier = Modifier
-                .align(Alignment.Center)
+                .weight(1f)
+                .fillMaxHeight(),
+            contentAlignment = Alignment.CenterEnd
+        ) {
+            if (!isOutput && hasActivePower) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(animatedFraction)
+                        .fillMaxHeight()
+                        .clip(bezierRoundedShape(999.dp))
+                        .background(
+                            androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color(0xFFEF4444), // 高回收：红
+                                    Color(0xFFF59E0B), // 中回收：橙
+                                    Color(0xFF10B981)  // 低回收：绿
+                                )
+                            )
+                        )
+                  )
+            }
+        }
+
+        // 中心线
+        Box(
+            modifier = Modifier
                 .fillMaxHeight()
                 .width(1.5.dp)
                 .background(Color.White.copy(alpha = 0.38f))
         )
-        if (hasActivePower) {
-            Box(
-                modifier = Modifier
-                    .align(if (isOutput) Alignment.CenterEnd else Alignment.CenterStart)
-                    .fillMaxHeight()
-                    .fillMaxWidth(0.5f * animatedFraction)
-                    .clip(bezierRoundedShape(999.dp))
-                    .background(accentColor.copy(alpha = 0.86f))
-            )
+
+        // 右半边（功率输出，向右延伸，颜色由绿变红）
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            if (isOutput && hasActivePower) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(animatedFraction)
+                        .fillMaxHeight()
+                        .clip(bezierRoundedShape(999.dp))
+                        .background(
+                            androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color(0xFF10B981), // 低输出：绿
+                                    Color(0xFFF59E0B), // 中输出：橙
+                                    Color(0xFFEF4444)  // 高输出：红
+                                )
+                            )
+                        )
+                )
+            }
         }
     }
 }
@@ -1767,7 +2042,8 @@ fun BaselineMetricValue(
     textAlign: TextAlign? = null,
     singleLine: Boolean = false,
     unitSpacing: androidx.compose.ui.unit.Dp = 4.dp,
-    unitMatchesValueStyle: Boolean = false
+    unitMatchesValueStyle: Boolean = false,
+    shadow: androidx.compose.ui.graphics.Shadow? = null
 ) {
     val resolvedUnitFontSize = if (unitMatchesValueStyle) valueFontSize else unitFontSize
     val resolvedUnitFontWeight = if (unitMatchesValueStyle) valueFontWeight else unitFontWeight
@@ -1786,6 +2062,7 @@ fun BaselineMetricValue(
             maxLines = 1,
             overflow = TextOverflow.Clip,
             softWrap = !singleLine,
+            style = androidx.compose.material3.LocalTextStyle.current.copy(shadow = shadow),
             modifier = Modifier.alignByBaseline()
         )
         if (unit.isNotEmpty()) {

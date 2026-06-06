@@ -176,49 +176,71 @@ jobs:
       - name: Verify APK Signature and appId
         shell: bash
         run: |
-          APK_PATH="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' ! -name '*-unsigned.apk' | head -n 1)"
-          if [[ -z "${APK_PATH}" ]]; then
-            echo "No APK found" >&2
+          NORMAL_APK="app/build/outputs/apk/normal/release/app-normal-release.apk"
+          VIVO_APK="app/build/outputs/apk/vivo/release/app-vivo-release.apk"
+          
+          if [[ ! -f "${NORMAL_APK}" ]]; then
+            echo "ERROR: Normal Release APK not found at ${NORMAL_APK}" >&2
+            exit 1
+          fi
+          if [[ ! -f "${VIVO_APK}" ]]; then
+            echo "ERROR: Vivo Release APK not found at ${VIVO_APK}" >&2
             exit 1
           fi
           
-          # Verify Signature
           APKSIGNER="${ANDROID_HOME}/build-tools/$(ls "${ANDROID_HOME}/build-tools" 2>/dev/null | sort -V | tail -1)/apksigner"
           if [[ -x "${APKSIGNER}" ]]; then
-            echo "Verifying APK signature..."
-            "${APKSIGNER}" verify --print-certs "${APK_PATH}"
+            echo "Verifying Normal APK signature..."
+            "${APKSIGNER}" verify --print-certs "${NORMAL_APK}"
+            echo "Verifying Vivo APK signature..."
+            "${APKSIGNER}" verify --print-certs "${VIVO_APK}"
           else
             echo "WARNING: apksigner not found, skipping signature verification" >&2
           fi
 
-          # Verify appId
           AAPT2="${ANDROID_HOME}/build-tools/$(ls "${ANDROID_HOME}/build-tools" 2>/dev/null | sort -V | tail -1)/aapt2"
-          EXPECTED_APP_ID="com.shawnrain.sdash"
-          APP_ID=""
           if [[ -x "${AAPT2}" ]]; then
-            APP_ID="$(${AAPT2} dump badging "${APK_PATH}" 2>/dev/null | grep -oP "package: name='\K[^']+" | head -1)"
-          fi
-          if [[ -z "${APP_ID}" ]]; then
-            APP_ID="$(grep -m1 'namespace' app/build.gradle.kts | sed -n 's/.*"\([^"]*\)".*/\1/p')"
-          fi
-          
-          if [[ "${APP_ID}" != "${EXPECTED_APP_ID}" ]]; then
-            echo "ERROR: applicationId is ${APP_ID}, expected ${EXPECTED_APP_ID}" >&2
-            exit 1
-          fi
-          echo "applicationId verified: ${APP_ID}"
+            echo "Verifying appId for Normal APK..."
+            NORMAL_APP_ID="$(${AAPT2} dump badging "${NORMAL_APK}" 2>/dev/null | grep -oP "package: name='\K[^']+" | head -1)"
+            if [[ "${NORMAL_APP_ID}" != "com.shawnrain.sdash" ]]; then
+              echo "ERROR: Normal APK applicationId is ${NORMAL_APP_ID}, expected com.shawnrain.sdash" >&2
+              exit 1
+            fi
+            echo "Normal APK verified: ${NORMAL_APP_ID}"
 
-      - name: Collect optional mapping artifact
+            echo "Verifying appId for Vivo APK..."
+            VIVO_APP_ID="$(${AAPT2} dump badging "${VIVO_APK}" 2>/dev/null | grep -oP "package: name='\K[^']+" | head -1)"
+            if [[ "${VIVO_APP_ID}" != "com.vivo.bsptest" ]]; then
+              echo "ERROR: Vivo APK applicationId is ${VIVO_APP_ID}, expected com.vivo.bsptest" >&2
+              exit 1
+            fi
+            echo "Vivo APK verified: ${VIVO_APP_ID}"
+          else
+            echo "WARNING: aapt2 not found, skipping appId verification" >&2
+          fi
+
+      - name: Collect optional mapping artifacts
         id: mapping
         shell: bash
         run: |
-          MAPPING_PATH="$(find app/build/outputs/mapping/release -maxdepth 1 -type f -name 'mapping.txt' | head -n 1)"
-          if [[ -n "${MAPPING_PATH}" ]]; then
-            cp "${MAPPING_PATH}" "smartdash-${{ steps.meta.outputs.tag }}-release-mapping.txt"
-            echo "mapping_copy=smartdash-${{ steps.meta.outputs.tag }}-release-mapping.txt" >> "${GITHUB_OUTPUT}"
-          else
-            echo "mapping_copy=" >> "${GITHUB_OUTPUT}"
+          NORMAL_MAPPING="app/build/outputs/mapping/normalRelease/mapping.txt"
+          VIVO_MAPPING="app/build/outputs/mapping/vivoRelease/mapping.txt"
+          
+          NORMAL_MAPPING_COPY=""
+          VIVO_MAPPING_COPY=""
+          
+          if [[ -f "${NORMAL_MAPPING}" ]]; then
+            cp "${NORMAL_MAPPING}" "smartdash-${{ steps.meta.outputs.tag }}-normal-mapping.txt"
+            NORMAL_MAPPING_COPY="smartdash-${{ steps.meta.outputs.tag }}-normal-mapping.txt"
           fi
+          
+          if [[ -f "${VIVO_MAPPING}" ]]; then
+            cp "${VIVO_MAPPING}" "smartdash-${{ steps.meta.outputs.tag }}-vivo-mapping.txt"
+            VIVO_MAPPING_COPY="smartdash-${{ steps.meta.outputs.tag }}-vivo-mapping.txt"
+          fi
+          
+          echo "normal_mapping=${NORMAL_MAPPING_COPY}" >> "${GITHUB_OUTPUT}"
+          echo "vivo_mapping=${VIVO_MAPPING_COPY}" >> "${GITHUB_OUTPUT}"
 
       - name: Generate Release Artifacts and Manifest
         id: artifact
@@ -229,40 +251,49 @@ jobs:
           VERSION_CODE="${{ steps.meta.outputs.version_code }}"
           CHANNEL="${{ steps.meta.outputs.channel }}"
           export RELEASE_NOTES_INPUT="${{ github.event.inputs.notes }}"
-          APK_BASENAME="smartdash-${TAG}-release"
           
-          APK_PATH="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' ! -name '*-unsigned.apk' | head -n 1)"
-          if [[ -z "${APK_PATH}" ]]; then
-            echo "No signed APK found" >&2
-            exit 1
-          fi
+          NORMAL_APK="app/build/outputs/apk/normal/release/app-normal-release.apk"
+          VIVO_APK="app/build/outputs/apk/vivo/release/app-vivo-release.apk"
           
-          # Prepare APK
-          cp "${APK_PATH}" "${APK_BASENAME}.apk"
-          SHA256="$(sha256sum "${APK_BASENAME}.apk" | awk '{print $1}')"
-          printf '%s  %s\n' "${SHA256}" "${APK_BASENAME}.apk" > "${APK_BASENAME}.sha256"
+          NORMAL_BASENAME="smartdash-${TAG}-normal-release"
+          VIVO_BASENAME="smartdash-${TAG}-vivo-release"
+          
+          # Copy APKs
+          cp "${NORMAL_APK}" "${NORMAL_BASENAME}.apk"
+          cp "${VIVO_APK}" "${VIVO_BASENAME}.apk"
+          
+          # Calculate checksums
+          SHA256_NORMAL="$(sha256sum "${NORMAL_BASENAME}.apk" | awk '{print $1}')"
+          printf '%s  %s\n' "${SHA256_NORMAL}" "${NORMAL_BASENAME}.apk" > "${NORMAL_BASENAME}.sha256"
+          
+          SHA256_VIVO="$(sha256sum "${VIVO_BASENAME}.apk" | awk '{print $1}')"
+          printf '%s  %s\n' "${SHA256_VIVO}" "${VIVO_BASENAME}.apk" > "${VIVO_BASENAME}.sha256"
+          
           RELEASE_NOTES_JSON="$(python3 -c 'import json, os; print(json.dumps(os.environ.get("RELEASE_NOTES_INPUT", "")))')"
           
-          # Generate Manifest
-          cat <<EOF > "${APK_BASENAME}-manifest.json"
+          # Generate Manifest with dual-apk info
+          cat <<EOF > "smartdash-${TAG}-release-manifest.json"
           {
             "tag": "${TAG}",
             "versionName": "${VERSION_NAME}",
             "versionCode": ${VERSION_CODE},
             "channel": "${CHANNEL}",
-            "apkName": "${APK_BASENAME}.apk",
-            "apkSha256": "${SHA256}",
+            "normalApk": "${NORMAL_BASENAME}.apk",
+            "normalSha256": "${SHA256_NORMAL}",
+            "vivoApk": "${VIVO_BASENAME}.apk",
+            "vivoSha256": "${SHA256_VIVO}",
             "publishedAt": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
             "htmlUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}",
             "releaseNotes": ${RELEASE_NOTES_JSON}
           }
           EOF
-          cp "${APK_BASENAME}-manifest.json" "release-manifest.json"
+          cp "smartdash-${TAG}-release-manifest.json" "release-manifest.json"
           
-          echo "apk=${APK_PATH}" >> "${GITHUB_OUTPUT}"
-          echo "apk_copy=${APK_BASENAME}.apk" >> "${GITHUB_OUTPUT}"
-          echo "sha_copy=${APK_BASENAME}.sha256" >> "${GITHUB_OUTPUT}"
-          echo "manifest_copy=${APK_BASENAME}-manifest.json" >> "${GITHUB_OUTPUT}"
+          echo "normal_apk=${NORMAL_BASENAME}.apk" >> "${GITHUB_OUTPUT}"
+          echo "normal_sha=${NORMAL_BASENAME}.sha256" >> "${GITHUB_OUTPUT}"
+          echo "vivo_apk=${VIVO_BASENAME}.apk" >> "${GITHUB_OUTPUT}"
+          echo "vivo_sha=${VIVO_BASENAME}.sha256" >> "${GITHUB_OUTPUT}"
+          echo "manifest_copy=smartdash-${TAG}-release-manifest.json" >> "${GITHUB_OUTPUT}"
           echo "canonical_manifest=release-manifest.json" >> "${GITHUB_OUTPUT}"
 
       - name: Upload signed release artifacts
@@ -270,11 +301,14 @@ jobs:
         with:
           name: smartdash-${{ steps.meta.outputs.tag }}-signed
           path: |
-            ${{ steps.artifact.outputs.apk_copy }}
-            ${{ steps.artifact.outputs.sha_copy }}
+            ${{ steps.artifact.outputs.normal_apk }}
+            ${{ steps.artifact.outputs.normal_sha }}
+            ${{ steps.artifact.outputs.vivo_apk }}
+            ${{ steps.artifact.outputs.vivo_sha }}
             ${{ steps.artifact.outputs.manifest_copy }}
             ${{ steps.artifact.outputs.canonical_manifest }}
-            ${{ steps.mapping.outputs.mapping_copy }}
+            ${{ steps.mapping.outputs.normal_mapping }}
+            ${{ steps.mapping.outputs.vivo_mapping }}
           if-no-files-found: error
           retention-days: 30
 
@@ -288,29 +322,30 @@ jobs:
           prerelease: ${{ github.event.inputs.prerelease == 'true' }}
           draft: ${{ github.event.inputs.draft == 'true' }}
           files: |
-            ${{ steps.artifact.outputs.apk_copy }}
-            ${{ steps.artifact.outputs.sha_copy }}
+            ${{ steps.artifact.outputs.normal_apk }}
+            ${{ steps.artifact.outputs.normal_sha }}
+            ${{ steps.artifact.outputs.vivo_apk }}
+            ${{ steps.artifact.outputs.vivo_sha }}
             ${{ steps.artifact.outputs.manifest_copy }}
             ${{ steps.artifact.outputs.canonical_manifest }}
-            ${{ steps.mapping.outputs.mapping_copy }}
+            ${{ steps.mapping.outputs.normal_mapping }}
+            ${{ steps.mapping.outputs.vivo_mapping }}
           body: |
-            ## SmartDash Release
+            ## SmartDash Dual-Flavor Release
             - Channel: ${{ steps.meta.outputs.channel }}
             - Version: `${{ steps.meta.outputs.version_name }}`
             - Build code: `${{ steps.meta.outputs.version_code }}`
 
-            ## Highlights
+            ### Highlights
             ${{ github.event.inputs.notes || '- Release notes will be generated automatically by GitHub.' }}
 
-            ### Checksum
-            - SHA256 file: `${{ steps.artifact.outputs.sha_copy }}`
-
-            ## Assets
-            - `${{ steps.artifact.outputs.apk_copy }}`
-            - `${{ steps.artifact.outputs.sha_copy }}`
-            - `${{ steps.artifact.outputs.manifest_copy }}`
-            - `${{ steps.artifact.outputs.canonical_manifest }}`
-            - `${{ steps.mapping.outputs.mapping_copy || 'mapping not generated' }}`
+            ### APK Checksums & Flavors
+            * **Normal Version (com.shawnrain.sdash)**
+              - File: `${{ steps.artifact.outputs.normal_apk }}`
+              - SHA256 checksum: `${{ steps.artifact.outputs.normal_sha }}`
+            * **Vivo Version (com.vivo.bsptest)**
+              - File: `${{ steps.artifact.outputs.vivo_apk }}`
+              - SHA256 checksum: `${{ steps.artifact.outputs.vivo_sha }}`
 
             ---
             *Automated release generated by GitHub Actions.*

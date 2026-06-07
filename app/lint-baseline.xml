@@ -8,7 +8,7 @@
         errorLine2="                                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/bms/BmsScreen.kt"
-            line="41"
+            line="46"
             column="53"/>
     </issue>
 
@@ -19,7 +19,7 @@
         errorLine2="                                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/bms/BmsScreen.kt"
-            line="42"
+            line="47"
             column="54"/>
     </issue>
 
@@ -30,7 +30,7 @@
         errorLine2="                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/bms/BmsScreen.kt"
-            line="46"
+            line="51"
             column="52"/>
     </issue>
 
@@ -41,7 +41,7 @@
         errorLine2="                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/bms/BmsScreen.kt"
-            line="47"
+            line="52"
             column="52"/>
     </issue>
 
@@ -52,7 +52,7 @@
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/bms/BmsScreen.kt"
-            line="90"
+            line="108"
             column="25"/>
     </issue>
 
@@ -63,8 +63,30 @@
         errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="98"
+            line="141"
             column="29"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.GRADE -> String.format(&quot;%+.1f&quot;, metrics.gradePercent)"
+        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="142"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.ALTITUDE -> String.format(&quot;%.0f&quot;, metrics.altitudeMeters)"
+        errorLine2="                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="143"
+            column="32"/>
     </issue>
 
     <issue
@@ -74,7 +96,7 @@
         errorLine2="                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="99"
+            line="144"
             column="31"/>
     </issue>
 
@@ -85,7 +107,7 @@
         errorLine2="                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="100"
+            line="145"
             column="35"/>
     </issue>
 
@@ -96,7 +118,7 @@
         errorLine2="                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="101"
+            line="146"
             column="35"/>
     </issue>
 
@@ -107,7 +129,7 @@
         errorLine2="                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="102"
+            line="147"
             column="37"/>
     </issue>
 
@@ -118,7 +140,7 @@
         errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="103"
+            line="148"
             column="29"/>
     </issue>
 
@@ -129,7 +151,7 @@
         errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="104"
+            line="149"
             column="28"/>
     </issue>
 
@@ -140,7 +162,7 @@
         errorLine2="                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="105"
+            line="150"
             column="43"/>
     </issue>
 
@@ -151,7 +173,7 @@
         errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="106"
+            line="151"
             column="27"/>
     </issue>
 
@@ -162,7 +184,7 @@
         errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="107"
+            line="152"
             column="29"/>
     </issue>
 
@@ -173,7 +195,7 @@
         errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="108"
+            line="153"
             column="27"/>
     </issue>
 
@@ -184,7 +206,7 @@
         errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="109"
+            line="154"
             column="34"/>
     </issue>
 
@@ -195,7 +217,7 @@
         errorLine2="                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="110"
+            line="155"
             column="37"/>
     </issue>
 
@@ -206,7 +228,7 @@
         errorLine2="                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="111"
+            line="157"
             column="36"/>
     </issue>
 
@@ -217,7 +239,7 @@
         errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="112"
+            line="158"
             column="40"/>
     </issue>
 
@@ -228,19 +250,217 @@
         errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="113"
+            line="159"
             column="40"/>
     </issue>
 
     <issue
         id="DefaultLocale"
         message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
-        errorLine1="                value = String.format(&quot;%.0f%%&quot;, metrics.soc)"
-        errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        errorLine1="        MetricType.SPEED -> &quot;最高 ${String.format(&quot;%.1f&quot;, metrics.maxSpeedKmh)} km/h&quot;"
+        errorLine2="                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="711"
-            column="25"/>
+            line="178"
+            column="35"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.GRADE -> &quot;海拔 ${String.format(&quot;%.0f&quot;, metrics.altitudeMeters)} m&quot;"
+        errorLine2="                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="179"
+            column="35"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.ALTITUDE -> &quot;坡度 ${String.format(&quot;%.1f&quot;, metrics.gradePercent)} %&quot;"
+        errorLine2="                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="180"
+            column="38"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.VOLTAGE -> &quot;压降 ${String.format(&quot;%.1f&quot;, metrics.voltageSag)} V&quot;"
+        errorLine2="                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="181"
+            column="37"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.VOLTAGE_SAG -> &quot;最高 ${String.format(&quot;%.1f&quot;, metrics.maxVoltageSag)} V&quot;"
+        errorLine2="                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="182"
+            column="41"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.BUS_CURRENT -> &quot;平均 ${String.format(&quot;%.1f&quot;, metrics.avgBusCurrent)} A&quot;"
+        errorLine2="                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="183"
+            column="41"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.PHASE_CURRENT -> &quot;平均 ${String.format(&quot;%.1f&quot;, metrics.avgPhaseCurrent)} A&quot;"
+        errorLine2="                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="184"
+            column="43"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.POWER -> &quot;峰值 ${String.format(&quot;%.1f&quot;, metrics.peakRegenPowerKw * 1000f)} W 回收&quot;"
+        errorLine2="                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="185"
+            column="35"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.TEMP -> &quot;最高 ${String.format(&quot;%.1f&quot;, metrics.maxControllerTemp)} °C&quot;"
+        errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="186"
+            column="34"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.MAX_CONTROLLER_TEMP -> &quot;实时 ${String.format(&quot;%.1f&quot;, metrics.controllerTemp)} °C&quot;"
+        errorLine2="                                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="187"
+            column="49"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.SOC -> &quot;续航 ${String.format(&quot;%.1f&quot;, metrics.estimatedRangeKm)} km&quot;"
+        errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="188"
+            column="33"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.RANGE -> &quot;能耗 ${String.format(&quot;%.1f&quot;, metrics.avgEfficiencyWhKm)} Wh/km&quot;"
+        errorLine2="                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="189"
+            column="35"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.RPM -> &quot;频率 ${String.format(&quot;%.1f&quot;, metrics.rpm / 60f)} Hz&quot;"
+        errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="190"
+            column="33"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.EFFICIENCY -> &quot;实时 ${String.format(&quot;%.1f&quot;, metrics.efficiencyWhKm)} Wh/km&quot;"
+        errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="191"
+            column="40"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.ELAPSED_TIME -> &quot;里程 ${String.format(&quot;%.2f&quot;, metrics.tripDistance)} km&quot;"
+        errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="193"
+            column="42"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.TOTAL_ENERGY -> &quot;回收 ${String.format(&quot;%.1f&quot;, metrics.recoveredEnergyWh)} Wh&quot;"
+        errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="194"
+            column="42"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.PEAK_REGEN_POWER -> &quot;回收 ${String.format(&quot;%.1f&quot;, metrics.recoveredEnergyWh)} Wh&quot;"
+        errorLine2="                                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="195"
+            column="46"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="        MetricType.RECOVERED_ENERGY -> &quot;峰值 ${String.format(&quot;%.0f&quot;, metrics.peakRegenPowerKw * 1000f)} W&quot;"
+        errorLine2="                                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="196"
+            column="46"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                    String.format(&quot;%.0f%%&quot;, metrics.soc)"
+        errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="1149"
+            column="21"/>
     </issue>
 
     <issue
@@ -250,41 +470,41 @@
         errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="725"
+            line="1167"
             column="21"/>
     </issue>
 
     <issue
         id="DefaultLocale"
         message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
-        errorLine1="                    text = String.format(&quot;%.2f&quot;, metrics.totalPowerW / 1000f),"
-        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        errorLine1="                            text = String.format(&quot;%.2f&quot;, metrics.totalPowerW / 1000f),"
+        errorLine2="                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="761"
-            column="28"/>
+            line="1293"
+            column="36"/>
     </issue>
 
     <issue
         id="DefaultLocale"
         message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
-        errorLine1="                    value = String.format(&quot;%.0f&quot;, metrics.speedKmH),"
-        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        errorLine1="                            value = String.format(&quot;%.0f&quot;, animatedSpeed),"
+        errorLine2="                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="779"
-            column="29"/>
+            line="1322"
+            column="37"/>
     </issue>
 
     <issue
         id="DefaultLocale"
         message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
-        errorLine1="                    text = String.format(&quot;%.1f&quot;, metrics.avgEfficiencyWhKm),"
-        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        errorLine1="                            text = String.format(&quot;%.1f&quot;, metrics.avgEfficiencyWhKm),"
+        errorLine2="                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="800"
-            column="28"/>
+            line="1349"
+            column="36"/>
     </issue>
 
     <issue
@@ -294,7 +514,7 @@
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="993"
+            line="1668"
             column="25"/>
     </issue>
 
@@ -305,7 +525,7 @@
         errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="1003"
+            line="1678"
             column="29"/>
     </issue>
 
@@ -316,7 +536,7 @@
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="1019"
+            line="1694"
             column="25"/>
     </issue>
 
@@ -327,7 +547,7 @@
         errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="1139"
+            line="1882"
             column="29"/>
     </issue>
 
@@ -338,7 +558,7 @@
         errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="1161"
+            line="1904"
             column="33"/>
     </issue>
 
@@ -349,30 +569,107 @@
         errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
-            line="1167"
+            line="1910"
             column="33"/>
     </issue>
 
     <issue
         id="DefaultLocale"
         message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
-        errorLine1="                        value = String.format(&quot;%.2f&quot;, metrics.totalPowerW / 1000f),"
-        errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        errorLine1="        val durationStr = String.format(&quot;%02d:%02d&quot;, minutes, seconds)"
+        errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/shawnrain/sdash/MainActivity.kt"
-            line="932"
-            column="33"/>
+            file="src/main/java/com/shawnrain/sdash/service/DashcamForegroundService.kt"
+            line="136"
+            column="27"/>
     </issue>
 
     <issue
         id="DefaultLocale"
         message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
-        errorLine1="                        value = String.format(&quot;%.1f&quot;, metrics.avgEfficiencyWhKm),"
-        errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        errorLine1="                                text = &quot;速度: ${String.format(&quot;%.1f&quot;, sample.speedKmH)} km/h&quot;,"
+        errorLine2="                                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashcam/DashcamPlaybackScreen.kt"
+            line="322"
+            column="47"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                                text = &quot;功率: ${String.format(&quot;%.2f&quot;, sample.powerKw)} kW&quot;,"
+        errorLine2="                                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashcam/DashcamPlaybackScreen.kt"
+            line="332"
+            column="47"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                                text = &quot;电压: ${String.format(&quot;%.1f&quot;, sample.voltage)} V&quot;,"
+        errorLine2="                                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashcam/DashcamPlaybackScreen.kt"
+            line="355"
+            column="47"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                                text = &quot;能耗: ${String.format(&quot;%.1f&quot;, sample.efficiency)} Wh/km&quot;,"
+        errorLine2="                                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashcam/DashcamPlaybackScreen.kt"
+            line="373"
+            column="47"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                                    text = String.format(&quot;%02d:%02d&quot;, curMin, curRemSec),"
+        errorLine2="                                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashcam/DashcamPlaybackScreen.kt"
+            line="538"
+            column="44"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                                    text = String.format(&quot;%02d:%02d&quot;, durMin, durRemSec),"
+        errorLine2="                                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashcam/DashcamPlaybackScreen.kt"
+            line="544"
+            column="44"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="            text = String.format(&quot;%02d:%02d&quot;, durMin, durRemSec),"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashcam/DashcamRecordingsSheet.kt"
+            line="372"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                                value = String.format(&quot;%.1f&quot;, metrics.voltage),"
+        errorLine2="                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/MainActivity.kt"
-            line="942"
-            column="33"/>
+            line="1178"
+            column="41"/>
     </issue>
 
     <issue
@@ -382,18 +679,106 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/settings/SettingsScreen.kt"
-            line="3249"
+            line="3360"
             column="9"/>
     </issue>
 
     <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                    sbLeft.append(String.format(&quot;电量: %.0f%%  &quot;, sample.soc))"
+        errorLine2="                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="105"
+            column="35"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                    sbLeft.append(String.format(&quot;电压: %.1f V  &quot;, sample.voltage))"
+        errorLine2="                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="108"
+            column="35"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                    sbLeft.append(String.format(&quot;能耗: %.1f Wh/km&quot;, sample.efficiency))"
+        errorLine2="                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="111"
+            column="35"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                    sbRight.append(String.format(&quot;速度: %.1f km/h  &quot;, sample.speedKmH))"
+        errorLine2="                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="121"
+            column="36"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                    sbRight.append(String.format(&quot;功率: %.2f kW  &quot;, sample.powerKw))"
+        errorLine2="                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="124"
+            column="36"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 30 (current min is 29): `android.content.pm.ServiceInfo#FOREGROUND_SERVICE_TYPE_CAMERA`"
+        errorLine1="                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/service/DashcamForegroundService.kt"
+            line="71"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 30 (current min is 29): `android.content.pm.ServiceInfo#FOREGROUND_SERVICE_TYPE_MICROPHONE`"
+        errorLine1="                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE"
+        errorLine2="                                                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/service/DashcamForegroundService.kt"
+            line="71"
+            column="63"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 28 (current min is 26): `android.hardware.camera2.CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA`"
+        errorLine1="                        CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA"
+        errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="294"
+            column="25"/>
+    </issue>
+
+    <issue
         id="InlinedApi"
         message="Field requires API level 30 (current min is 28): `android.view.WindowManager.LayoutParams#LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS`"
         errorLine1="                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS"
         errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/navigation/DialogWindowEffects.kt"
-            line="119"
+            line="120"
             column="17"/>
     </issue>
 
@@ -404,8 +789,41 @@
         errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/navigation/DialogWindowEffects.kt"
-            line="119"
+            line="120"
             column="17"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 28 (current min is 26): `android.bluetooth.BluetoothProfile#HID_DEVICE`"
+        errorLine1="            }, BluetoothProfile.HID_DEVICE)"
+        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ble/HidRemoteManager.kt"
+            line="250"
+            column="16"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 28 (current min is 26): `android.bluetooth.BluetoothHidDevice#SUBCLASS1_COMBO`"
+        errorLine1="            BluetoothHidDevice.SUBCLASS1_COMBO,"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ble/HidRemoteManager.kt"
+            line="259"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 28 (current min is 26): `android.bluetooth.BluetoothProfile#HID_DEVICE`"
+        errorLine1="        adapter?.closeProfileProxy(BluetoothProfile.HID_DEVICE, classicHidDevice)"
+        errorLine2="                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ble/HidRemoteManager.kt"
+            line="502"
+            column="36"/>
     </issue>
 
     <issue
@@ -415,7 +833,7 @@
         errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/MainActivity.kt"
-            line="164"
+            line="179"
             column="17"/>
     </issue>
 
@@ -426,7 +844,7 @@
         errorLine2="                                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/MainActivity.kt"
-            line="359"
+            line="380"
             column="49"/>
     </issue>
 
@@ -437,8 +855,228 @@
         errorLine2="                                                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/MainActivity.kt"
-            line="501"
+            line="522"
             column="69"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 29 (current min is 26): `android.hardware.camera2.CaptureRequest.Key()`"
+        errorLine1="            CaptureRequest.Key(&quot;com.vivo.optical_zoom_factor&quot;, Float::class.javaObjectType)"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="57"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 29 (current min is 26): `android.hardware.camera2.CaptureRequest.Key()`"
+        errorLine1="            CaptureRequest.Key(&quot;vivo.camera.sensor.focallen.35mm&quot;, Float::class.javaObjectType)"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="59"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 29 (current min is 26): `android.hardware.camera2.CaptureRequest.Key()`"
+        errorLine1="            CaptureRequest.Key(&quot;com.vivo.MultiCameraSATSelectSessionId&quot;, Int::class.javaObjectType)"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="61"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 29 (current min is 26): `android.hardware.camera2.CaptureRequest.Key()`"
+        errorLine1="            CaptureRequest.Key(&quot;com.vivo.current_ui_module&quot;, Int::class.javaObjectType)"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="63"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 29 (current min is 26): `android.hardware.camera2.CaptureRequest.Key()`"
+        errorLine1="            CaptureRequest.Key(&quot;com.vivo.chi.override.CameraType&quot;, ByteArray::class.java)"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="65"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 28 (current min is 26): `setPhysicalCameraId`"
+        errorLine1="            Camera2Interop.Extender&lt;Preview>(previewBuilder).setPhysicalCameraId(physicalCameraId)"
+        errorLine2="                                                             ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="455"
+            column="62"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 28 (current min is 26): `setPhysicalCameraId`"
+        errorLine1="            Camera2Interop.Extender&lt;VideoCapture&lt;Recorder>>(videoCaptureBuilder).setPhysicalCameraId(physicalCameraId)"
+        errorLine2="                                                                                 ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="456"
+            column="82"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 28 (current min is 26): `android.bluetooth.BluetoothHidDevice.Callback()`"
+        errorLine1="    private val classicCallback = object : BluetoothHidDevice.Callback() {"
+        errorLine2="                                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ble/HidRemoteManager.kt"
+            line="108"
+            column="44"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Class requires API level 28 (current min is 26): `android.bluetooth.BluetoothHidDevice.Callback`"
+        errorLine1="    private val classicCallback = object : BluetoothHidDevice.Callback() {"
+        errorLine2="                                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ble/HidRemoteManager.kt"
+            line="108"
+            column="44"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Class requires API level 28 (current min is 26): `android.bluetooth.BluetoothHidDevice`"
+        errorLine1="                    classicHidDevice = proxy as BluetoothHidDevice"
+        errorLine2="                                                ~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ble/HidRemoteManager.kt"
+            line="244"
+            column="49"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 28 (current min is 26): `android.bluetooth.BluetoothHidDeviceAppSdpSettings()`"
+        errorLine1="        val sdpSettings = BluetoothHidDeviceAppSdpSettings("
+        errorLine2="                          ^">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ble/HidRemoteManager.kt"
+            line="255"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 28 (current min is 26): `android.bluetooth.BluetoothHidDevice#registerApp`"
+        errorLine1="        classicHidDevice?.registerApp(sdpSettings, null, null, Executors.newSingleThreadExecutor(), classicCallback)"
+        errorLine2="                          ~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ble/HidRemoteManager.kt"
+            line="262"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 28 (current min is 26): `android.bluetooth.BluetoothHidDevice#sendReport`"
+        errorLine1="                hid.sendReport(device, 1, report)"
+        errorLine2="                    ~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ble/HidRemoteManager.kt"
+            line="459"
+            column="21"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 28 (current min is 26): `android.bluetooth.BluetoothHidDevice#sendReport`"
+        errorLine1="                    hid.sendReport(device, 1, byteArrayOf(0, 0))"
+        errorLine2="                        ~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ble/HidRemoteManager.kt"
+            line="461"
+            column="25"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 33 (current min is 26): `android.bluetooth.BluetoothGattServer#notifyCharacteristicChanged`"
+        errorLine1="                gattServer?.notifyCharacteristicChanged(device, char, false, report)"
+        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ble/HidRemoteManager.kt"
+            line="478"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 33 (current min is 26): `android.bluetooth.BluetoothGattServer#notifyCharacteristicChanged`"
+        errorLine1="                    gattServer?.notifyCharacteristicChanged(device, char, false, emptyReport)"
+        errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ble/HidRemoteManager.kt"
+            line="485"
+            column="33"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 28 (current min is 26): `android.bluetooth.BluetoothHidDevice#unregisterApp`"
+        errorLine1="        classicHidDevice?.unregisterApp()"
+        errorLine2="                          ~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ble/HidRemoteManager.kt"
+            line="501"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Implicit cast from `BluetoothHidDevice` to `BluetoothProfile` requires API level 28 (current min is 26)"
+        errorLine1="        adapter?.closeProfileProxy(BluetoothProfile.HID_DEVICE, classicHidDevice)"
+        errorLine2="                                                                ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ble/HidRemoteManager.kt"
+            line="502"
+            column="65"/>
+    </issue>
+
+    <issue
+        id="NotificationPermission"
+        message="When targeting Android 13 or higher, posting a permission requires holding the `POST_NOTIFICATIONS` permission"
+        errorLine1="        manager.notify(NOTIFICATION_ID, notification)"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/service/DashcamForegroundService.kt"
+            line="151"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UnusedAttribute"
+        message="Attribute `usesPermissionFlags` is only used in API level 31 and higher (current min is 26)"
+        errorLine1="        android:usesPermissionFlags=&quot;neverForLocation&quot; />"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="12"
+            column="9"/>
     </issue>
 
     <issue
@@ -448,7 +1086,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/AndroidManifest.xml"
-            line="21"
+            line="24"
             column="9"/>
     </issue>
 
@@ -459,18 +1097,18 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/AndroidManifest.xml"
-            line="29"
+            line="32"
             column="13"/>
     </issue>
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.core:core-ktx than 1.15.0 is available: 1.18.0"
+        message="A newer version of androidx.core:core-ktx than 1.15.0 is available: 1.19.0"
         errorLine1="    implementation(&quot;androidx.core:core-ktx:1.15.0&quot;)"
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="91"
+            line="122"
             column="20"/>
     </issue>
 
@@ -481,7 +1119,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="92"
+            line="123"
             column="20"/>
     </issue>
 
@@ -492,7 +1130,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="93"
+            line="124"
             column="20"/>
     </issue>
 
@@ -503,7 +1141,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="94"
+            line="125"
             column="20"/>
     </issue>
 
@@ -514,73 +1152,84 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="95"
+            line="126"
             column="20"/>
     </issue>
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.compose:compose-bom than 2024.11.00 is available: 2026.03.01"
+        message="A newer version of androidx.compose:compose-bom than 2024.11.00 is available: 2026.05.01"
         errorLine1="    implementation(platform(&quot;androidx.compose:compose-bom:2024.11.00&quot;))"
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="96"
+            line="127"
             column="20"/>
     </issue>
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.navigation:navigation-compose than 2.8.4 is available: 2.9.7"
+        message="A newer version of androidx.navigation:navigation-compose than 2.8.4 is available: 2.9.8"
         errorLine1="    implementation(&quot;androidx.navigation:navigation-compose:2.8.4&quot;)"
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="102"
+            line="133"
             column="20"/>
     </issue>
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.camera:camera-core than 1.3.4 is available: 1.6.0"
+        message="A newer version of androidx.camera:camera-core than 1.3.4 is available: 1.6.1"
         errorLine1="    implementation(&quot;androidx.camera:camera-core:1.3.4&quot;)"
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="105"
+            line="136"
             column="20"/>
     </issue>
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.camera:camera-camera2 than 1.3.4 is available: 1.6.0"
+        message="A newer version of androidx.camera:camera-camera2 than 1.3.4 is available: 1.6.1"
         errorLine1="    implementation(&quot;androidx.camera:camera-camera2:1.3.4&quot;)"
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="106"
+            line="137"
             column="20"/>
     </issue>
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.camera:camera-lifecycle than 1.3.4 is available: 1.6.0"
+        message="A newer version of androidx.camera:camera-lifecycle than 1.3.4 is available: 1.6.1"
         errorLine1="    implementation(&quot;androidx.camera:camera-lifecycle:1.3.4&quot;)"
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="107"
+            line="138"
             column="20"/>
     </issue>
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.camera:camera-view than 1.3.4 is available: 1.6.0"
+        message="A newer version of androidx.camera:camera-view than 1.3.4 is available: 1.6.1"
         errorLine1="    implementation(&quot;androidx.camera:camera-view:1.3.4&quot;)"
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="108"
+            line="139"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.camera:camera-video than 1.3.4 is available: 1.6.1"
+        errorLine1="    implementation(&quot;androidx.camera:camera-video:1.3.4&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="140"
             column="20"/>
     </issue>
 
@@ -591,7 +1240,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="109"
+            line="141"
             column="20"/>
     </issue>
 
@@ -602,29 +1251,51 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="110"
+            line="142"
             column="20"/>
     </issue>
 
     <issue
         id="GradleDependency"
-        message="A newer version of com.google.android.gms:play-services-auth than 21.2.0 is available: 21.5.1"
+        message="A newer version of androidx.credentials:credentials than 1.5.0 is available: 1.6.0"
+        errorLine1="    implementation(&quot;androidx.credentials:credentials:1.5.0&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="147"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.credentials:credentials-play-services-auth than 1.5.0 is available: 1.6.0"
+        errorLine1="    implementation(&quot;androidx.credentials:credentials-play-services-auth:1.5.0&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="148"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of com.google.android.gms:play-services-auth than 21.2.0 is available: 21.6.0"
         errorLine1="    implementation(&quot;com.google.android.gms:play-services-auth:21.2.0&quot;)"
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="115"
+            line="149"
             column="20"/>
     </issue>
 
     <issue
         id="GradleDependency"
-        message="A newer version of org.jetbrains.kotlinx:kotlinx-serialization-json than 1.6.2 is available: 1.6.3"
-        errorLine1="    implementation(&quot;org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2&quot;)"
-        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="A newer version of com.google.android.libraries.identity.googleid:googleid than 1.1.1 is available: 1.2.0"
+        errorLine1="    implementation(&quot;com.google.android.libraries.identity.googleid:googleid:1.1.1&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="117"
+            line="150"
             column="20"/>
     </issue>
 
@@ -635,7 +1306,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="120"
+            line="156"
             column="20"/>
     </issue>
 
@@ -646,7 +1317,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="123"
+            line="159"
             column="20"/>
     </issue>
 
@@ -657,7 +1328,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="124"
+            line="160"
             column="20"/>
     </issue>
 
@@ -668,8 +1339,569 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="125"
+            line="161"
             column="9"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.media3:media3-transformer than 1.3.1 is available: 1.10.1"
+        errorLine1="    implementation(&quot;androidx.media3:media3-transformer:1.3.1&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="162"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.media3:media3-effect than 1.3.1 is available: 1.10.1"
+        errorLine1="    implementation(&quot;androidx.media3:media3-effect:1.3.1&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="163"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.media3:media3-common than 1.3.1 is available: 1.10.1"
+        errorLine1="    implementation(&quot;androidx.media3:media3-common:1.3.1&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="164"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.camera.camera2.interop.ExperimentalCamera2Interop` or `@OptIn(markerClass = androidx.camera.camera2.interop.ExperimentalCamera2Interop.class)`"
+        errorLine1="                    runCatching { Camera2CameraInfo.from(cameraInfo).cameraId == bindCameraId }"
+        errorLine2="                                                    ~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="430"
+            column="53"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.camera.camera2.interop.ExperimentalCamera2Interop` or `@OptIn(markerClass = androidx.camera.camera2.interop.ExperimentalCamera2Interop.class)`"
+        errorLine1="                    runCatching { Camera2CameraInfo.from(cameraInfo).cameraId == bindCameraId }"
+        errorLine2="                                                                     ~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="430"
+            column="70"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.camera.camera2.interop.ExperimentalCamera2Interop` or `@OptIn(markerClass = androidx.camera.camera2.interop.ExperimentalCamera2Interop.class)`"
+        errorLine1="                                val camera2CameraControl = Camera2CameraControl.from(cam.cameraControl)"
+        errorLine2="                                    ~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="722"
+            column="37"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.camera.camera2.interop.ExperimentalCamera2Interop` or `@OptIn(markerClass = androidx.camera.camera2.interop.ExperimentalCamera2Interop.class)`"
+        errorLine1="                                val camera2CameraControl = Camera2CameraControl.from(cam.cameraControl)"
+        errorLine2="                                                                                ~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="722"
+            column="81"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.camera.camera2.interop.ExperimentalCamera2Interop` or `@OptIn(markerClass = androidx.camera.camera2.interop.ExperimentalCamera2Interop.class)`"
+        errorLine1="                                val builder = CaptureRequestOptions.Builder()"
+        errorLine2="                                    ~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="723"
+            column="37"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.camera.camera2.interop.ExperimentalCamera2Interop` or `@OptIn(markerClass = androidx.camera.camera2.interop.ExperimentalCamera2Interop.class)`"
+        errorLine1="                                val builder = CaptureRequestOptions.Builder()"
+        errorLine2="                                                                    ~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="723"
+            column="69"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.camera.camera2.interop.ExperimentalCamera2Interop` or `@OptIn(markerClass = androidx.camera.camera2.interop.ExperimentalCamera2Interop.class)`"
+        errorLine1="                                builder.setCaptureRequestOption("
+        errorLine2="                                        ~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="724"
+            column="41"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.camera.camera2.interop.ExperimentalCamera2Interop` or `@OptIn(markerClass = androidx.camera.camera2.interop.ExperimentalCamera2Interop.class)`"
+        errorLine1="                                builder.setCaptureRequestOption("
+        errorLine2="                                        ~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="728"
+            column="41"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.camera.camera2.interop.ExperimentalCamera2Interop` or `@OptIn(markerClass = androidx.camera.camera2.interop.ExperimentalCamera2Interop.class)`"
+        errorLine1="                                builder.setCaptureRequestOption("
+        errorLine2="                                        ~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="732"
+            column="41"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.camera.camera2.interop.ExperimentalCamera2Interop` or `@OptIn(markerClass = androidx.camera.camera2.interop.ExperimentalCamera2Interop.class)`"
+        errorLine1="                                builder.setCaptureRequestOption("
+        errorLine2="                                        ~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="736"
+            column="41"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.camera.camera2.interop.ExperimentalCamera2Interop` or `@OptIn(markerClass = androidx.camera.camera2.interop.ExperimentalCamera2Interop.class)`"
+        errorLine1="                                builder.setCaptureRequestOption("
+        errorLine2="                                        ~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="740"
+            column="41"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.camera.camera2.interop.ExperimentalCamera2Interop` or `@OptIn(markerClass = androidx.camera.camera2.interop.ExperimentalCamera2Interop.class)`"
+        errorLine1="                                val requestOptions = builder.build()"
+        errorLine2="                                    ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="744"
+            column="37"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.camera.camera2.interop.ExperimentalCamera2Interop` or `@OptIn(markerClass = androidx.camera.camera2.interop.ExperimentalCamera2Interop.class)`"
+        errorLine1="                                val requestOptions = builder.build()"
+        errorLine2="                                                             ~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="744"
+            column="62"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.camera.camera2.interop.ExperimentalCamera2Interop` or `@OptIn(markerClass = androidx.camera.camera2.interop.ExperimentalCamera2Interop.class)`"
+        errorLine1="                                camera2CameraControl.captureRequestOptions = requestOptions"
+        errorLine2="                                                     ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="745"
+            column="54"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="    ): Effect {"
+        errorLine2="       ~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="71"
+            column="8"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="        val watermarkOverlay = object : BitmapOverlay() {"
+        errorLine2="                               ^">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="72"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="        val watermarkOverlay = object : BitmapOverlay() {"
+        errorLine2="                                        ~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="72"
+            column="41"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="        val watermarkOverlay = object : BitmapOverlay() {"
+        errorLine2="                                        ~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="72"
+            column="41"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="            override fun getBitmap(presentationTimeUs: Long): Bitmap {"
+        errorLine2="                         ~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="89"
+            column="26"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="        return OverlayEffect(ImmutableList.of(watermarkOverlay as TextureOverlay)) as Effect"
+        errorLine2="               ~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="143"
+            column="16"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="        return OverlayEffect(ImmutableList.of(watermarkOverlay as TextureOverlay)) as Effect"
+        errorLine2="                                                                  ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="143"
+            column="67"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="        return OverlayEffect(ImmutableList.of(watermarkOverlay as TextureOverlay)) as Effect"
+        errorLine2="                                                                                      ~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="143"
+            column="87"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="            val transformer = Transformer.Builder(context)"
+        errorLine2="                ~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="163"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="            val transformer = Transformer.Builder(context)"
+        errorLine2="                                          ~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="163"
+            column="43"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                .setVideoMimeType(MimeTypes.VIDEO_H264)"
+        errorLine2="                 ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="164"
+            column="18"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                .build()"
+        errorLine2="                 ~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="165"
+            column="18"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="            val overlayEffect = createWatermarkEffect(actualWidth, actualHeight, startedAtMs, samples, overlayConfig)"
+        errorLine2="                ~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="167"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="            val editedMediaItem = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(inputVideoFile)))"
+        errorLine2="                ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="168"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="            val editedMediaItem = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(inputVideoFile)))"
+        errorLine2="                                                  ~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="168"
+            column="51"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                .setEffects(Effects(listOf(), listOf(overlayEffect)))"
+        errorLine2="                 ~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="169"
+            column="18"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                .setEffects(Effects(listOf(), listOf(overlayEffect)))"
+        errorLine2="                            ~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="169"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                .build()"
+        errorLine2="                 ~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="170"
+            column="18"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="            transformer.addListener(object : Transformer.Listener {"
+        errorLine2="                        ~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="174"
+            column="25"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                override fun onCompleted(composition: Composition, exportResult: ExportResult) {"
+        errorLine2="                             ~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="175"
+            column="30"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                override fun onCompleted(composition: Composition, exportResult: ExportResult) {"
+        errorLine2="                                                      ~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="175"
+            column="55"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                override fun onCompleted(composition: Composition, exportResult: ExportResult) {"
+        errorLine2="                                                                                 ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="175"
+            column="82"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {"
+        errorLine2="                             ~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="181"
+            column="30"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {"
+        errorLine2="                                                  ~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="181"
+            column="51"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {"
+        errorLine2="                                                                             ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="181"
+            column="78"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {"
+        errorLine2="                                                                                                            ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="181"
+            column="109"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="            transformer.start(editedMediaItem, outputVideoFile.absolutePath)"
+        errorLine2="                        ~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="188"
+            column="25"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                val progressHolder = ProgressHolder()"
+        errorLine2="                    ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="193"
+            column="21"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                val progressHolder = ProgressHolder()"
+        errorLine2="                                     ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="193"
+            column="38"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                    val progressState = transformer.getProgress(progressHolder)"
+        errorLine2="                                                    ~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="195"
+            column="53"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                    if (progressState == Transformer.PROGRESS_STATE_AVAILABLE) {"
+        errorLine2="                                                     ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="196"
+            column="54"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                        onProgress(progressHolder.progress / 100f)"
+        errorLine2="                                                  ~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="197"
+            column="51"/>
+    </issue>
+
+    <issue
+        id="ModifierParameter"
+        message="Modifier parameter should be the first optional parameter"
+        errorLine1="    modifier: Modifier = Modifier"
+        errorLine2="    ~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="918"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="ModifierParameter"
+        message="Modifier parameter should be the first optional parameter"
+        errorLine1="    modifier: Modifier = Modifier"
+        errorLine2="    ~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashboard/DashboardScreen.kt"
+            line="2105"
+            column="5"/>
     </issue>
 
     <issue
@@ -690,7 +1922,7 @@
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/poster/PosterPreviewScreen.kt"
-            line="44"
+            line="48"
             column="5"/>
     </issue>
 
@@ -701,7 +1933,7 @@
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ui/speedtest/SpeedtestScreen.kt"
-            line="3274"
+            line="3484"
             column="5"/>
     </issue>
 
@@ -717,13 +1949,24 @@
     </issue>
 
     <issue
+        id="DataExtractionRules"
+        message="The attribute `android:allowBackup` is deprecated from Android 12 and higher and may be removed in future versions. Consider adding the attribute `android:dataExtractionRules` specifying an `@xml` resource which configures cloud backups and device transfers on Android 12 and higher."
+        errorLine1="        android:allowBackup=&quot;false&quot;"
+        errorLine2="                             ~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="23"
+            column="30"/>
+    </issue>
+
+    <issue
         id="ObsoleteSdkInt"
         message="Unnecessary; SDK_INT is never &lt; 26"
         errorLine1="        return Build.VERSION.SDK_INT &lt; Build.VERSION_CODES.O ||"
         errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/data/update/AppUpdateManager.kt"
-            line="246"
+            line="394"
             column="16"/>
     </issue>
 
@@ -734,8 +1977,41 @@
         errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/ble/BleManager.kt"
-            line="525"
+            line="534"
             column="21"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; SDK_INT is always >= 26"
+        errorLine1="            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/service/DashcamForegroundService.kt"
+            line="36"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; SDK_INT is always >= 26"
+        errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/service/DashcamForegroundService.kt"
+            line="114"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; SDK_INT is always >= 26"
+        errorLine1="                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &amp;&amp;"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/gps/GradeEstimator.kt"
+            line="24"
+            column="17"/>
     </issue>
 
     <issue
@@ -745,7 +2021,7 @@
         errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/MainActivity.kt"
-            line="256"
+            line="277"
             column="28"/>
     </issue>
 
@@ -756,7 +2032,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/shawnrain/sdash/MainActivity.kt"
-            line="274"
+            line="295"
             column="13"/>
     </issue>
 
@@ -765,6 +2041,50 @@
         message="This folder configuration (`v26`) is unnecessary; `minSdkVersion` is 26. Merge all the resources in this folder into `mipmap-anydpi`.">
         <location
             file="src/main/res/mipmap-anydpi-v26"/>
+    </issue>
+
+    <issue
+        id="StaticFieldLeak"
+        message="Do not place Android context classes in static fields (static reference to `DashcamManager` which has field `context` pointing to `Context`); this is a memory leak"
+        errorLine1="        @Volatile"
+        errorLine2="        ^">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/DashcamManager.kt"
+            line="68"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="AutoboxingStateCreation"
+        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
+        errorLine1="    var currentPositionMs by remember { mutableStateOf(0) }"
+        errorLine2="                                        ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashcam/DashcamPlaybackScreen.kt"
+            line="112"
+            column="41"/>
+    </issue>
+
+    <issue
+        id="AutoboxingStateCreation"
+        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
+        errorLine1="    var videoDurationMs by remember { mutableStateOf(0) }"
+        errorLine2="                                      ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashcam/DashcamPlaybackScreen.kt"
+            line="113"
+            column="39"/>
+    </issue>
+
+    <issue
+        id="AutoboxingStateCreation"
+        message="Prefer `mutableFloatStateOf` instead of `mutableStateOf`"
+        errorLine1="    var transcodeProgress by remember { mutableStateOf(0f) }"
+        errorLine2="                                        ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/ui/dashcam/DashcamPlaybackScreen.kt"
+            line="182"
+            column="41"/>
     </issue>
 
     <issue
@@ -812,6 +2132,17 @@
             file="src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml"
             line="2"
             column="1"/>
+    </issue>
+
+    <issue
+        id="ConstantLocale"
+        message="Assigning `Locale.getDefault()` to a final static field is suspicious; this code will not work correctly if the user changes locale while the app is running"
+        errorLine1="            private val timeFormat = SimpleDateFormat(&quot;yyyy-MM-dd HH:mm:ss&quot;, Locale.getDefault())"
+        errorLine2="                                                                             ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shawnrain/sdash/data/dashcam/VideoWatermarkProcessor.kt"
+            line="87"
+            column="78"/>
     </issue>
 
 </issues>

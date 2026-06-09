@@ -271,23 +271,37 @@ jobs:
           
           RELEASE_NOTES_JSON="$(python3 -c 'import json, os; print(json.dumps(os.environ.get("RELEASE_NOTES_INPUT", "")))')"
           
-          # Generate Manifest with dual-apk info
-          cat <<EOF > "smartdash-${TAG}-release-manifest.json"
+          # Generate Normal Manifest
+          cat <<EOF > "release-manifest.json"
           {
             "tag": "${TAG}",
             "versionName": "${VERSION_NAME}",
             "versionCode": ${VERSION_CODE},
             "channel": "${CHANNEL}",
-            "normalApk": "${NORMAL_BASENAME}.apk",
-            "normalSha256": "${SHA256_NORMAL}",
-            "vivoApk": "${VIVO_BASENAME}.apk",
-            "vivoSha256": "${SHA256_VIVO}",
+            "apkName": "${NORMAL_BASENAME}.apk",
+            "apkSha256": "${SHA256_NORMAL}",
             "publishedAt": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
             "htmlUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}",
             "releaseNotes": ${RELEASE_NOTES_JSON}
           }
           EOF
-          cp "smartdash-${TAG}-release-manifest.json" "release-manifest.json"
+          cp "release-manifest.json" "smartdash-${TAG}-release-manifest.json"
+          
+          # Generate Vivo Manifest
+          cat <<EOF > "release-manifest-vivo.json"
+          {
+            "tag": "${TAG}",
+            "versionName": "${VERSION_NAME}",
+            "versionCode": ${VERSION_CODE},
+            "channel": "${CHANNEL}",
+            "apkName": "${VIVO_BASENAME}.apk",
+            "apkSha256": "${SHA256_VIVO}",
+            "publishedAt": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+            "htmlUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}",
+            "releaseNotes": ${RELEASE_NOTES_JSON}
+          }
+          EOF
+          cp "release-manifest-vivo.json" "smartdash-${TAG}-release-manifest-vivo.json"
           
           echo "normal_apk=${NORMAL_BASENAME}.apk" >> "${GITHUB_OUTPUT}"
           echo "normal_sha=${NORMAL_BASENAME}.sha256" >> "${GITHUB_OUTPUT}"
@@ -295,6 +309,8 @@ jobs:
           echo "vivo_sha=${VIVO_BASENAME}.sha256" >> "${GITHUB_OUTPUT}"
           echo "manifest_copy=smartdash-${TAG}-release-manifest.json" >> "${GITHUB_OUTPUT}"
           echo "canonical_manifest=release-manifest.json" >> "${GITHUB_OUTPUT}"
+          echo "vivo_manifest_copy=smartdash-${TAG}-release-manifest-vivo.json" >> "${GITHUB_OUTPUT}"
+          echo "vivo_canonical_manifest=release-manifest-vivo.json" >> "${GITHUB_OUTPUT}"
 
       - name: Upload signed release artifacts
         uses: actions/upload-artifact@v4
@@ -307,6 +323,8 @@ jobs:
             ${{ steps.artifact.outputs.vivo_sha }}
             ${{ steps.artifact.outputs.manifest_copy }}
             ${{ steps.artifact.outputs.canonical_manifest }}
+            ${{ steps.artifact.outputs.vivo_manifest_copy }}
+            ${{ steps.artifact.outputs.vivo_canonical_manifest }}
             ${{ steps.mapping.outputs.normal_mapping }}
             ${{ steps.mapping.outputs.vivo_mapping }}
           if-no-files-found: error
@@ -328,6 +346,8 @@ jobs:
             ${{ steps.artifact.outputs.vivo_sha }}
             ${{ steps.artifact.outputs.manifest_copy }}
             ${{ steps.artifact.outputs.canonical_manifest }}
+            ${{ steps.artifact.outputs.vivo_manifest_copy }}
+            ${{ steps.artifact.outputs.vivo_canonical_manifest }}
             ${{ steps.mapping.outputs.normal_mapping }}
             ${{ steps.mapping.outputs.vivo_mapping }}
           body: |

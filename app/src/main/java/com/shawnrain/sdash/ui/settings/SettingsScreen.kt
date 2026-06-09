@@ -78,6 +78,8 @@ import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material3.*
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FolderZip
@@ -117,6 +119,8 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.shawnrain.sdash.MainViewModel
+import com.shawnrain.sdash.ble.ConnectionState
+import com.shawnrain.sdash.ui.connect.ConnectionQuickSheet
 import com.shawnrain.sdash.R
 import com.shawnrain.sdash.data.DataSource
 import com.shawnrain.sdash.data.SpeedSource
@@ -230,6 +234,9 @@ fun SettingsScreen(
     var editingVehicle by remember { mutableStateOf<VehicleProfile?>(null) }
     var creatingVehicle by remember { mutableStateOf(false) }
     var deletingVehicle by remember { mutableStateOf<VehicleProfile?>(null) }
+    var showConnectionSheet by remember { mutableStateOf(false) }
+    val connectionState by viewModel.connectionState.collectAsState()
+    val isControllerConnected = connectionState is ConnectionState.Connected
     val currentVehicleHistoricalDistanceKm = remember(currentVehicle.id, rideHistory) {
         (rideHistory.sumOf { it.distanceMeters.toDouble() } / 1000.0).toFloat()
     }
@@ -350,6 +357,82 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(bezierRoundedShape(16.dp))
+                    .clickable { showConnectionSheet = true },
+                shape = bezierRoundedShape(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Surface(
+                        modifier = Modifier.size(44.dp),
+                        shape = bezierRoundedShape(12.dp),
+                        color = if (isControllerConnected) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (isControllerConnected) {
+                                    Icons.Default.BluetoothConnected
+                                } else {
+                                    Icons.Default.Bluetooth
+                                },
+                                contentDescription = null,
+                                tint = if (isControllerConnected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isControllerConnected) {
+                                "控制器已连接"
+                            } else {
+                                "未连接控制器"
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (isControllerConnected) {
+                                val device = (connectionState as? ConnectionState.Connected)?.device
+                                val name = runCatching { device?.name }.getOrNull() ?: "未知名称"
+                                val address = device?.address ?: ""
+                                "$name ($address)"
+                            } else {
+                                "点击扫描或切换控制器"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = "Navigate",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -1530,6 +1613,13 @@ fun SettingsScreen(
                     Text("取消")
                 }
             }
+        )
+    }
+
+    if (showConnectionSheet) {
+        ConnectionQuickSheet(
+            viewModel = viewModel,
+            onDismiss = { showConnectionSheet = false }
         )
     }
 

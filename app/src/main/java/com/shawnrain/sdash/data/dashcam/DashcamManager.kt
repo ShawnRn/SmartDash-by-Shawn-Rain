@@ -25,6 +25,14 @@ import androidx.camera.video.Recorder
 import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
+import androidx.camera.core.CameraEffect
+import androidx.camera.effects.OverlayEffect
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -117,6 +125,10 @@ class DashcamManager private constructor(private val context: Context) {
     private var currentSegmentRideId: String? = null
     private val telemetrySamples = mutableListOf<DashcamTelemetrySample>()
     private var currentTelemetryProvider: (() -> DashcamTelemetrySample)? = null
+    private var dummySurfaceTexture: android.graphics.SurfaceTexture? = null
+    private var dummySurface: android.view.Surface? = null
+    private var currentOverlayConfig = DashcamOverlayConfig()
+    private var overlayEffect: androidx.camera.effects.OverlayEffect? = null
     private val handler = Handler(Looper.getMainLooper())
     private val segmentEndRunnable = Runnable { stopCurrentRecordingOnly() }
 
@@ -146,6 +158,12 @@ class DashcamManager private constructor(private val context: Context) {
                         startPreviewOnly()
                     }
                 }
+            }
+        }
+
+        coroutineScope.launch {
+            settingsRepository.dashcamOverlayConfig.collect { config ->
+                currentOverlayConfig = config
             }
         }
     }
@@ -492,9 +510,206 @@ class DashcamManager private constructor(private val context: Context) {
         extender.setCaptureRequestOption(VIVO_CURRENT_UI_MODULE_KEY, VIVO_VIDEO_UI_MODULE)
         extender.setCaptureRequestOption(VIVO_CAMERA_TYPE_KEY, VIVO_CAMERA_TYPE_VALUE)
     }
+    private fun getDummySurfaceProvider(): Preview.SurfaceProvider {
+        return Preview.SurfaceProvider { request ->
+            val texture = android.graphics.SurfaceTexture(0).also {
+                it.setDefaultBufferSize(request.resolution.width, request.resolution.height)
+            }
+            dummySurfaceTexture = texture
+            val surface = android.view.Surface(texture)
+            dummySurface = surface
+            request.provideSurface(surface, ContextCompat.getMainExecutor(context)) {
+                surface.release()
+                texture.release()
+            }
+        }
+    }
+
+    private fun releaseDummySurface() {
+        dummySurface?.release()
+        dummySurface = null
+        dummySurfaceTexture?.release()
+        dummySurfaceTexture = null
+    }
+
+    private fun getOrCreateOverlayEffect(): androidx.camera.effects.OverlayEffect {
+        overlayEffect?.let { return it }
+        val effect = androidx.camera.effects.OverlayEffect(
+            CameraEffect.VIDEO_CAPTURE,
+            0,
+            android.os.Handler(android.os.Looper.getMainLooper())
+        ) { throwable ->
+            AppLogger.e(TAG, "OverlayEffect error callback", throwable)
+        }
+
+        val textPaint = Paint().apply {
+            color = Color.WHITE
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+
+        val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+
+        effect.setOnDrawListener { frame ->
+            val canvas = frame.overlayCanvas
+            canvas.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+
+            val width = canvas.width
+            val height = canvas.height
+            val widthF = width.toFloat()
+            val heightF = height.toFloat()
+
+            // 获取画面旋转角度，动态建立逻辑画布坐标系，解耦物理旋转
+            val rotation = frame.rotationDegrees
+            val logicalWidth: Float
+            val logicalHeight: Float
+
+            canvas.save()
+            when (rotation) {
+                90 -> {
+                    logicalWidth = heightF
+                    logicalHeight = widthF
+                    canvas.translate(0f, heightF)
+                    canvas.rotate(-90f)
+                }
+                180 -> {
+                    logicalWidth = widthF
+                    logicalHeight = heightF
+                    canvas.translate(widthF, heightF)
+                    canvas.rotate(180f)
+                }
+                270 -> {
+                    logicalWidth = heightF
+                    logicalHeight = widthF
+                    canvas.translate(widthF, 0f)
+                    canvas.rotate(90f)
+                }
+                else -> {
+                    logicalWidth = widthF
+                    logicalHeight = heightF
+                }
+            }
+
+            val scale = maxOf(width, height).toFloat() / 1920f
+            textPaint.textSize = 40f * scale
+            textPaint.setShadowLayer(4f * scale, 2f * scale, 2f * scale, Color.BLACK)
+
+            val margin = 60f * scale
+            val bottomY = logicalHeight - 60f * scale
+            val topY = 90f * scale
+
+            val sample = currentTelemetryProvider?.invoke()
+
+            val isPortrait = logicalWidth < logicalHeight
+
+            if (isPortrait) {
+                // 竖屏优化排版：从底向上折叠为三行左对齐绘制，防止两端长文字重合
+                var currentY = bottomY
+                val lineSpacing = 55f * scale
+
+                // 第一行 (最底下)：绝对时间戳
+                if (currentOverlayConfig.showTime) {
+                    val dateStr = timeFormat.format(Date())
+                    canvas.drawText(dateStr, margin, currentY, textPaint)
+                    currentY -= lineSpacing
+                }
+
+                // 第二行 (中间)：车速、功率、方向
+                val sbRight = StringBuilder()
+                if (currentOverlayConfig.showSpeed && sample?.speedKmH != null) {
+                    sbRight.append(String.format("速度: %.1f km/h  ", sample.speedKmH))
+                }
+                if (currentOverlayConfig.showPower && sample?.powerKw != null) {
+                    sbRight.append(String.format("功率: %.2f kW  ", sample.powerKw))
+                }
+                if (currentOverlayConfig.showDirection && !sample?.direction.isNullOrEmpty()) {
+                    sbRight.append(String.format("方向: %s", sample.direction))
+                }
+                val rightText = sbRight.toString().trim()
+                if (rightText.isNotEmpty()) {
+                    canvas.drawText(rightText, margin, currentY, textPaint)
+                    currentY -= lineSpacing
+                }
+
+                // 第三行 (最上面)：电量、电压、能耗
+                val sbLeft = StringBuilder()
+                if (currentOverlayConfig.showSoc && sample?.soc != null) {
+                    sbLeft.append(String.format("电量: %.0f%%  ", sample.soc))
+                }
+                if (currentOverlayConfig.showVoltage && sample?.voltage != null) {
+                    sbLeft.append(String.format("电压: %.1f V  ", sample.voltage))
+                }
+                if (currentOverlayConfig.showEfficiency && sample?.efficiency != null) {
+                    sbLeft.append(String.format("能耗: %.1f Wh/km", sample.efficiency))
+                }
+                val leftText = sbLeft.toString().trim()
+                if (leftText.isNotEmpty()) {
+                    canvas.drawText(leftText, margin, currentY, textPaint)
+                }
+            } else {
+                // 横屏排版，保持原有经典设计
+                // 左下角：电量、电压、能耗
+                val sbLeft = StringBuilder()
+                if (currentOverlayConfig.showSoc && sample?.soc != null) {
+                    sbLeft.append(String.format("电量: %.0f%%  ", sample.soc))
+                }
+                if (currentOverlayConfig.showVoltage && sample?.voltage != null) {
+                    sbLeft.append(String.format("电压: %.1f V  ", sample.voltage))
+                }
+                if (currentOverlayConfig.showEfficiency && sample?.efficiency != null) {
+                    sbLeft.append(String.format("能耗: %.1f Wh/km", sample.efficiency))
+                }
+                val leftText = sbLeft.toString().trim()
+                if (leftText.isNotEmpty()) {
+                    canvas.drawText(leftText, margin, bottomY, textPaint)
+                }
+
+                // 右下角：车速、功率、方向
+                val sbRight = StringBuilder()
+                if (currentOverlayConfig.showSpeed && sample?.speedKmH != null) {
+                    sbRight.append(String.format("速度: %.1f km/h  ", sample.speedKmH))
+                }
+                if (currentOverlayConfig.showPower && sample?.powerKw != null) {
+                    sbRight.append(String.format("功率: %.2f kW  ", sample.powerKw))
+                }
+                if (currentOverlayConfig.showDirection && !sample?.direction.isNullOrEmpty()) {
+                    sbRight.append(String.format("方向: %s", sample.direction))
+                }
+                val rightText = sbRight.toString().trim()
+                if (rightText.isNotEmpty()) {
+                    canvas.drawText(rightText, logicalWidth - textPaint.measureText(rightText) - margin, bottomY, textPaint)
+                }
+
+                // 右上角（或左上角）：绘制绝对时间戳
+                if (currentOverlayConfig.showTime) {
+                    val dateStr = timeFormat.format(Date())
+                    canvas.drawText(dateStr, logicalWidth - textPaint.measureText(dateStr) - margin, topY, textPaint)
+                }
+            }
+
+            canvas.restore()
+            true
+        }
+        overlayEffect = effect
+        return effect
+    }
+
     fun setPreviewSurfaceProvider(provider: Preview.SurfaceProvider?) {
         if (this.surfaceProvider === provider) return
         this.surfaceProvider = provider
+        
+        if (_state.value == DashcamState.RECORDING) {
+            if (provider != null) {
+                AppLogger.i(TAG, "setPreviewSurfaceProvider: Restoring real preview surface during active recording")
+                preview?.setSurfaceProvider(provider)
+                releaseDummySurface()
+            } else {
+                AppLogger.i(TAG, "setPreviewSurfaceProvider: Switching to dummy preview surface because real preview was detached during active recording")
+                preview?.setSurfaceProvider(getDummySurfaceProvider())
+            }
+            return
+        }
+        
         preview?.setSurfaceProvider(provider)
         
         if (provider != null && _state.value == DashcamState.IDLE) {
@@ -540,10 +755,17 @@ class DashcamManager private constructor(private val context: Context) {
             }
             videoCapture = videoCaptureBuilder.build()
 
-            val useCaseGroup = UseCaseGroup.Builder()
+            val useCaseGroupBuilder = UseCaseGroup.Builder()
                 .addUseCase(preview!!)
                 .addUseCase(videoCapture!!)
-                .build()
+            val hasWatermark = currentOverlayConfig.showTime || currentOverlayConfig.showSpeed ||
+                    currentOverlayConfig.showPower || currentOverlayConfig.showDirection ||
+                    currentOverlayConfig.showVoltage || currentOverlayConfig.showSoc ||
+                    currentOverlayConfig.showEfficiency
+            if (hasWatermark) {
+                useCaseGroupBuilder.addEffect(getOrCreateOverlayEffect())
+            }
+            val useCaseGroup = useCaseGroupBuilder.build()
 
             camera = provider.bindToLifecycle(lifecycleOwner, cameraSelector, useCaseGroup)
             applyUltraWideZoomIfNeeded(cameraTarget.zoomRatio)
@@ -592,15 +814,24 @@ class DashcamManager private constructor(private val context: Context) {
     fun onAppVisibilityChanged(isForeground: Boolean) {
         AppLogger.i(TAG, "onAppVisibilityChanged: isForeground=$isForeground, state=${_state.value}, hasSurfaceProvider=${surfaceProvider != null}, wasPreviewingBeforeBackground=$wasPreviewingBeforeBackground")
         if (isForeground) {
-            if (wasPreviewingBeforeBackground) {
+            if (_state.value == DashcamState.RECORDING) {
+                if (surfaceProvider != null) {
+                    AppLogger.i(TAG, "Restoring real preview surface during recording")
+                    preview?.setSurfaceProvider(surfaceProvider)
+                }
+            } else if (wasPreviewingBeforeBackground) {
                 wasPreviewingBeforeBackground = false
                 AppLogger.i(TAG, "Restoring preview automatically after returning to foreground")
                 startPreviewOnly()
             } else if (surfaceProvider != null && _state.value == DashcamState.IDLE) {
                 startPreviewOnly()
             }
+            releaseDummySurface()
         } else {
-            if (_state.value == DashcamState.PREVIEWING) {
+            if (_state.value == DashcamState.RECORDING) {
+                AppLogger.i(TAG, "Switching to dummy preview surface for background recording")
+                preview?.setSurfaceProvider(getDummySurfaceProvider())
+            } else if (_state.value == DashcamState.PREVIEWING) {
                 wasPreviewingBeforeBackground = true
                 stopPreviewOnly()
             } else {
@@ -641,6 +872,7 @@ class DashcamManager private constructor(private val context: Context) {
         activeRecording = null
         stopDurationTicker()
         currentTelemetryProvider = null
+        releaseDummySurface()
 
         if (surfaceProvider != null) {
             _state.value = DashcamState.PREVIEWING
@@ -687,14 +919,21 @@ class DashcamManager private constructor(private val context: Context) {
         applyCamera2TargetOptions(previewBuilder, videoCaptureBuilder, cameraTarget)
 
         preview = previewBuilder.build().also {
-            it.setSurfaceProvider(surfaceProvider)
+            it.setSurfaceProvider(surfaceProvider ?: getDummySurfaceProvider())
         }
         videoCapture = videoCaptureBuilder.build()
 
-        val useCaseGroup = UseCaseGroup.Builder()
+        val useCaseGroupBuilder = UseCaseGroup.Builder()
             .addUseCase(preview!!)
             .addUseCase(videoCapture!!)
-            .build()
+        val hasWatermark = currentOverlayConfig.showTime || currentOverlayConfig.showSpeed ||
+                currentOverlayConfig.showPower || currentOverlayConfig.showDirection ||
+                currentOverlayConfig.showVoltage || currentOverlayConfig.showSoc ||
+                currentOverlayConfig.showEfficiency
+        if (hasWatermark) {
+            useCaseGroupBuilder.addEffect(getOrCreateOverlayEffect())
+        }
+        val useCaseGroup = useCaseGroupBuilder.build()
 
         camera = provider.bindToLifecycle(lifecycleOwner, cameraSelector, useCaseGroup)
         applyUltraWideZoomIfNeeded(cameraTarget.zoomRatio)
@@ -771,57 +1010,71 @@ class DashcamManager private constructor(private val context: Context) {
         val outputOptions = FileOutputOptions.Builder(videoFile).build()
 
         coroutineScope.launch {
-            val audioEnabled = settingsRepository.dashcamRecordAudio.first()
-            val segmentDurationMin = settingsRepository.dashcamSegmentDurationMin.first()
+            try {
+                val audioEnabled = settingsRepository.dashcamRecordAudio.first()
+                val segmentDurationMin = settingsRepository.dashcamSegmentDurationMin.first()
 
-            val pendingRecording = capture.output.prepareRecording(context, outputOptions)
-            if (audioEnabled && ActivityCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                pendingRecording.withAudioEnabled()
-            }
+                val pendingRecording = capture.output.prepareRecording(context, outputOptions)
+                if (audioEnabled && ActivityCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                    pendingRecording.withAudioEnabled()
+                }
 
-            activeRecording = pendingRecording.start(ContextCompat.getMainExecutor(context)) { recordEvent ->
-                when (recordEvent) {
-                    is VideoRecordEvent.Start -> {
-                        AppLogger.i(TAG, "Segment started: $segmentId")
-                        _state.value = DashcamState.RECORDING
-                        startDurationTicker()
+                activeRecording = pendingRecording.start(ContextCompat.getMainExecutor(context)) { recordEvent ->
+                    when (recordEvent) {
+                        is VideoRecordEvent.Start -> {
+                            AppLogger.i(TAG, "Segment started: $segmentId")
+                            _state.value = DashcamState.RECORDING
+                            startDurationTicker()
 
-                        handler.postDelayed(segmentEndRunnable, segmentDurationMin.toLong() * 60 * 1000)
+                            handler.postDelayed(segmentEndRunnable, segmentDurationMin.toLong() * 60 * 1000)
+                        }
+                        is VideoRecordEvent.Finalize -> {
+                            val duration = System.currentTimeMillis() - currentSegmentStartedAt
+                            stopDurationTicker()
+
+                            if (recordEvent.hasError()) {
+                                AppLogger.e(TAG, "Segment finalize error: ${recordEvent.error}")
+                                if (recordEvent.error != VideoRecordEvent.Finalize.ERROR_NONE && 
+                                    recordEvent.error != VideoRecordEvent.Finalize.ERROR_RECORDING_GARBAGE_COLLECTED &&
+                                    isRecordingRequested) {
+                                    _state.value = DashcamState.ERROR
+                                    AppLogger.e(TAG, "Non-fatal finalize error ${recordEvent.error}. Retaining camera and retrying loop in 1s.")
+                                }
+                            }
+
+                            val samplesCopy = synchronized(telemetrySamples) { telemetrySamples.toList() }
+                            coroutineScope.launch(Dispatchers.IO) {
+                                try {
+                                    repository.saveMetadataSync(segmentId, currentSegmentStartedAt, duration, currentSegmentRideId)
+                                    repository.saveSidecarSync(segmentId, samplesCopy)
+                                    repository.loadSegmentsSync()
+                                    
+                                    val limitMb = settingsRepository.dashcamStorageLimitMb.first()
+                                    repository.checkStorageLimitAndCleanup(limitMb)
+                                } catch (e: Exception) {
+                                    AppLogger.e(TAG, "Error saving segment sync files on IO dispatcher", e)
+                                }
+                            }
+
+                            if (isRecordingRequested) {
+                                _state.value = DashcamState.SEGMENT_GAP
+                                handler.postDelayed({
+                                    if (isRecordingRequested) {
+                                        startNextSegment()
+                                    }
+                                }, 1000)
+                            }
+                        }
                     }
-                    is VideoRecordEvent.Finalize -> {
-                        val duration = System.currentTimeMillis() - currentSegmentStartedAt
-                        stopDurationTicker()
-
-                        if (recordEvent.hasError()) {
-                            AppLogger.e(TAG, "Segment finalize error: ${recordEvent.error}")
-                            if (recordEvent.error != VideoRecordEvent.Finalize.ERROR_NONE && 
-                                recordEvent.error != VideoRecordEvent.Finalize.ERROR_RECORDING_GARBAGE_COLLECTED &&
-                                isRecordingRequested) {
-                                _state.value = DashcamState.ERROR
-                                stopRecording()
-                                return@start
-                            }
-                        }
-
-                        val samplesCopy = synchronized(telemetrySamples) { telemetrySamples.toList() }
-                        coroutineScope.launch(Dispatchers.IO) {
-                            try {
-                                repository.saveMetadataSync(segmentId, currentSegmentStartedAt, duration, currentSegmentRideId)
-                                repository.saveSidecarSync(segmentId, samplesCopy)
-                                repository.loadSegmentsSync()
-                                
-                                val limitMb = settingsRepository.dashcamStorageLimitMb.first()
-                                repository.checkStorageLimitAndCleanup(limitMb)
-                            } catch (e: Exception) {
-                                AppLogger.e(TAG, "Error saving segment sync files on IO dispatcher", e)
-                            }
-                        }
-
+                }
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed to prepare or start next recording segment", e)
+                if (isRecordingRequested) {
+                    handler.postDelayed({
                         if (isRecordingRequested) {
-                            _state.value = DashcamState.SEGMENT_GAP
-                            handler.post { startNextSegment() }
+                            startNextSegment()
                         }
-                    }
+                    }, 1000)
                 }
             }
         }

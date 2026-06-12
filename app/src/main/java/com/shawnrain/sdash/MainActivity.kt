@@ -101,6 +101,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -174,6 +175,13 @@ class MainActivity : ComponentActivity() {
                     BACK_CHAIN_TAG,
                     "OnBackInvoked(observer) currentRoute=$currentRoute pipEnabled=$pipEnabled inPip=$isInPictureInPictureMode"
                 )
+                lifecycleScope.launch {
+                    kotlinx.coroutines.delay(300)
+                    if (skipNextPipForSystemBack) {
+                        skipNextPipForSystemBack = false
+                        AppLogger.i(BACK_CHAIN_TAG, "Auto-reset skipNextPipForSystemBack to false after timeout")
+                    }
+                }
             }
             onBackInvokedDispatcher.registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_SYSTEM_NAVIGATION_OBSERVER,
@@ -201,10 +209,12 @@ class MainActivity : ComponentActivity() {
                                 pendingTelemetryPip = false
                                 enterTelemetryPictureInPicture()
                             }
+                            updatePictureInPictureParams()
                         },
                         onPipPreferenceChanged = { enabled ->
                             pipEnabled = enabled
                             AppLogger.i(BACK_CHAIN_TAG, "PiP preference changed enabled=$enabled")
+                            updatePictureInPictureParams()
                         }
                     )
                 }
@@ -234,6 +244,11 @@ class MainActivity : ComponentActivity() {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         AppLogger.i(BACK_CHAIN_TAG, "onPictureInPictureModeChanged inPip=$isInPictureInPictureMode route=$currentRoute")
         isInPipModeState.value = isInPictureInPictureMode
+        if (isInPictureInPictureMode) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+        } else {
+            updateOrientationForRoute(currentRoute)
+        }
         if (!isInPictureInPictureMode) {
             pendingTelemetryPip = false
         }
@@ -270,21 +285,16 @@ class MainActivity : ComponentActivity() {
             AppLogger.i(BACK_CHAIN_TAG, "requestPiP skipped because activity is finishing/destroyed")
             return
         }
-        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-            AppLogger.i(BACK_CHAIN_TAG, "requestPiP skipped because activity is not resumed")
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            AppLogger.i(BACK_CHAIN_TAG, "requestPiP skipped because activity is not started")
             return
         }
         if (!pipEnabled || Build.VERSION.SDK_INT < Build.VERSION_CODES.O || isInPictureInPictureMode) {
             AppLogger.i(BACK_CHAIN_TAG, "requestPiP skipped by guard")
             return
         }
-        if (currentRoute == Screen.Dashboard.route) {
-            AppLogger.i(BACK_CHAIN_TAG, "requestPiP proceed to enterPiP")
-            enterTelemetryPictureInPicture()
-        } else {
-            pendingTelemetryPip = false
-            AppLogger.i(BACK_CHAIN_TAG, "requestPiP skipped because current route is $currentRoute")
-        }
+        AppLogger.i(BACK_CHAIN_TAG, "requestPiP proceed to enterPiP")
+        enterTelemetryPictureInPicture()
     }
 
     private fun enterTelemetryPictureInPicture() {
@@ -295,6 +305,12 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || isInPictureInPictureMode) {
             AppLogger.i(BACK_CHAIN_TAG, "enterPiP skipped by guard")
             return
+        }
+        // Temporarily reset requestedOrientation to allow non-dashboard routes (which lock to portrait)
+        // to safely enter landscape aspect ratio PiP.
+        if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_FULL_USER) {
+            AppLogger.i(BACK_CHAIN_TAG, "enterPiP: Temporarily setting orientation to FULL_USER to allow PiP entry")
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
         }
         val builder = PictureInPictureParams.Builder()
             .setAspectRatio(TELEMETRY_PIP_ASPECT_RATIO)
@@ -312,6 +328,30 @@ class MainActivity : ComponentActivity() {
             AppLogger.i(BACK_CHAIN_TAG, "enterPiP invoke enterPictureInPictureMode done")
         }.onFailure { error ->
             AppLogger.e(BACK_CHAIN_TAG, "enterPiP failed", error)
+            // If failed, restore orientation
+            updateOrientationForRoute(currentRoute)
+        }
+    }
+
+    private fun updatePictureInPictureParams() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val builder = PictureInPictureParams.Builder()
+            .setAspectRatio(TELEMETRY_PIP_ASPECT_RATIO)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setSeamlessResizeEnabled(false)
+            // Only enable autoEnter for Dashboard route to avoid system-level portrait orientation conflicts on non-dashboard tabs.
+            // For other portrait-locked routes, autoEnter is disabled and we rely on onUserLeaveHint fallback with manual orientation reset.
+            val autoEnter = pipEnabled && (currentRoute == Screen.Dashboard.route)
+            builder.setAutoEnterEnabled(autoEnter)
+            AppLogger.d(BACK_CHAIN_TAG, "updatePiPParams setAutoEnterEnabled=$autoEnter currentRoute=$currentRoute")
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            builder.setExpandedAspectRatio(TELEMETRY_PIP_EXPANDED_ASPECT_RATIO)
+        }
+        runCatching {
+            setPictureInPictureParams(builder.build())
+        }.onFailure { error ->
+            AppLogger.e(BACK_CHAIN_TAG, "Failed to setPictureInPictureParams", error)
         }
     }
 
@@ -1264,7 +1304,37 @@ private fun PipPowerBalanceBar(
     )
     val isOutput = powerKw >= 0f
     val hasActivePower = abs(powerKw) >= 0.08f
-    val accentColor = MaterialTheme.colorScheme.primary
+    val barColor = remember(animatedFraction, isOutput) {
+        if (isOutput) {
+            if (animatedFraction < 0.5f) {
+                androidx.compose.ui.graphics.lerp(
+                    Color(0xFF10B981), // 绿
+                    Color(0xFFF59E0B), // 黄
+                    animatedFraction * 2f
+                )
+            } else {
+                androidx.compose.ui.graphics.lerp(
+                    Color(0xFFF59E0B), // 黄
+                    Color(0xFFEF4444), // 红
+                    ((animatedFraction - 0.5f) * 2f).coerceIn(0f, 1f)
+                )
+            }
+        } else {
+            if (animatedFraction < 0.5f) {
+                androidx.compose.ui.graphics.lerp(
+                    Color(0xFFF59E0B), // 黄/橙
+                    Color(0xFF84CC16), // 黄绿
+                    animatedFraction * 2f
+                )
+            } else {
+                androidx.compose.ui.graphics.lerp(
+                    Color(0xFF84CC16), // 黄绿
+                    Color(0xFF10B981), // 强绿
+                    ((animatedFraction - 0.5f) * 2f).coerceIn(0f, 1f)
+                )
+            }
+        }
+    }
 
     Box(
         modifier = modifier
@@ -1285,7 +1355,7 @@ private fun PipPowerBalanceBar(
                     .fillMaxHeight()
                     .fillMaxWidth(0.5f * animatedFraction)
                     .clip(bezierRoundedShape(999.dp))
-                    .background(accentColor.copy(alpha = 0.86f))
+                    .background(barColor.copy(alpha = 0.86f))
             )
         }
     }

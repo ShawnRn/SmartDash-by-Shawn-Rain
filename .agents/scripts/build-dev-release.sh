@@ -50,6 +50,7 @@ ARCHIVE_NORMAL_APK="$ARTIFACT_DIR/habe-dev-release-$STAMP-normal.apk"
 ARCHIVE_VIVO_APK="$ARTIFACT_DIR/habe-dev-release-$STAMP-vivo.apk"
 
 ./gradlew --stop
+./gradlew clean
 run_gradle_logged_with_dex_retry "$LOG_FILE" devRelease :app:assembleDevRelease
 
 grep "BUILD SUCCESSFUL" "$LOG_FILE" >/dev/null

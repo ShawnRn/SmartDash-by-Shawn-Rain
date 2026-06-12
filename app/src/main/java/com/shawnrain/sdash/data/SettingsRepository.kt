@@ -1602,7 +1602,8 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun mergeBackupJson(
         remoteJson: String,
-        rideHistoryRepository: RideHistoryRepository
+        rideHistoryRepository: RideHistoryRepository,
+        ignoreRideHistory: Boolean = false
     ): Int {
         val remoteRoot = JSONObject(remoteJson)
         val remotePrefs = remoteRoot.optJSONObject("prefs") ?: remoteRoot
@@ -1665,7 +1666,7 @@ class SettingsRepository(private val context: Context) {
             // Ensure current vehicle is valid
             ensureVehiclePreferences(localPref)
         }
-        if (remoteRideGroups.isNotEmpty() || localRideGroups.isNotEmpty()) {
+        if (!ignoreRideHistory && (remoteRideGroups.isNotEmpty() || localRideGroups.isNotEmpty())) {
             mergeRideHistoryGroupsIntoRepository(
                 rideHistoryRepository = rideHistoryRepository,
                 localRideGroups = localRideGroups,

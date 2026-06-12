@@ -41,6 +41,30 @@ class PendingMutationRepository(context: Context) {
         )
     }
 
+    suspend fun enqueueDeleteForRide(rideId: String, localStateVersion: Long, deviceId: String) {
+        enqueue(
+            PendingMutation(
+                entityType = SyncEntityType.RIDE,
+                entityId = rideId,
+                operation = SyncOperation.DELETE,
+                localStateVersion = localStateVersion,
+                deviceId = deviceId
+            )
+        )
+    }
+
+    suspend fun enqueueDeleteForVehicleProfile(profileId: String, localStateVersion: Long, deviceId: String) {
+        enqueue(
+            PendingMutation(
+                entityType = SyncEntityType.VEHICLE_PROFILE,
+                entityId = profileId,
+                operation = SyncOperation.DELETE,
+                localStateVersion = localStateVersion,
+                deviceId = deviceId
+            )
+        )
+    }
+
     suspend fun enqueueForSettings(localStateVersion: Long, deviceId: String) {
         enqueue(
             PendingMutation(

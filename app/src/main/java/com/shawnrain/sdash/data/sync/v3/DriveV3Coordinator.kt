@@ -9,6 +9,8 @@ import com.shawnrain.sdash.data.sync.EncryptionService
 import com.shawnrain.sdash.data.sync.GoogleDriveSyncManager
 import com.shawnrain.sdash.data.sync.SyncMetadataRepository
 import com.shawnrain.sdash.data.sync.PendingMutationRepository
+import com.shawnrain.sdash.data.sync.SyncOperation
+import com.shawnrain.sdash.data.sync.SyncEntityType
 import com.shawnrain.sdash.debug.AppLogger
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
@@ -114,8 +116,8 @@ class DriveV3Coordinator(
         var ridesSkipped = 0
 
         runCatching {
-            val settingsPayload = downloadEncrypted(manifest.settingsEntry, password).toString(Charsets.UTF_8)
-            settingsMerged = settingsRepository.mergeBackupJson(settingsPayload, rideHistoryRepository)
+            val settingsPayload = downloadEncrypted(manifest.settingsEntry, password, manifest.settingsFileId).toString(Charsets.UTF_8)
+            settingsMerged = settingsRepository.mergeBackupJson(settingsPayload, rideHistoryRepository, ignoreRideHistory = true)
         }.onFailure { error ->
             AppLogger.w(TAG, "V3 settings merge skipped: ${error.message}")
         }
@@ -123,26 +125,59 @@ class DriveV3Coordinator(
         val localRideFingerprints = rideHistoryRepository
             .listRideHistorySummaries()
             .associate { summary -> summary.id to summary.detailFingerprint }
+
+        val localPendingDeletes = mutationRepository.getCoalescedPending()
+            .filter { it.operation == SyncOperation.DELETE }
+            .map { it.entityId }
+            .toSet()
+
         manifest.entities
             .asSequence()
-            .filter { it.type == ENTITY_RIDE && it.deletedAt == 0L }
             .forEach { ref ->
-                val localFingerprint = localRideFingerprints[ref.id]
-                if (localFingerprint != null && ref.fingerprint.isNotBlank() && localFingerprint == ref.fingerprint) {
-                    ridesSkipped += 1
+                if (localPendingDeletes.contains(ref.id)) {
+                    AppLogger.i(TAG, "Pull: Skip merging entity ${ref.id} (${ref.type}) because a pending local DELETE mutation exists")
                     return@forEach
                 }
-                runCatching {
-                    val payload = downloadEncrypted(ref.entryName, password).toString(Charsets.UTF_8)
-                    val json = JSONObject(payload)
-                    val vehicleId = ref.vehicleId.ifBlank { json.optString("vehicleId") }
-                    val record = RideHistoryRecord.fromJson(json)
-                    if (vehicleId.isNotBlank() && record.id.isNotBlank()) {
-                        rideHistoryRepository.upsertRide(vehicleId, record)
-                        ridesMerged += 1
+                if (ref.deletedAt > 0L) {
+                    // 墓碑处理：在本地执行物理删除
+                    runCatching {
+                        if (ref.type == ENTITY_RIDE) {
+                            val localRecord = rideHistoryRepository.loadRideRecord(ref.id)
+                            if (localRecord != null) {
+                                rideHistoryRepository.deleteRide(ref.id)
+                                AppLogger.i(TAG, "Tombstone: Deleted local ride ${ref.id} due to remote deletion")
+                            }
+                        } else if (ref.type == ENTITY_VEHICLE_PROFILE) {
+                            val localProfiles = settingsRepository.vehicleProfilesSnapshot()
+                            if (localProfiles.any { it.id == ref.id }) {
+                                settingsRepository.deleteVehicleProfile(ref.id)
+                                AppLogger.i(TAG, "Tombstone: Deleted local vehicle profile ${ref.id} due to remote deletion")
+                            }
+                        }
+                    }.onFailure { error ->
+                        AppLogger.w(TAG, "Tombstone deletion failed for entityId=${ref.id}: ${error.message}")
                     }
-                }.onFailure { error ->
-                    AppLogger.w(TAG, "V3 ride merge skipped: id=${ref.id} error=${error.message}")
+                    return@forEach
+                }
+
+                if (ref.type == ENTITY_RIDE) {
+                    val localFingerprint = localRideFingerprints[ref.id]
+                    if (localFingerprint != null && ref.fingerprint.isNotBlank() && localFingerprint == ref.fingerprint) {
+                        ridesSkipped += 1
+                        return@forEach
+                    }
+                    runCatching {
+                        val payload = downloadEncrypted(ref.entryName, password, ref.fileId).toString(Charsets.UTF_8)
+                        val json = JSONObject(payload)
+                        val vehicleId = ref.vehicleId.ifBlank { json.optString("vehicleId") }
+                        val record = RideHistoryRecord.fromJson(json)
+                        if (vehicleId.isNotBlank() && record.id.isNotBlank()) {
+                            rideHistoryRepository.upsertRide(vehicleId, record)
+                            ridesMerged += 1
+                        }
+                    }.onFailure { error ->
+                        AppLogger.w(TAG, "V3 ride merge skipped: id=${ref.id} error=${error.message}")
+                    }
                 }
             }
 
@@ -175,7 +210,9 @@ class DriveV3Coordinator(
             ?.entities
             .orEmpty()
             .associateBy(::entityKey)
-        val refs = mutableListOf<DriveV3EntityRef>()
+        
+        // 1. 用远程所有的 refs 初始化 finalRefsMap，继承历史状态（包括活跃的和墓碑）
+        val finalRefsMap = remoteRefs.toMutableMap()
         var uploadedEntities = 0
 
         suspend fun uploadEncrypted(
@@ -197,6 +234,50 @@ class DriveV3Coordinator(
             )
             uploadedEntities += 1
             return uploadedFileId
+        }
+
+        // 2. 合并本地 pending mutations 中的所有 DELETE 墓碑
+        val pending = mutationRepository.getCoalescedPending()
+        val localDeleteMutations = pending.filter { it.operation == SyncOperation.DELETE }
+        localDeleteMutations.forEach { mutation ->
+            val type = when (mutation.entityType) {
+                SyncEntityType.RIDE -> ENTITY_RIDE
+                SyncEntityType.VEHICLE_PROFILE -> ENTITY_VEHICLE_PROFILE
+                SyncEntityType.SPEED_TEST -> ENTITY_SPEED_TEST
+                else -> null
+            } ?: return@forEach
+            val key = entityKey(type, mutation.entityId)
+            val remoteRef = finalRefsMap[key]
+            
+            val deletedAt = if (remoteRef != null && remoteRef.deletedAt > 0L) {
+                maxOf(remoteRef.deletedAt, mutation.updatedAt)
+            } else {
+                mutation.updatedAt
+            }
+            
+            val entryName = remoteRef?.entryName ?: when (type) {
+                ENTITY_RIDE -> rideEntry("", mutation.entityId)
+                ENTITY_VEHICLE_PROFILE -> vehicleProfileEntry(mutation.entityId)
+                ENTITY_SPEED_TEST -> speedTestEntry(mutation.entityId)
+                else -> ""
+            }
+            val vehicleId = remoteRef?.vehicleId ?: when (type) {
+                ENTITY_VEHICLE_PROFILE -> mutation.entityId
+                else -> ""
+            }
+            
+            if (entryName.isNotEmpty()) {
+                finalRefsMap[key] = DriveV3EntityRef(
+                    type = type,
+                    id = mutation.entityId,
+                    vehicleId = vehicleId,
+                    entryName = entryName,
+                    updatedAt = deletedAt,
+                    deletedAt = deletedAt,
+                    fingerprint = "",
+                    fileId = ""
+                )
+            }
         }
 
         val settingsPayload = stableSettingsPayloadBytes()
@@ -233,7 +314,7 @@ class DriveV3Coordinator(
                 updatedAt = profile.lastModified.takeIf { it > 0L } ?: now,
                 fingerprint = fingerprint
             )
-            refs += if (!remoteRefMatches(remoteRefs, entry)) {
+            finalRefsMap[key] = if (!remoteRefMatches(remoteRefs, entry)) {
                 entry.copy(fileId = uploadEncrypted(entry.entryName, payload, remoteRef))
             } else {
                 entry.copy(fileId = remoteRef?.fileId.orEmpty())
@@ -254,7 +335,7 @@ class DriveV3Coordinator(
                 updatedAt = maxOf(binding.verifiedAt, binding.lastConnectedAt),
                 fingerprint = fingerprint
             )
-            refs += if (!remoteRefMatches(remoteRefs, entry)) {
+            finalRefsMap[key] = if (!remoteRefMatches(remoteRefs, entry)) {
                 entry.copy(fileId = uploadEncrypted(entry.entryName, payload, remoteRef))
             } else {
                 entry.copy(fileId = remoteRef?.fileId.orEmpty())
@@ -278,7 +359,7 @@ class DriveV3Coordinator(
                 updatedAt = record.timestampMs,
                 fingerprint = sha256(payload)
             )
-            refs += if (!remoteRefMatches(remoteRefs, entry)) {
+            finalRefsMap[key] = if (!remoteRefMatches(remoteRefs, entry)) {
                 entry.copy(fileId = uploadEncrypted(entry.entryName, payload, remoteRef))
             } else {
                 entry.copy(fileId = remoteRef?.fileId.orEmpty())
@@ -297,7 +378,7 @@ class DriveV3Coordinator(
                 updatedAt = summary.updatedAt,
                 fingerprint = summary.detailFingerprint
             )
-            refs += if (!remoteRefMatches(remoteRefs, entry)) {
+            finalRefsMap[key] = if (!remoteRefMatches(remoteRefs, entry)) {
                 val record = rideHistoryRepository.loadRideRecord(summary.id) ?: return@forEach
                 val payloadJson = record.toJson()
                     .put("vehicleId", summary.vehicleId)
@@ -321,7 +402,7 @@ class DriveV3Coordinator(
             settingsEntry = SETTINGS_ENTRY,
             settingsFileId = settingsFileId,
             settingsFingerprint = settingsFingerprint,
-            entities = refs,
+            entities = finalRefsMap.values.toList(),
             counters = DriveV3Counters(
                 vehicleProfileCount = profiles.size,
                 controllerBindingCount = bindings.size,
@@ -331,7 +412,6 @@ class DriveV3Coordinator(
         )
         entityStore.uploadManifest(manifest)
 
-        val pending = mutationRepository.getCoalescedPending()
         if (pending.isNotEmpty()) {
             mutationRepository.markSynced(pending.map { it.id })
         }
@@ -385,8 +465,8 @@ class DriveV3Coordinator(
     private fun speedTestEntry(testId: String): String =
         "v3/speed-tests/${safeToken(testId)}.json.enc"
 
-    private suspend fun downloadEncrypted(entryName: String, password: String): ByteArray {
-        val encryptedJson = entityStore.downloadEntity(entryName).toString(Charsets.UTF_8)
+    private suspend fun downloadEncrypted(entryName: String, password: String, fileIdHint: String? = null): ByteArray {
+        val encryptedJson = entityStore.downloadEntity(entryName, fileIdHint).toString(Charsets.UTF_8)
         val encrypted = EncryptedBackup.fromJson(encryptedJson)
         return if (encrypted.version >= EncryptionService.VERSION_PASSWORD_FIXED_SALT_LEGACY) {
             EncryptionService.decryptWithPassword(encrypted, password)

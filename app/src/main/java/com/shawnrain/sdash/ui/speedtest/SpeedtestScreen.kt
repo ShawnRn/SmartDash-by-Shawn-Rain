@@ -48,6 +48,8 @@ import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -113,6 +115,8 @@ import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.shawnrain.sdash.MainViewModel
+import com.shawnrain.sdash.data.dashcam.DashcamManager
+import com.shawnrain.sdash.data.dashcam.DashcamSegment
 import com.shawnrain.sdash.data.MetricType
 import com.shawnrain.sdash.data.history.RideHistoryRecord
 import com.shawnrain.sdash.data.history.RideHistorySummary
@@ -197,7 +201,11 @@ private enum class RideChartMetric(val title: String, val unit: String, val colo
 }
 
 @Composable
-fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
+fun SpeedtestScreen(
+    viewModel: MainViewModel,
+    modifier: Modifier = Modifier,
+    onPlayVideo: (String) -> Unit = {}
+) {
     val metrics by viewModel.metrics.collectAsState()
     val speedTestSession by viewModel.speedTestSession.collectAsState()
     val speedTestHistory by viewModel.speedTestHistory.collectAsState()
@@ -599,7 +607,8 @@ fun SpeedtestScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                     .onFailure {
                         scope.launch { snackbarHostState.showSnackbar("保存 CSV 失败") }
                     }
-            }
+            },
+            onPlayVideo = onPlayVideo
         )
     }
 
@@ -1250,8 +1259,15 @@ private fun RideHistoryDetailLayer(
     onDismiss: () -> Unit,
     onShare: () -> Unit,
     onSaveToAlbum: () -> Unit,
-    onExportCsv: () -> Unit
+    onExportCsv: () -> Unit,
+    onPlayVideo: (String) -> Unit
 ) {
+    val context = LocalContext.current
+    val dashcamManager = remember { DashcamManager.getInstance(context) }
+    val segments by dashcamManager.repository.segments.collectAsState()
+    val matchingSegments = remember(record.id, segments) {
+        segments.filter { it.rideId == record.id }
+    }
     val scope = rememberCoroutineScope()
     var fullscreenMetric by remember(record.id) { mutableStateOf<RideChartMetric?>(null) }
     var fullscreenRoute by remember(record.id) { mutableStateOf(false) }
@@ -1426,7 +1442,9 @@ private fun RideHistoryDetailLayer(
                             },
                             onRouteClick = { fullscreenRoute = true },
                             onShowShare = { showShareActions = true },
-                            onDismiss = ::requestDismiss
+                            onDismiss = ::requestDismiss,
+                            matchingSegments = matchingSegments,
+                            onPlaySegment = { segment -> onPlayVideo(segment.id) }
                         )
                     }
 
@@ -1537,7 +1555,9 @@ private fun RideHistoryDetailBody(
     onMetricLongPress: (RideChartMetric) -> Unit,
     onRouteClick: () -> Unit,
     onShowShare: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    matchingSegments: List<DashcamSegment>,
+    onPlaySegment: (DashcamSegment) -> Unit
 ) {
     val displayedOverviewCards = remember(record.id) { mutableStateListOf<RideOverviewCard>() }
 
@@ -1705,6 +1725,71 @@ private fun RideHistoryDetailBody(
                             contentAlignment = Alignment.Center
                         ) {
                             Text("轨迹加载中…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+        if (matchingSegments.isNotEmpty()) {
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = bezierRoundedShape(24.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text("行车记录仪录像", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("本次骑行关联了 ${matchingSegments.size} 段视频录像：", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            matchingSegments.forEachIndexed { index, segment ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(
+                                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                            shape = bezierRoundedShape(16.dp)
+                                        )
+                                        .clickable { onPlaySegment(segment) }
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.PlayArrow,
+                                            contentDescription = "播放",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                        Column {
+                                            Text(
+                                                text = "视频分段 ${index + 1}",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            val timeStr = formatTimeOnly(segment.startedAtMs)
+                                            val durationStr = formatDuration(segment.durationMs)
+                                            val sizeStr = formatFileSize(segment.fileSizeBytes)
+                                            Text(
+                                                text = "$timeStr · $durationStr · $sizeStr",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.ChevronRight,
+                                        contentDescription = "查看",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -4504,4 +4589,17 @@ private fun MergeConfirmationDialog(
             }
         }
     }
+}
+
+private fun formatTimeOnly(timestampMs: Long): String =
+    SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(timestampMs)).withDisplaySpacing()
+
+private fun formatFileSize(sizeInBytes: Long): String {
+    val kb = sizeInBytes / 1024.0
+    val mb = kb / 1024.0
+    return if (mb >= 1.0) {
+        String.format(Locale.getDefault(), "%.1f MB", mb)
+    } else {
+        String.format(Locale.getDefault(), "%.0f KB", kb)
+    }.withDisplaySpacing()
 }

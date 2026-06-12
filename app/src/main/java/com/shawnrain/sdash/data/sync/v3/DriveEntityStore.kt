@@ -41,8 +41,8 @@ class DriveEntityStore(
             skipLookup = skipLookup
         ).getOrElse { throw it }
 
-    suspend fun downloadEntity(entryName: String): ByteArray =
-        driveSyncManager.downloadRawFile(entryName).getOrElse { throw it }
+    suspend fun downloadEntity(entryName: String, fileIdHint: String? = null): ByteArray =
+        driveSyncManager.downloadRawFile(entryName, fileIdHint).getOrElse { throw it }
 
     companion object {
         const val MANIFEST_FILE_NAME = "manifest_v3.json"

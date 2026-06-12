@@ -32,6 +32,8 @@ import java.util.zip.GZIPOutputStream
 import javax.net.ssl.SSLException
 import javax.net.ssl.SSLHandshakeException
 
+class UnauthenticatedException(message: String, cause: Throwable? = null) : IOException(message, cause)
+
 /**
  * Manages Google Drive backup operations using the Drive REST API.
  * Uses OkHttp for lightweight API calls instead of the full Google API client.
@@ -149,7 +151,17 @@ class GoogleDriveSyncManager(private val context: Context) {
             try {
                 return block()
             } catch (e: Exception) {
-                if (!e.isTransientDriveNetworkFailure() || attemptIndex == DRIVE_TRANSIENT_RETRY_COUNT - 1) {
+                if (e is UnauthenticatedException || e.message?.contains("401") == true) {
+                    AppLogger.w(TAG, "Unauthenticated (401) during $operation. Clearing token cache and performing silent sign-in.")
+                    tokenCacheMutex.withLock {
+                        cachedAccessToken = null
+                        cachedAccessTokenAtMs = 0L
+                    }
+                    runCatching { silentSignIn() }
+                    if (attemptIndex == DRIVE_TRANSIENT_RETRY_COUNT - 1) {
+                        throw e
+                    }
+                } else if (!e.isTransientDriveNetworkFailure() || attemptIndex == DRIVE_TRANSIENT_RETRY_COUNT - 1) {
                     throw e
                 }
                 lastError = e
@@ -157,7 +169,7 @@ class GoogleDriveSyncManager(private val context: Context) {
                 val delayMs = DRIVE_RETRY_BASE_DELAY_MS * (attemptIndex + 1)
                 AppLogger.w(
                     TAG,
-                    "Transient Drive network failure during $operation; retrying attempt=$nextAttempt/${DRIVE_TRANSIENT_RETRY_COUNT}: ${e.message}"
+                    "Transient/Auth failure during $operation; retrying attempt=$nextAttempt/${DRIVE_TRANSIENT_RETRY_COUNT}: ${e.message}"
                 )
                 delay(delayMs)
             }
@@ -184,7 +196,7 @@ class GoogleDriveSyncManager(private val context: Context) {
         progressCallback: ((Float) -> Unit)? = null
     ): Result<BackupMetadata> = withContext(Dispatchers.IO) {
         try {
-            withDriveRetry("upload backup") {
+            val metadata = withDriveRetry("upload backup") {
                 // Get password derived from Google account email for cross-device compatibility
                 val password = getEncryptionPassword()
 
@@ -208,9 +220,10 @@ class GoogleDriveSyncManager(private val context: Context) {
                     fileName = fileName,
                     content = encryptedPayload,
                     description = "SmartDash Backup - ${getDeviceName()} - $timestamp"
-                ) ?: return@withDriveRetry Result.failure(Exception("Upload returned null file ID"))
+                )
 
-                val metadata = BackupMetadata(
+                AppLogger.i(TAG, "Backup uploaded: $fileName ($fileId)")
+                BackupMetadata(
                     fileId = fileId,
                     fileName = fileName,
                     createdAt = timestamp,
@@ -219,10 +232,8 @@ class GoogleDriveSyncManager(private val context: Context) {
                     appVersion = getAppVersion(),
                     vehicleCount = 0
                 )
-
-                AppLogger.i(TAG, "Backup uploaded: $fileName ($fileId)")
-                Result.success(metadata)
             }
+            Result.success(metadata)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Upload failed", e)
             Result.failure(e)
@@ -238,7 +249,7 @@ class GoogleDriveSyncManager(private val context: Context) {
      */
     suspend fun listBackups(): Result<List<BackupMetadata>> = withContext(Dispatchers.IO) {
         try {
-            withDriveRetry("list backups") {
+            val backups = withDriveRetry("list backups") {
                 val client = createAuthenticatedClient()
 
                 // Query for habe backup files
@@ -251,15 +262,18 @@ class GoogleDriveSyncManager(private val context: Context) {
                     okhttp3.Request.Builder().url(url).get().build()
                 ).execute()
 
+                val errBody = if (!response.isSuccessful) response.body?.string() else null
                 if (!response.isSuccessful) {
-                    return@withDriveRetry Result.failure(Exception("List failed: ${response.code}"))
+                    if (response.code == 401) {
+                        throw UnauthenticatedException("List failed: 401 $errBody")
+                    }
+                    throw IOException("List failed: ${response.code} $errBody")
                 }
 
                 val body = response.body?.string() ?: ""
-                val backups = parseFileList(body)
-
-                Result.success(backups)
+                parseFileList(body)
             }
+            Result.success(backups)
         } catch (e: Exception) {
             AppLogger.e(TAG, "List backups failed", e)
             Result.failure(e)
@@ -273,7 +287,7 @@ class GoogleDriveSyncManager(private val context: Context) {
         fileId: String
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            withDriveRetry("download backup") {
+            val decryptedString = withDriveRetry("download backup") {
                 val client = createAuthenticatedClient()
                 val password = getEncryptionPassword()
 
@@ -283,12 +297,16 @@ class GoogleDriveSyncManager(private val context: Context) {
                     okhttp3.Request.Builder().url(url).get().build()
                 ).execute()
 
+                val errBody = if (!response.isSuccessful) response.body?.string() else null
                 if (!response.isSuccessful) {
-                    return@withDriveRetry Result.failure(Exception("Download failed: ${response.code}"))
+                    if (response.code == 401) {
+                        throw UnauthenticatedException("Download failed: 401 $errBody")
+                    }
+                    throw IOException("Download failed: ${response.code} $errBody")
                 }
 
                 val encryptedBytes = response.body?.bytes()
-                    ?: return@withDriveRetry Result.failure(Exception("Empty download response"))
+                    ?: throw IOException("Empty download response")
 
                 // Parse encrypted payload
                 val encryptedJson = String(encryptedBytes, Charsets.UTF_8)
@@ -302,8 +320,9 @@ class GoogleDriveSyncManager(private val context: Context) {
                     // Version 1 = device-bound key (legacy, only works on same device)
                     EncryptionService.decrypt(encrypted)
                 }
-                Result.success(String(plainBytes, Charsets.UTF_8))
+                String(plainBytes, Charsets.UTF_8)
             }
+            Result.success(decryptedString)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Download failed", e)
             Result.failure(e)
@@ -323,13 +342,16 @@ class GoogleDriveSyncManager(private val context: Context) {
                     okhttp3.Request.Builder().url(url).delete().build()
                 ).execute()
 
-                if (response.isSuccessful) {
-                    AppLogger.i(TAG, "Deleted backup: $fileId")
-                    Result.success(Unit)
-                } else {
-                    Result.failure(Exception("Delete failed: ${response.code}"))
+                val errBody = if (!response.isSuccessful) response.body?.string() else null
+                if (!response.isSuccessful) {
+                    if (response.code == 401) {
+                        throw UnauthenticatedException("Delete failed: 401 $errBody")
+                    }
+                    throw IOException("Delete failed: ${response.code} $errBody")
                 }
+                AppLogger.i(TAG, "Deleted backup: $fileId")
             }
+            Result.success(Unit)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Delete failed", e)
             Result.failure(e)
@@ -382,7 +404,7 @@ class GoogleDriveSyncManager(private val context: Context) {
         description: String,
         mimeType: String = BACKUP_MIME_TYPE,
         existingFileId: String? = null
-    ): String? {
+    ): String {
         // Build JSON metadata
         val request = if (existingFileId != null) {
             okhttp3.Request.Builder()
@@ -422,18 +444,18 @@ class GoogleDriveSyncManager(private val context: Context) {
         }
 
         val response = client.newCall(request).execute()
+        val errBody = if (!response.isSuccessful) response.body?.string() else null
         if (!response.isSuccessful) {
-            val errBody = response.body?.string()
             AppLogger.e(TAG, "Upload failed: ${response.code} $errBody")
-            if (response.code >= 500) {
-                throw IOException("Upload failed: ${response.code} $errBody")
+            if (response.code == 401) {
+                throw UnauthenticatedException("Upload failed: 401 $errBody")
             }
-            return null
+            throw IOException("Upload failed: ${response.code} $errBody")
         }
 
-        val responseBody = response.body?.string() ?: return null
+        val responseBody = response.body?.string() ?: throw IOException("Upload response body is null")
         val jsonElement = kotlinx.serialization.json.Json.parseToJsonElement(responseBody)
-        return jsonElement.jsonObject["id"]?.jsonPrimitive?.content
+        return jsonElement.jsonObject["id"]?.jsonPrimitive?.content ?: throw IOException("Upload response missing file id")
     }
 
     private data class DriveNamedFile(
@@ -455,10 +477,11 @@ class GoogleDriveSyncManager(private val context: Context) {
         ).execute()
 
         if (!response.isSuccessful) {
-            if (response.code >= 500) {
-                throw IOException("Query failed: ${response.code}")
+            val errBody = response.body?.string()
+            if (response.code == 401) {
+                throw UnauthenticatedException("Query failed: 401 $errBody")
             }
-            throw IllegalStateException("Query failed: ${response.code}")
+            throw IOException("Query failed: ${response.code} $errBody")
         }
 
         val body = response.body?.string() ?: return@withContext emptyList()
@@ -485,10 +508,11 @@ class GoogleDriveSyncManager(private val context: Context) {
             return@withContext
         }
         if (!response.isSuccessful) {
-            if (response.code >= 500) {
-                throw IOException("Delete failed: ${response.code}")
+            val errBody = response.body?.string()
+            if (response.code == 401) {
+                throw UnauthenticatedException("Delete failed: 401 $errBody")
             }
-            throw IllegalStateException("Delete failed: ${response.code}")
+            throw IOException("Delete failed: ${response.code} $errBody")
         }
     }
 
@@ -655,9 +679,7 @@ class GoogleDriveSyncManager(private val context: Context) {
                                 description = "SmartDash Drive Sync - $fileName",
                                 mimeType = mimeType
                             )
-                            if (uploadedId != null) {
-                                saveFileIdToCache(fileName, uploadedId)
-                            }
+                            saveFileIdToCache(fileName, uploadedId)
                         } else {
                             val existingFiles = findFilesByName(client, fileName)
                             val primary = existingFiles.firstOrNull()
@@ -701,9 +723,7 @@ class GoogleDriveSyncManager(private val context: Context) {
                                 }
                             }
                             
-                            if (resolvedUpload != null) {
-                                saveFileIdToCache(fileName, resolvedUpload)
-                            }
+                            saveFileIdToCache(fileName, resolvedUpload)
                             
                             if (duplicates.isNotEmpty()) {
                                 cleanupDuplicateFilesBestEffort(client, fileName, duplicates)
@@ -716,11 +736,7 @@ class GoogleDriveSyncManager(private val context: Context) {
                     uploadedId
                 }
             }
-            if (fileId != null) {
-                Result.success(fileId)
-            } else {
-                Result.failure(Exception("Upload returned null file ID"))
-            }
+            Result.success(fileId)
         } catch (e: Exception) {
             AppLogger.e(TAG, "uploadRawFile failed", e)
             Result.failure(e)
@@ -740,30 +756,78 @@ class GoogleDriveSyncManager(private val context: Context) {
     /**
      * Download a raw file from Drive appDataFolder by name.
      */
-    suspend fun downloadRawFile(fileName: String): Result<ByteArray> = withContext(Dispatchers.IO) {
+    suspend fun downloadRawFile(
+        fileName: String,
+        fileIdHint: String? = null
+    ): Result<ByteArray> = withContext(Dispatchers.IO) {
         try {
-            withDriveRetry("download raw file $fileName") {
-                val client = createAuthenticatedClient()
-                val files = findFilesByName(client, fileName)
-                val file = files.firstOrNull()
-                    ?: return@withDriveRetry Result.failure(Exception("File not found: $fileName"))
-                val fileId = file.id
-
-                // Download the file content
-                val downloadUrl = "$DRIVE_API_BASE/drive/v3/files/$fileId?alt=media"
-                val downloadResponse = client.newCall(
-                    okhttp3.Request.Builder().url(downloadUrl).get().build()
-                ).execute()
-
-                if (!downloadResponse.isSuccessful) {
-                    return@withDriveRetry Result.failure(Exception("Download failed: ${downloadResponse.code}"))
+            val bytes = withDriveRetry("download raw file $fileName") {
+                val resolvedId = fileIdHint ?: getCachedFileId(fileName)
+                var resultBytes: ByteArray? = null
+                
+                if (!resolvedId.isNullOrBlank()) {
+                    val runDownload = runCatching {
+                        val client = createAuthenticatedClient()
+                        val downloadUrl = "$DRIVE_API_BASE/drive/v3/files/$resolvedId?alt=media"
+                        val response = client.newCall(
+                            okhttp3.Request.Builder().url(downloadUrl).get().build()
+                        ).execute()
+                        
+                        if (response.isSuccessful) {
+                            val bytes = response.body?.bytes()
+                            if (bytes != null) {
+                                saveFileIdToCache(fileName, resolvedId)
+                                bytes
+                            } else null
+                        } else {
+                            val errBody = response.body?.string()
+                            if (response.code == 401) {
+                                throw UnauthenticatedException("Download failed: 401 $errBody")
+                            }
+                            if (response.code == 404) {
+                                clearCachedFileId(fileName)
+                            }
+                            null
+                        }
+                    }.getOrElse { error ->
+                        if (error is UnauthenticatedException || error.isTransientDriveNetworkFailure()) {
+                            throw error
+                        }
+                        null
+                    }
+                    resultBytes = runDownload
                 }
-
-                val bytes = downloadResponse.body?.bytes()
-                    ?: return@withDriveRetry Result.failure(Exception("Empty download response"))
-
-                Result.success(bytes)
+                
+                if (resultBytes == null) {
+                    val client = createAuthenticatedClient()
+                    val files = findFilesByName(client, fileName)
+                    val file = files.firstOrNull()
+                        ?: throw java.io.FileNotFoundException("File not found: $fileName")
+                    val fileId = file.id
+                    
+                    val downloadUrl = "$DRIVE_API_BASE/drive/v3/files/$fileId?alt=media"
+                    val response = client.newCall(
+                        okhttp3.Request.Builder().url(downloadUrl).get().build()
+                    ).execute()
+                    
+                    val errBody = if (!response.isSuccessful) response.body?.string() else null
+                    if (!response.isSuccessful) {
+                        if (response.code == 401) {
+                            throw UnauthenticatedException("Download failed: 401 $errBody")
+                        }
+                        throw IOException("Download failed: ${response.code} $errBody")
+                    }
+                    
+                    val bytes = response.body?.bytes()
+                        ?: throw IOException("Empty download response")
+                        
+                    saveFileIdToCache(fileName, fileId)
+                    resultBytes = bytes
+                }
+                
+                resultBytes
             }
+            Result.success(bytes)
         } catch (e: Exception) {
             AppLogger.e(TAG, "downloadRawFile failed: $fileName", e)
             Result.failure(e)
@@ -775,24 +839,24 @@ class GoogleDriveSyncManager(private val context: Context) {
      */
     suspend fun downloadTextFile(fileId: String): Result<String> = withContext(Dispatchers.IO) {
         try {
-            withDriveRetry("download text file") {
+            val bodyString = withDriveRetry("download text file") {
                 val client = createAuthenticatedClient()
                 val url = "$DRIVE_API_BASE/drive/v3/files/$fileId?alt=media"
                 val response = client.newCall(
                     okhttp3.Request.Builder().url(url).get().build()
                 ).execute()
 
+                val errBody = if (!response.isSuccessful) response.body?.string() else null
                 if (!response.isSuccessful) {
-                    return@withDriveRetry Result.failure(Exception("Download failed: ${response.code}"))
+                    if (response.code == 401) {
+                        throw UnauthenticatedException("Download failed: 401 $errBody")
+                    }
+                    throw IOException("Download failed: ${response.code} $errBody")
                 }
 
-                val body = response.body?.string()
-                if (body != null) {
-                    Result.success(body)
-                } else {
-                    Result.failure(Exception("Empty download response"))
-                }
+                response.body?.string() ?: throw IOException("Empty download response")
             }
+            Result.success(bodyString)
         } catch (e: Exception) {
             AppLogger.e(TAG, "downloadTextFile failed: $fileId", e)
             Result.failure(e)

@@ -462,7 +462,8 @@ fun DashboardScreen(
                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                         SquareSpeedIndicator(
                             metrics = dashboardMetrics,
-                            color = ringColor
+                            color = ringColor,
+                            viewModel = viewModel
                         )
                     }
                 }
@@ -1178,7 +1179,8 @@ private fun DashboardStatusStrip(
 @Composable
 fun SquareSpeedIndicator(
     metrics: VehicleMetrics,
-    color: Color
+    color: Color,
+    viewModel: MainViewModel
 ) {
     val animatedSpeed by animateFloatAsState(
         targetValue = metrics.speedKmH,
@@ -1209,21 +1211,16 @@ fun SquareSpeedIndicator(
             if (dashcamState == DashcamState.PREVIEWING || dashcamState == DashcamState.RECORDING || dashcamState == DashcamState.SEGMENT_GAP) {
                 AndroidView(
                     factory = { ctx ->
-                        PreviewView(ctx).apply {
-                            scaleType = PreviewView.ScaleType.FILL_CENTER
-                            val view = this
-                            scope.launch {
-                                delay(400)
-                                dashcamManager.setPreviewSurfaceProvider(view.surfaceProvider)
-                            }
-                        }
+                        val view = viewModel.getOrCreatePreviewView(ctx, dashcamManager)
+                        (view.parent as? android.view.ViewGroup)?.removeView(view)
+                        view
                     },
                     update = { view ->
-                        view.scaleType = PreviewView.ScaleType.FILL_CENTER
+                        view.scaleType = androidx.camera.view.PreviewView.ScaleType.FILL_CENTER
                     },
                     modifier = Modifier.fillMaxSize(),
-                    onRelease = {
-                        dashcamManager.setPreviewSurfaceProvider(null)
+                    onRelease = { view ->
+                        (view.parent as? android.view.ViewGroup)?.removeView(view)
                     }
                 )
                 Box(
@@ -1558,7 +1555,37 @@ private fun PowerBalanceBar(
     )
     val isOutput = powerKw >= 0f
     val hasActivePower = abs(powerKw) >= 0.08f
-    val accentColor = MaterialTheme.colorScheme.primary
+    val solidColor = remember(animatedFraction, isOutput) {
+        if (isOutput) {
+            if (animatedFraction < 0.5f) {
+                androidx.compose.ui.graphics.lerp(
+                    Color(0xFF10B981), // 绿
+                    Color(0xFFF59E0B), // 黄
+                    animatedFraction * 2f
+                )
+            } else {
+                androidx.compose.ui.graphics.lerp(
+                    Color(0xFFF59E0B), // 黄
+                    Color(0xFFEF4444), // 红
+                    ((animatedFraction - 0.5f) * 2f).coerceIn(0f, 1f)
+                )
+            }
+        } else {
+            if (animatedFraction < 0.5f) {
+                androidx.compose.ui.graphics.lerp(
+                    Color(0xFFF59E0B), // 黄/橙
+                    Color(0xFF84CC16), // 黄绿
+                    animatedFraction * 2f
+                )
+            } else {
+                androidx.compose.ui.graphics.lerp(
+                    Color(0xFF84CC16), // 黄绿
+                    Color(0xFF10B981), // 强绿
+                    ((animatedFraction - 0.5f) * 2f).coerceIn(0f, 1f)
+                )
+            }
+        }
+    }
 
     Row(
         modifier = modifier
@@ -1566,7 +1593,7 @@ private fun PowerBalanceBar(
             .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f)),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 左半边（动能回收，向左延伸，颜色由绿变红）
+        // 左半边（动能回收，向左延伸，纯色越高越绿）
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -1579,15 +1606,7 @@ private fun PowerBalanceBar(
                         .fillMaxWidth(animatedFraction)
                         .fillMaxHeight()
                         .clip(bezierRoundedShape(999.dp))
-                        .background(
-                            androidx.compose.ui.graphics.Brush.horizontalGradient(
-                                colors = listOf(
-                                    Color(0xFFEF4444), // 高回收：红
-                                    Color(0xFFF59E0B), // 中回收：橙
-                                    Color(0xFF10B981)  // 低回收：绿
-                                )
-                            )
-                        )
+                        .background(solidColor)
                   )
             }
         }
@@ -1600,7 +1619,7 @@ private fun PowerBalanceBar(
                 .background(Color.White.copy(alpha = 0.38f))
         )
 
-        // 右半边（功率输出，向右延伸，颜色由绿变红）
+        // 右半边（功率输出，向右延伸，纯色越高越红）
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -1613,15 +1632,7 @@ private fun PowerBalanceBar(
                         .fillMaxWidth(animatedFraction)
                         .fillMaxHeight()
                         .clip(bezierRoundedShape(999.dp))
-                        .background(
-                            androidx.compose.ui.graphics.Brush.horizontalGradient(
-                                colors = listOf(
-                                    Color(0xFF10B981), // 低输出：绿
-                                    Color(0xFFF59E0B), // 中输出：橙
-                                    Color(0xFFEF4444)  // 高输出：红
-                                )
-                            )
-                        )
+                        .background(solidColor)
                 )
             }
         }

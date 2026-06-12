@@ -63,6 +63,21 @@ class SyncScheduler(
         enqueueRideHistoryMutation(entityId, SyncTriggerReason.RIDE_ENDED)
     }
 
+    suspend fun onRideDeleted(rideId: String) = withContext(Dispatchers.IO) {
+        try {
+            val metadata = metadataRepository.getMetadata(context)
+            val newVersion = metadata.localStateVersion + 1
+
+            mutationRepository.enqueueDeleteForRide(rideId, newVersion, metadata.deviceId)
+            metadataRepository.incrementLocalStateVersion(context)
+
+            DrivePushWorker.enqueuePush(context, SyncTriggerReason.RIDE_ENDED)
+            AppLogger.i(TAG, "Ride deletion sync scheduled: rideId=$rideId")
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to schedule ride deletion sync: ${e.message}")
+        }
+    }
+
     private suspend fun enqueueRideHistoryMutation(entityId: String, reason: SyncTriggerReason) {
         try {
             val metadata = metadataRepository.getMetadata(context)
@@ -139,6 +154,21 @@ class SyncScheduler(
             AppLogger.i(TAG, "Vehicle profile change sync scheduled: profileId=$profileId")
         } catch (e: Exception) {
             AppLogger.w(TAG, "Failed to schedule vehicle profile sync: ${e.message}")
+        }
+    }
+
+    suspend fun onVehicleProfileDeleted(profileId: String) = withContext(Dispatchers.IO) {
+        try {
+            val metadata = metadataRepository.getMetadata(context)
+            val newVersion = metadata.localStateVersion + 1
+
+            mutationRepository.enqueueDeleteForVehicleProfile(profileId, newVersion, metadata.deviceId)
+            metadataRepository.incrementLocalStateVersion(context)
+
+            DrivePushWorker.enqueuePush(context, SyncTriggerReason.VEHICLE_PROFILE_CHANGED)
+            AppLogger.i(TAG, "Vehicle profile deletion sync scheduled: profileId=$profileId")
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to schedule vehicle profile deletion sync: ${e.message}")
         }
     }
 

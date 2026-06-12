@@ -38,6 +38,7 @@ import com.shawnrain.sdash.data.gps.DirectionSource
 import com.shawnrain.sdash.data.gps.DirectionLabelFormatter
 import com.shawnrain.sdash.data.gps.GradeEstimator
 import com.shawnrain.sdash.data.gps.GpsTracker
+import com.shawnrain.sdash.data.dashcam.DashcamState
 import com.shawnrain.sdash.ble.protocols.WriteFailurePhase
 import com.shawnrain.sdash.ble.protocols.ZhikeParameterCatalog
 import com.shawnrain.sdash.ble.protocols.ZhikeProtocol
@@ -1838,7 +1839,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         ProtocolParser.autoConfigUpdates.onEach { (key, value) ->
             if (key == "polePairs") {
                 savePolePairs(value)
-                _calibrationMessage.value = "已自动从控制器读取极对数: $value"
             }
         }.launchIn(viewModelScope)
 
@@ -1850,12 +1850,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }.launchIn(viewModelScope)
 
+        // 监听自动录像设置变化 Flow，支持动态开关录像与连接兜底
+        dashcamAutoRecordEnabled.onEach { enabled ->
+            val isConnected = bleManager.connectionState.value is ConnectionState.Connected
+            val isRecording = dashcamManager.state.value == DashcamState.RECORDING
+            if (enabled && isConnected && !isRecording) {
+                AppLogger.i(TAG, "自动录像开关被开启，控制器当前已连接，触发自动开启录影")
+                startDashcamRecordingForConnectedController()
+            } else if (!enabled && isRecording) {
+                AppLogger.i(TAG, "自动录像开关被关闭，触发自动停止录影")
+                dashcamManager.stopRecording()
+            }
+        }.launchIn(viewModelScope)
+
         bleManager.connectionState.onEach { state ->
             if (state is ConnectionState.Connected) {
                 autoReconnectAttemptedAddress = state.device.address
                 stopAutoReconnectWatchdog()
                 if (pendingRideStopReason == RideStopReason.DISCONNECTED) {
                     cancelPendingRideStop("控制器已恢复连接，继续记录本次行程")
+                } else {
+                    _calibrationMessage.value = "控制器已连接"
                 }
                 viewModelScope.launch {
                     val intent = pendingControllerConnectIntent
@@ -1873,6 +1888,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         AppLogger.i(TAG, "临时连接未写入车辆控制器绑定 address=${state.device.address}")
                     }
                 }
+                if (dashcamAutoRecordEnabled.value) {
+                    AppLogger.i(TAG, "控制器连接成功，触发自动开启行车记录仪录影")
+                    startDashcamRecordingForConnectedController()
+                }
             }
             if (state is ConnectionState.Disconnected && _isRideActive.value) {
                 if (!debugAllowRecordWithoutController.value) {
@@ -1883,6 +1902,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             if (state is ConnectionState.Disconnected) {
+                if (dashcamManager.state.value == DashcamState.RECORDING) {
+                    AppLogger.i(TAG, "控制器已断开，自动停止行车记录仪录影")
+                    dashcamManager.stopRecording()
+                }
                 lastControllerDeviceAddress.value?.let { address ->
                     startAutoReconnectWatchdog(address, reason = "disconnect")
                 }
@@ -2262,21 +2285,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isRideActive.value = true
         startRideElapsedTicker()
 
-        // 同步启动行车记录仪录像
-        val telemetryProvider = {
-            val currentMetrics = metrics.value
-            val currentDirection = rideDirectionLabel.value
-            com.shawnrain.sdash.data.dashcam.DashcamTelemetrySample(
-                offsetMs = 0L,
-                speedKmH = currentMetrics.speedKmH,
-                powerKw = currentMetrics.totalPowerW / 1000f,
-                direction = currentDirection,
-                voltage = currentMetrics.voltage,
-                soc = currentMetrics.soc,
-                efficiency = currentMetrics.efficiencyWhKm
-            )
+        if (mode == RideStartMode.MANUAL || dashcamAutoRecordEnabled.value) {
+            val isRecording = dashcamManager.state.value == DashcamState.RECORDING
+            if (!isRecording) {
+                AppLogger.i(TAG, "行程开始 (mode=$mode)，触发开启行车记录仪录影")
+                startDashcamRecordingForConnectedController()
+            }
         }
-        dashcamManager.startRecording(null, telemetryProvider)
     }
 
     private fun startRideElapsedTicker() {
@@ -2413,6 +2428,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return true
         }
         return false
+    }
+
+    private fun startDashcamRecordingForConnectedController() {
+        val telemetryProvider = {
+            val currentMetrics = metrics.value
+            val currentDirection = rideDirectionLabel.value
+            com.shawnrain.sdash.data.dashcam.DashcamTelemetrySample(
+                offsetMs = 0L,
+                speedKmH = currentMetrics.speedKmH,
+                powerKw = currentMetrics.totalPowerW / 1000f,
+                direction = currentDirection,
+                voltage = currentMetrics.voltage,
+                soc = currentMetrics.soc,
+                efficiency = currentMetrics.efficiencyWhKm
+            )
+        }
+        AppLogger.i(TAG, "启动行车记录仪录像 (telemetry-bound)")
+        dashcamManager.startRecording(null, telemetryProvider)
     }
 
     private suspend fun migrateLegacyRideHistoryIfNeeded() {
@@ -3361,7 +3394,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteRideHistoryRecord(id: String) {
         viewModelScope.launch {
             rideHistoryRepository.deleteRide(id)
-            syncScheduler.onRideHistoryChanged(id)
+            syncScheduler.onRideDeleted(id)
         }
     }
 
@@ -3909,7 +3942,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val target = vehicleProfiles.value.firstOrNull { it.id == id } ?: return@launch
         autoReconnectAttemptedAddress = null
         settingsRepository.deleteVehicleProfile(id)
-        syncScheduler.onVehicleProfileChanged(id)
+        syncScheduler.onVehicleProfileDeleted(id)
         _calibrationMessage.value = "已删除车辆档案：${target.name}"
     }
 
@@ -4609,6 +4642,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         AppLogger.i(TAG, "Initializing MainViewModel...")
     }
 
+    private var globalPreviewView: androidx.camera.view.PreviewView? = null
+
+    fun getOrCreatePreviewView(
+        context: android.content.Context,
+        dashcamManager: com.shawnrain.sdash.data.dashcam.DashcamManager
+    ): androidx.camera.view.PreviewView {
+        val current = globalPreviewView
+        if (current != null) return current
+
+        val newView = androidx.camera.view.PreviewView(context).apply {
+            implementationMode = androidx.camera.view.PreviewView.ImplementationMode.COMPATIBLE
+            scaleType = androidx.camera.view.PreviewView.ScaleType.FILL_CENTER
+            dashcamManager.setPreviewSurfaceProvider(this.surfaceProvider)
+        }
+        globalPreviewView = newView
+        return newView
+    }
+
     override fun onCleared() {
         AppLogger.i(TAG, "MainViewModel 被清理，清理 BLE 资源")
 
@@ -4620,6 +4671,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bmsBleManager.disconnect()
         headingTracker.stop()
         gpsTracker.stopTracking()
+        globalPreviewView = null
         super.onCleared()
     }
 

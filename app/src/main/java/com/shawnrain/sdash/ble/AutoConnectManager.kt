@@ -204,7 +204,6 @@ class AutoConnectManager(
         )
 
         if (success) {
-            onConnected(controller.address)
             return true
         } else {
             isConnecting = false

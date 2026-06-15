@@ -721,7 +721,10 @@ class DashcamManager private constructor(private val context: Context) {
 
     @androidx.annotation.OptIn(androidx.camera.camera2.interop.ExperimentalCamera2Interop::class)
     internal fun startPreviewOnly() {
-        if (_state.value != DashcamState.IDLE) return
+        if (_state.value == DashcamState.RECORDING) return
+        if (_state.value == DashcamState.PREVIEWING || _state.value == DashcamState.ERROR) {
+            stopPreviewOnly()
+        }
         val provider = cameraProvider
         if (provider == null) {
             AppLogger.i(TAG, "Camera provider not ready when startPreviewOnly() called. Queueing request.")
@@ -815,10 +818,17 @@ class DashcamManager private constructor(private val context: Context) {
         AppLogger.i(TAG, "onAppVisibilityChanged: isForeground=$isForeground, state=${_state.value}, hasSurfaceProvider=${surfaceProvider != null}, wasPreviewingBeforeBackground=$wasPreviewingBeforeBackground")
         if (isForeground) {
             if (_state.value == DashcamState.RECORDING) {
-                if (surfaceProvider != null) {
+                if (activeRecording == null) {
+                    AppLogger.w(TAG, "State is RECORDING but activeRecording is null. Reverting to preview.")
+                    stopRecording()
+                    startPreviewOnly()
+                } else if (surfaceProvider != null) {
                     AppLogger.i(TAG, "Restoring real preview surface during recording")
                     preview?.setSurfaceProvider(surfaceProvider)
                 }
+            } else if (_state.value == DashcamState.ERROR) {
+                AppLogger.i(TAG, "Returning to foreground in ERROR state, trying to restart preview")
+                startPreviewOnly()
             } else if (wasPreviewingBeforeBackground) {
                 wasPreviewingBeforeBackground = false
                 AppLogger.i(TAG, "Restoring preview automatically after returning to foreground")

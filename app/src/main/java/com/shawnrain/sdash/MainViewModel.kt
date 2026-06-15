@@ -4710,6 +4710,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun safeBluetoothDeviceName(device: BluetoothDevice): String? {
         return runCatching { device.name }.getOrNull()
     }
+
+    fun cleanupOnExit() {
+        AppLogger.i(TAG, "cleanupOnExit: cleaning up resources...")
+        
+        // Trigger backup sync check in background before exit
+        runCatching {
+            syncScheduler.onAppBackground()
+        }
+
+        // 1. Stop Dashcam recording and preview
+        runCatching {
+            dashcamManager.stopRecording()
+            dashcamManager.stopPreviewOnly()
+        }
+
+        // 2. Disconnect Controller BLE
+        runCatching {
+            bleManager.disconnect()
+        }
+
+        // 3. Disconnect BMS BLE
+        runCatching {
+            bmsBleManager.disconnect()
+        }
+
+        // 4. Stop Sensors and GPS
+        runCatching {
+            headingTracker.stop()
+        }
+        runCatching {
+            gpsTracker.stopTracking()
+        }
+
+        globalPreviewView = null
+    }
+
+    fun exitApp(activity: android.app.Activity) {
+        cleanupOnExit()
+        
+        // 5. Stop foreground recording service if running
+        runCatching {
+            com.shawnrain.sdash.service.DashcamForegroundService.stopService(activity)
+        }
+
+        // 6. Finish the activity and remove it from recents
+        activity.finishAndRemoveTask()
+
+        // Delay slightly to allow lifecycle callbacks to complete, then kill process
+        activity.window.decorView.postDelayed({
+            android.os.Process.killProcess(android.os.Process.myPid())
+            System.exit(0)
+        }, 250)
+    }
 }
 
 internal object RideCsvExporter {

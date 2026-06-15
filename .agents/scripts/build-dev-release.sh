@@ -13,8 +13,10 @@ if should_route_remote_build; then
   REMOTE_DEV_RELEASE_APK_PATH="$(extract_output_var "$REMOTE_OUTPUT_FILE" "DEV_RELEASE_APK_PATH")"
   REMOTE_ARCHIVE_APK="$(extract_output_var "$REMOTE_OUTPUT_FILE" "ARCHIVE_APK")"
   REMOTE_BUILD_LOG="$(extract_output_var "$REMOTE_OUTPUT_FILE" "BUILD_LOG")"
+  REMOTE_NORMAL_APK="$(extract_output_var "$REMOTE_OUTPUT_FILE" "DEV_NORMAL_APK")"
+  REMOTE_VIVO_APK="$(extract_output_var "$REMOTE_OUTPUT_FILE" "DEV_VIVO_APK")"
 
-  if [[ -z "$REMOTE_DEV_RELEASE_APK_PATH" || -z "$REMOTE_ARCHIVE_APK" || -z "$REMOTE_BUILD_LOG" ]]; then
+  if [[ -z "$REMOTE_DEV_RELEASE_APK_PATH" || -z "$REMOTE_ARCHIVE_APK" || -z "$REMOTE_BUILD_LOG" || -z "$REMOTE_NORMAL_APK" || -z "$REMOTE_VIVO_APK" ]]; then
     echo "Remote build output was missing expected paths." >&2
     exit 1
   fi
@@ -22,9 +24,25 @@ if should_route_remote_build; then
   LOCAL_ARCHIVE_APK="$ARTIFACT_DIR/$(basename "$REMOTE_ARCHIVE_APK")"
   LOCAL_BUILD_LOG="$LOG_DIR/$(basename "$REMOTE_BUILD_LOG")"
 
+  mkdir -p "$(dirname "$DEV_RELEASE_APK_PATH")"
+  mkdir -p "$PROJECT_ROOT/app/build/outputs/apk/vivo/devRelease"
+
   copy_remote_file_to_local "$REMOTE_TARGET" "$REMOTE_DEV_RELEASE_APK_PATH" "$DEV_RELEASE_APK_PATH"
+  copy_remote_file_to_local "$REMOTE_TARGET" "$REMOTE_NORMAL_APK" "$PROJECT_ROOT/app/build/outputs/apk/normal/devRelease/app-normal-devRelease.apk"
+  copy_remote_file_to_local "$REMOTE_TARGET" "$REMOTE_VIVO_APK" "$PROJECT_ROOT/app/build/outputs/apk/vivo/devRelease/app-vivo-devRelease.apk"
   copy_remote_file_to_local "$REMOTE_TARGET" "$REMOTE_ARCHIVE_APK" "$LOCAL_ARCHIVE_APK"
   copy_remote_file_to_local "$REMOTE_TARGET" "$REMOTE_BUILD_LOG" "$LOCAL_BUILD_LOG"
+
+  # Copy to local Desktop
+  DESKTOP_DIR="/Users/shawnrain/Desktop"
+  if [[ -d "$DESKTOP_DIR" ]]; then
+    echo "Copying downloaded devRelease APKs to Desktop..."
+    cp "$PROJECT_ROOT/app/build/outputs/apk/normal/devRelease/app-normal-devRelease.apk" "$DESKTOP_DIR/SmartDash-normal-devRelease.apk"
+    cp "$PROJECT_ROOT/app/build/outputs/apk/vivo/devRelease/app-vivo-devRelease.apk" "$DESKTOP_DIR/SmartDash-vivo-devRelease.apk"
+    echo "Successfully copied to local Desktop:"
+    echo "  - $DESKTOP_DIR/SmartDash-normal-devRelease.apk"
+    echo "  - $DESKTOP_DIR/SmartDash-vivo-devRelease.apk"
+  fi
 
   SHA="$(shasum -a 256 "$DEV_RELEASE_APK_PATH" | awk '{print $1}')"
   SIZE="$(ls -lh "$DEV_RELEASE_APK_PATH" | awk '{print $5}')"

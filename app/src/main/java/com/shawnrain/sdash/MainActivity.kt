@@ -131,6 +131,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
 class MainActivity : ComponentActivity() {
+    private lateinit var mainViewModel: MainViewModel
     private val isInPipModeState = mutableStateOf(false)
     private var currentRoute: String? = null
     private var pipEnabled = false
@@ -160,6 +161,11 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        mainViewModel = ViewModelProvider(
+            this,
+            ViewModelProvider.AndroidViewModelFactory.getInstance(application)
+        )[MainViewModel::class.java]
+
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             AppLogger.e("FATAL", "Uncaught Exception on ${thread.name}", throwable)
@@ -192,9 +198,7 @@ class MainActivity : ComponentActivity() {
         dispatchLaunchIntent(intent)
         enableEdgeToEdge()
         setContent {
-            val viewModel: MainViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
-                factory = ViewModelProvider.AndroidViewModelFactory.getInstance(application)
-            )
+            val viewModel = mainViewModel
             val useMiSans by viewModel.useMiSansFont.collectAsState()
 
             HabeTheme(useMiSans = useMiSans) {
@@ -261,6 +265,18 @@ class MainActivity : ComponentActivity() {
             }
             systemBackObserver = null
         }
+        
+        if (isFinishing) {
+            AppLogger.i("MainActivity", "Activity is finishing (swipe away), cleaning up resources...")
+            try {
+                if (::mainViewModel.isInitialized) {
+                    mainViewModel.cleanupOnExit()
+                }
+            } catch (e: Exception) {
+                AppLogger.e("MainActivity", "Failed to cleanup on exit", e)
+            }
+        }
+        
         super.onDestroy()
     }
 

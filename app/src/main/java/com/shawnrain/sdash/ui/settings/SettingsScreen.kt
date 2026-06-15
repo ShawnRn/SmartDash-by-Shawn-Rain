@@ -86,6 +86,7 @@ import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MenuAnchorType
@@ -1555,6 +1556,123 @@ fun SettingsScreen(
                                         onClick = { activeSubPage = SettingsSubPage.SYSTEM_DATA }
                                     )
                                 }
+                            }
+
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            var showExitConfirm by remember { mutableStateOf(false) }
+
+                            Button(
+                                onClick = { showExitConfirm = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                ),
+                                shape = bezierPillShape()
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("退出应用")
+                                }
+                            }
+
+                            if (showExitConfirm) {
+                                BlurredAlertDialog(
+                                    onDismissRequest = { showExitConfirm = false },
+                                    title = {
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(56.dp)
+                                                    .background(
+                                                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
+                                                        shape = bezierRoundedShape(16.dp)
+                                                    ),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(28.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(16.dp))
+                                            Text(
+                                                text = "退出 SmartDash",
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.Black,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    },
+                                    text = {
+                                        Text(
+                                            text = "确定退出骑行仪表吗？退出后将断开控制器与 BMS 蓝牙连接、停止行车记录仪录像并彻底关闭后台重连服务。",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 8.dp)
+                                        )
+                                    },
+                                    confirmButton = {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            OutlinedButton(
+                                                onClick = { showExitConfirm = false },
+                                                shape = bezierPillShape(),
+                                                border = BorderStroke(
+                                                    width = 1.dp,
+                                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.24f)
+                                                ),
+                                                colors = ButtonDefaults.outlinedButtonColors(
+                                                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                ),
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height(44.dp)
+                                            ) {
+                                                Text("取消", fontWeight = FontWeight.Medium)
+                                            }
+
+                                            Button(
+                                                onClick = {
+                                                    showExitConfirm = false
+                                                    activity?.let { act ->
+                                                        viewModel.exitApp(act)
+                                                    }
+                                                },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = MaterialTheme.colorScheme.error,
+                                                    contentColor = MaterialTheme.colorScheme.onError
+                                                ),
+                                                shape = bezierPillShape(),
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height(44.dp)
+                                            ) {
+                                                Text("确认退出", fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    },
+                                    dismissButton = null
+                                )
                             }
                         } else {
                             when (subPage) {

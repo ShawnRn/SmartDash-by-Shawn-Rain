@@ -275,6 +275,21 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 AppLogger.e("MainActivity", "Failed to cleanup on exit", e)
             }
+            
+            // Ensure the recording foreground service is stopped to clear notifications
+            try {
+                com.shawnrain.sdash.service.DashcamForegroundService.stopService(this)
+            } catch (e: Exception) {
+                AppLogger.e("MainActivity", "Failed to stop DashcamForegroundService on exit", e)
+            }
+            
+            // Force kill process to ensure a clean exit
+            AppLogger.i("MainActivity", "Scheduling process kill in 300ms to ensure clean exit.")
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                AppLogger.i("MainActivity", "Killing process ${android.os.Process.myPid()} now.")
+                android.os.Process.killProcess(android.os.Process.myPid())
+                System.exit(0)
+            }, 300)
         }
         
         super.onDestroy()

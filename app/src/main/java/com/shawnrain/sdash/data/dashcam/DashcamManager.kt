@@ -857,10 +857,13 @@ class DashcamManager private constructor(private val context: Context) {
         currentTelemetryProvider = telemetryProvider
         _state.value = DashcamState.RECORDING
 
-        DashcamForegroundService.startService(context)
-
         coroutineScope.launch {
             try {
+                val audioEnabled = settingsRepository.dashcamRecordAudio.first()
+                val hasAudioPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                val useAudio = audioEnabled && hasAudioPermission
+                DashcamForegroundService.startService(context, useAudio)
+
                 if (videoCapture == null) {
                     setupCameraForRecording()
                 }

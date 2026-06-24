@@ -252,6 +252,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val bleManager = BleManager(application)
+    private var isControllerLastConnected = false
     private val dashcamManager = DashcamManager.getInstance(application)
     private val bmsBleManager = BleManager(application)
     private val settingsRepository = SettingsRepository(application)
@@ -1865,6 +1866,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         bleManager.connectionState.onEach { state ->
             if (state is ConnectionState.Connected) {
+                isControllerLastConnected = true
                 autoReconnectAttemptedAddress = state.device.address
                 stopAutoReconnectWatchdog()
                 if (pendingRideStopReason == RideStopReason.DISCONNECTED) {
@@ -1902,10 +1904,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             if (state is ConnectionState.Disconnected) {
-                if (dashcamManager.state.value == DashcamState.RECORDING) {
-                    AppLogger.i(TAG, "控制器已断开，自动停止行车记录仪录影")
-                    dashcamManager.stopRecording()
+                val allowRecordingWithoutController = debugAllowRecordWithoutController.value && _isRideActive.value
+                if (isControllerLastConnected && !allowRecordingWithoutController) {
+                    if (dashcamManager.state.value == DashcamState.RECORDING) {
+                        AppLogger.i(TAG, "控制器已断开（检测到真实连接跃变），自动停止行车记录仪录影")
+                        dashcamManager.stopRecording()
+                    }
                 }
+                isControllerLastConnected = false
                 lastControllerDeviceAddress.value?.let { address ->
                     startAutoReconnectWatchdog(address, reason = "disconnect")
                 }
@@ -4139,6 +4145,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     autoConnectManager.onAppForeground()
                     tryAutoReconnect(address, reason = "app-foreground")
                 }
+            }
+            // 自动补录逻辑
+            val isConnected = bleManager.connectionState.value is ConnectionState.Connected
+            val isRecording = dashcamManager.state.value == DashcamState.RECORDING
+            if (dashcamAutoRecordEnabled.value && isConnected && !isRecording) {
+                AppLogger.i(TAG, "App 重回前台：检测到控制器当前已连接，触发自动补录开启")
+                startDashcamRecordingForConnectedController()
             }
             DashcamManager.getInstance(getApplication()).onAppVisibilityChanged(true)
         } else {

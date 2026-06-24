@@ -31,8 +31,12 @@ class DashcamForegroundService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
 
     companion object {
-        fun startService(context: Context) {
-            val intent = Intent(context, DashcamForegroundService::class.java)
+        private const val EXTRA_USE_AUDIO = "extra_use_audio"
+
+        fun startService(context: Context, useAudio: Boolean = false) {
+            val intent = Intent(context, DashcamForegroundService::class.java).apply {
+                putExtra(EXTRA_USE_AUDIO, useAudio)
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
@@ -63,13 +67,15 @@ class DashcamForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "Foreground Service onStartCommand")
         
+        val useAudio = intent?.getBooleanExtra(EXTRA_USE_AUDIO, false) ?: false
         val notification = buildNotification(0L)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID, 
-                notification, 
+            val type = if (useAudio) {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            )
+            } else {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            }
+            startForeground(NOTIFICATION_ID, notification, type)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
@@ -85,6 +91,17 @@ class DashcamForegroundService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? {
         return null
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.i(TAG, "onTaskRemoved: User swiped away the app, cleaning up and exiting...")
+        runCatching {
+            DashcamManager.getInstance(this).stopRecording()
+        }
+        releaseWakeLock()
+        stopSelf()
+        android.os.Process.killProcess(android.os.Process.myPid())
     }
 
     private fun acquireWakeLock() {

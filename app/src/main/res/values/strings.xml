@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">SmartDash</string>
+    <string name="shortcut_exit_short">退出应用</string>
+    <string name="shortcut_exit_long">退出 SmartDash 仪表</string>
+    <string name="shortcut_connect_short">蓝牙连接</string>
+    <string name="shortcut_connect_long">连接骑行控制器</string>
 </resources>

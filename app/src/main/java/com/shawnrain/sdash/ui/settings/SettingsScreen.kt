@@ -1370,12 +1370,6 @@ fun SettingsScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
-
-        AboutSmartDashEntryCard(
-            appUpdateState = appUpdateState,
-            onOpen = { showAboutSmartDashSheet = true }
-        )
     }
 
     LaunchedEffect(showDriveHistory, availableBackups) {
@@ -1559,6 +1553,13 @@ fun SettingsScreen(
                             }
 
                             Spacer(modifier = Modifier.height(24.dp))
+
+                            AboutSmartDashEntryCard(
+                                appUpdateState = appUpdateState,
+                                onOpen = { showAboutSmartDashSheet = true }
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
 
                             var showExitConfirm by remember { mutableStateOf(false) }
 

@@ -252,6 +252,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val bleManager = BleManager(application)
+    val showConnectionSheetRequest = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     private var isControllerLastConnected = false
     private val dashcamManager = DashcamManager.getInstance(application)
     private val bmsBleManager = BleManager(application)
@@ -4760,6 +4761,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun exitApp(activity: android.app.Activity) {
+        // If there's an active ride session, stop and save it gracefully first
+        if (_isRideActive.value) {
+            AppLogger.i(TAG, "exitApp: Detecting active ride session, force stopping and saving...")
+            runCatching {
+                stopRide(forceSave = true)
+            }
+        }
+        
         cleanupOnExit()
         
         // 5. Stop foreground recording service if running
@@ -4770,11 +4779,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // 6. Finish the activity and remove it from recents
         activity.finishAndRemoveTask()
 
-        // Delay slightly to allow lifecycle callbacks to complete, then kill process
+        // Delay slightly to allow lifecycle callbacks to complete, then kill process (1500ms for video muxing/DB write)
         activity.window.decorView.postDelayed({
             android.os.Process.killProcess(android.os.Process.myPid())
             System.exit(0)
-        }, 250)
+        }, 1500)
     }
 }
 

@@ -308,8 +308,34 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun dispatchLaunchIntent(intent: Intent?) {
+        if (intent == null) return
+        
+        val action = intent.action
+        AppLogger.i("MainActivity", "dispatchLaunchIntent: action=$action")
+        
+        // 1. Handle Exit App shortcut action
+        if ("com.shawnrain.sdash.ACTION_EXIT".equals(action, ignoreCase = true)) {
+            AppLogger.i("MainActivity", "Shortcut ACTION_EXIT triggered, exiting app gracefully...")
+            if (::mainViewModel.isInitialized) {
+                mainViewModel.exitApp(this)
+            } else {
+                finishAndRemoveTask()
+                android.os.Process.killProcess(android.os.Process.myPid())
+            }
+            return
+        }
+        
+        // 2. Handle Connect Device shortcut action
+        if ("com.shawnrain.sdash.ACTION_CONNECT".equals(action, ignoreCase = true)) {
+            AppLogger.i("MainActivity", "Shortcut ACTION_CONNECT triggered, sending connection sheet event...")
+            if (::mainViewModel.isInitialized) {
+                mainViewModel.showConnectionSheetRequest.tryEmit(Unit)
+            }
+        }
+        
+        // 3. Fallback to normal routing
         intent
-            ?.getStringExtra(EXTRA_TARGET_ROUTE)
+            .getStringExtra(EXTRA_TARGET_ROUTE)
             ?.takeIf { it.isNotBlank() }
             ?.let(MainActivityRouteRequests::emit)
     }

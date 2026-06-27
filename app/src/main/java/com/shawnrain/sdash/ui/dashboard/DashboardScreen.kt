@@ -285,6 +285,12 @@ fun DashboardScreen(
     var isEditMode by remember { mutableStateOf(false) }
     var showAddPicker by remember { mutableStateOf(false) }
     var showConnectionSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        viewModel.showConnectionSheetRequest.collect {
+            showConnectionSheet = true
+        }
+    }
     var draggingItem by remember { mutableStateOf<MetricType?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var dragStartBounds by remember { mutableStateOf<Rect?>(null) }

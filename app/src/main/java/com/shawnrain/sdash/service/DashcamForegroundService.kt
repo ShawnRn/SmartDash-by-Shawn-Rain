@@ -95,13 +95,18 @@ class DashcamForegroundService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        Log.i(TAG, "onTaskRemoved: User swiped away the app, cleaning up and exiting...")
+        Log.i(TAG, "onTaskRemoved: User swiped away the app, cleaning up and exiting gracefully...")
         runCatching {
             DashcamManager.getInstance(this).stopRecording()
         }
         releaseWakeLock()
         stopSelf()
-        android.os.Process.killProcess(android.os.Process.myPid())
+        
+        // Postpone process kill to 1500ms to allow video muxer metadata write to finish
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            Log.i(TAG, "Killing process ${android.os.Process.myPid()} now after graceful delay.")
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }, 1500)
     }
 
     private fun acquireWakeLock() {

@@ -268,6 +268,18 @@ class MainActivity : ComponentActivity() {
         
         if (isFinishing) {
             AppLogger.i("MainActivity", "Activity is finishing (swipe away), cleaning up resources...")
+            
+            // 1. If there's an active ride session, stop and save it gracefully first
+            try {
+                if (::mainViewModel.isInitialized && mainViewModel.isRideActive.value) {
+                    AppLogger.i("MainActivity", "Detecting active ride session on exit, force stopping and saving...")
+                    mainViewModel.stopRide(forceSave = true)
+                }
+            } catch (e: Exception) {
+                AppLogger.e("MainActivity", "Failed to stop ride on exit", e)
+            }
+            
+            // 2. Normal ViewModel resource cleanup (sensor/GPS/BLE)
             try {
                 if (::mainViewModel.isInitialized) {
                     mainViewModel.cleanupOnExit()
@@ -276,20 +288,20 @@ class MainActivity : ComponentActivity() {
                 AppLogger.e("MainActivity", "Failed to cleanup on exit", e)
             }
             
-            // Ensure the recording foreground service is stopped to clear notifications
+            // 3. Ensure the recording foreground service is stopped to clear notifications
             try {
                 com.shawnrain.sdash.service.DashcamForegroundService.stopService(this)
             } catch (e: Exception) {
                 AppLogger.e("MainActivity", "Failed to stop DashcamForegroundService on exit", e)
             }
             
-            // Force kill process to ensure a clean exit
-            AppLogger.i("MainActivity", "Scheduling process kill in 300ms to ensure clean exit.")
+            // 4. Postpone process kill to 1500ms to allow video muxer metadata write and DB write to finish
+            AppLogger.i("MainActivity", "Scheduling process kill in 1500ms to allow video muxing and DB commit...")
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                 AppLogger.i("MainActivity", "Killing process ${android.os.Process.myPid()} now.")
                 android.os.Process.killProcess(android.os.Process.myPid())
                 System.exit(0)
-            }, 300)
+            }, 1500)
         }
         
         super.onDestroy()

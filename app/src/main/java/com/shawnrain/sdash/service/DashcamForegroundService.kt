@@ -69,15 +69,21 @@ class DashcamForegroundService : Service() {
         
         val useAudio = intent?.getBooleanExtra(EXTRA_USE_AUDIO, false) ?: false
         val notification = buildNotification(0L)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val type = if (useAudio) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val type = if (useAudio) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                } else {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                }
+                startForeground(NOTIFICATION_ID, notification, type)
             } else {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                startForeground(NOTIFICATION_ID, notification)
             }
-            startForeground(NOTIFICATION_ID, notification, type)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Failed to start foreground service due to SecurityException: ${e.message}", e)
+            stopSelf()
+            return START_NOT_STICKY
         }
         
         return START_NOT_STICKY

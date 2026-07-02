@@ -859,6 +859,14 @@ class DashcamManager private constructor(private val context: Context) {
 
         coroutineScope.launch {
             try {
+                val hasCameraPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                if (!hasCameraPermission) {
+                    AppLogger.e(TAG, "Cannot start recording: CAMERA permission not granted!")
+                    _state.value = DashcamState.ERROR
+                    isRecordingRequested = false
+                    return@launch
+                }
+
                 val audioEnabled = settingsRepository.dashcamRecordAudio.first()
                 val hasAudioPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
                 val useAudio = audioEnabled && hasAudioPermission

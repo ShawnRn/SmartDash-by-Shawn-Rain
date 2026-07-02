@@ -307,6 +307,20 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::mainViewModel.isInitialized) {
+            mainViewModel.setActivityResumed(true)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (::mainViewModel.isInitialized) {
+            mainViewModel.setActivityResumed(false)
+        }
+    }
+
     private fun dispatchLaunchIntent(intent: Intent?) {
         if (intent == null) return
         

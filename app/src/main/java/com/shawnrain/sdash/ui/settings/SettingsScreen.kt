@@ -3592,6 +3592,17 @@ private fun DashcamSettingsCard(
     overlayConfig: com.shawnrain.sdash.data.dashcam.DashcamOverlayConfig,
     onOverlayConfigChange: (com.shawnrain.sdash.data.dashcam.DashcamOverlayConfig) -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            onRecordAudioChange(true)
+        } else {
+            android.widget.Toast.makeText(context, "未获得录音权限，无法录制声音", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
     var expandDurationMenu by remember { mutableStateOf(false) }
     var expandStorageMenu by remember { mutableStateOf(false) }
     var expandCameraMenu by remember { mutableStateOf(false) }
@@ -3650,7 +3661,24 @@ private fun DashcamSettingsCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("录制声音", style = MaterialTheme.typography.bodyMedium)
-                    Switch(checked = recordAudio, onCheckedChange = onRecordAudioChange)
+                    Switch(
+                        checked = recordAudio,
+                        onCheckedChange = { checked ->
+                            if (checked) {
+                                val hasPermission = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (hasPermission) {
+                                    onRecordAudioChange(true)
+                                } else {
+                                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                }
+                            } else {
+                                onRecordAudioChange(false)
+                            }
+                        }
+                    )
                 }
 
                 ExposedDropdownMenuBox(

@@ -1,6 +1,9 @@
 package com.shawnrain.sdash
 
 import android.annotation.SuppressLint
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import android.app.Application
 import android.bluetooth.BluetoothDevice
 import android.content.ContentValues
@@ -254,6 +257,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val bleManager = BleManager(application)
     val showConnectionSheetRequest = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     private var isControllerLastConnected = false
+    private val _isActivityResumed = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val isActivityResumed = _isActivityResumed.asStateFlow()
+
+    fun setActivityResumed(resumed: Boolean) {
+        AppLogger.i(TAG, "setActivityResumed: $resumed")
+        _isActivityResumed.value = resumed
+        if (resumed) {
+            viewModelScope.launch {
+                // 等待一小会儿确保 Activity 渲染和权限状态稳定
+                delay(300)
+                val isConnected = bleManager.connectionState.value is ConnectionState.Connected
+                if (dashcamAutoRecordEnabled.value && isConnected && dashcamManager.state.value != DashcamState.RECORDING) {
+                    startDashcamRecordingForConnectedController()
+                }
+            }
+        }
+    }
+
     private val dashcamManager = DashcamManager.getInstance(application)
     private val bmsBleManager = BleManager(application)
     private val settingsRepository = SettingsRepository(application)
@@ -2438,6 +2459,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun startDashcamRecordingForConnectedController() {
+        if (!_isActivityResumed.value) {
+            AppLogger.w(TAG, "Skipping dashcam start: Activity is not resumed (FGS restriction guard)")
+            return
+        }
+
+        val hasCameraPermission = ContextCompat.checkSelfPermission(
+            getApplication(),
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasCameraPermission) {
+            AppLogger.w(TAG, "Skipping dashcam start: CAMERA permission not granted yet")
+            return
+        }
+
         val telemetryProvider = {
             val currentMetrics = metrics.value
             val currentDirection = rideDirectionLabel.value

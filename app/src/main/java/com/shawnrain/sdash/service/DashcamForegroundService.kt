@@ -13,12 +13,14 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.shawnrain.sdash.AppProcessExit
 import com.shawnrain.sdash.MainActivity
 import com.shawnrain.sdash.data.dashcam.DashcamManager
 import com.shawnrain.sdash.data.dashcam.DashcamState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 
@@ -34,6 +36,10 @@ class DashcamForegroundService : Service() {
         private const val EXTRA_USE_AUDIO = "extra_use_audio"
 
         fun startService(context: Context, useAudio: Boolean = false) {
+            if (AppProcessExit.isExitScheduled()) {
+                Log.w("DashcamForegroundService", "Skip startService: process exit already scheduled")
+                return
+            }
             val intent = Intent(context, DashcamForegroundService::class.java).apply {
                 putExtra(EXTRA_USE_AUDIO, useAudio)
             }
@@ -55,7 +61,7 @@ class DashcamForegroundService : Service() {
         Log.i(TAG, "Foreground Service onCreate")
         createNotificationChannel()
         acquireWakeLock()
-        
+
         val dashcamManager = DashcamManager.getInstance(this)
         dashcamManager.recordingDurationMs.onEach { durationMs ->
             if (dashcamManager.state.value == DashcamState.RECORDING) {
@@ -66,7 +72,13 @@ class DashcamForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "Foreground Service onStartCommand")
-        
+
+        if (AppProcessExit.isExitScheduled()) {
+            Log.w(TAG, "Exit already scheduled, refusing to keep FGS alive")
+            dismantleForegroundAndSelf()
+            return START_NOT_STICKY
+        }
+
         val useAudio = intent?.getBooleanExtra(EXTRA_USE_AUDIO, false) ?: false
         val notification = buildNotification(0L)
         try {
@@ -82,17 +94,19 @@ class DashcamForegroundService : Service() {
             }
         } catch (e: SecurityException) {
             Log.e(TAG, "Failed to start foreground service due to SecurityException: ${e.message}", e)
-            stopSelf()
+            dismantleForegroundAndSelf()
             return START_NOT_STICKY
         }
-        
+
+        // Never sticky: 划掉任务后不要被系统自动重启，尤其 vivo 白名单场景
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
-        super.onDestroy()
         Log.i(TAG, "Foreground Service onDestroy")
-        releaseWakeLock()
+        dismantleForegroundAndSelf(stop = false)
+        serviceScope.cancel()
+        super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? {
@@ -101,18 +115,33 @@ class DashcamForegroundService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        Log.i(TAG, "onTaskRemoved: User swiped away the app, cleaning up and exiting gracefully...")
+        Log.i(TAG, "onTaskRemoved: user swiped task, tearing down FGS keep-alive anchors")
         runCatching {
             DashcamManager.getInstance(this).stopRecording()
         }
+        dismantleForegroundAndSelf()
+        // 有 FGS 时划掉卡片往往只到这里；统一走退出协调器，避免 vivo 白名单下进程悬挂
+        AppProcessExit.schedule(
+            context = this,
+            reason = "service_onTaskRemoved",
+            allowRecordingGrace = true
+        )
+    }
+
+    private fun dismantleForegroundAndSelf(stop: Boolean = true) {
         releaseWakeLock()
-        stopSelf()
-        
-        // Postpone process kill to 1500ms to allow video muxer metadata write to finish
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-            Log.i(TAG, "Killing process ${android.os.Process.myPid()} now after graceful delay.")
-            android.os.Process.killProcess(android.os.Process.myPid())
-        }, 1500)
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+        }
+        AppProcessExit.clearDashcamNotification(this)
+        if (stop) {
+            stopSelf()
+        }
     }
 
     private fun acquireWakeLock() {
@@ -133,6 +162,7 @@ class DashcamForegroundService : Service() {
                 wakeLock?.release()
                 Log.i(TAG, "WakeLock released")
             }
+            wakeLock = null
         } catch (e: Exception) {
             Log.e(TAG, "Failed to release WakeLock", e)
         }
@@ -144,7 +174,9 @@ class DashcamForegroundService : Service() {
                 CHANNEL_ID,
                 "SmartDash 行车记录仪服务",
                 NotificationManager.IMPORTANCE_LOW
-            )
+            ).apply {
+                setShowBadge(false)
+            }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(serviceChannel)
         }
@@ -169,11 +201,14 @@ class DashcamForegroundService : Service() {
             .setSmallIcon(android.R.drawable.presence_video_online)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 
     private fun updateNotification(durationMs: Long) {
+        if (AppProcessExit.isExitScheduled()) return
         val notification = buildNotification(durationMs)
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(NOTIFICATION_ID, notification)

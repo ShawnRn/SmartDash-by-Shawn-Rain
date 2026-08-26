@@ -1826,7 +1826,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     performAdaptiveUsableEnergyRatioLearning(
                         profile = currentProfile,
                         batteryState = batteryState,
-                        consumedEnergyWh = rideAccumulator.state.tractionEnergyWh
+                        consumedEnergyWh = rideAccumulator.state.netBatteryEnergyWh
                     )
                 }
             }
@@ -3042,7 +3042,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val learnedResistance: Float = _batteryState.value?.learnedInternalResistanceOhm ?: 0.0f
         val observedEfficiencyWhKm = observeCurrentRideEfficiencyWhKm()
         val currentProfile = currentVehicle.value
-        val consumedEnergy: Float = rideAccumulator.state.tractionEnergyWh
+        val consumedEnergy: Float = rideAccumulator.state.netBatteryEnergyWh
         val observedUsableEnergyRatio = calculateLearnedUsableEnergyRatio(
             profile = currentProfile,
             consumedEnergyWh = consumedEnergy
@@ -3178,11 +3178,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (nominalPackEnergyWh <= 1f) return
 
         val impliedPackEnergyWh = consumedEnergyWh / (socDropPercent / 100f)
-        val observedRatio = (impliedPackEnergyWh / nominalPackEnergyWh).coerceIn(0.30f, 1.20f)
+        val observedRatio = (impliedPackEnergyWh / nominalPackEnergyWh).coerceIn(0.30f, 1.00f)
 
         if (abs(profile.learnedUsableEnergyRatio - observedRatio) < 0.02f) return
 
-        val newUsableRatio = (profile.learnedUsableEnergyRatio * 0.9f + observedRatio * 0.1f).coerceIn(0.30f, 1.20f)
+        val newUsableRatio = (profile.learnedUsableEnergyRatio * 0.9f + observedRatio * 0.1f).coerceIn(0.30f, 1.00f)
         
         if (abs(profile.learnedUsableEnergyRatio - newUsableRatio) >= 0.005f) {
             AppLogger.i("MainViewModel", "自适应容量学习触发: Usable ratio ${profile.learnedUsableEnergyRatio} -> $newUsableRatio (Consumed: ${consumedEnergyWh}Wh, SoC Drop: ${socDropPercent}%)")
@@ -3209,7 +3209,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (nominalPackEnergyWh <= 1f) return profile.learnedUsableEnergyRatio
 
         val impliedPackEnergyWh = consumedEnergyWh / (socDropPercent / 100f)
-        val result = (impliedPackEnergyWh / nominalPackEnergyWh).coerceIn(0.30f, 1.20f)
+        val result = (impliedPackEnergyWh / nominalPackEnergyWh).coerceIn(0.30f, 1.00f)
         return result.takeIf { it.isFinite() } ?: profile.learnedUsableEnergyRatio
     }
 
@@ -3223,8 +3223,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val safeObserved = observedRatio.takeIf { it.isFinite() } ?: 0.9f
         val safeDistance = tripDistanceKm.takeIf { it.isFinite() } ?: 0f
 
-        val previous = safePrevious.coerceIn(0.30f, 1.20f)
-        val observed = safeObserved.coerceIn(0.30f, 1.20f)
+        val previous = safePrevious.coerceIn(0.30f, 1.00f)
+        val observed = safeObserved.coerceIn(0.30f, 1.00f)
         val weight = (safeDistance / 40f).coerceIn(0.03f, 0.16f)
         val result = (previous * (1f - weight)) + (observed * weight)
         return result.takeIf { it.isFinite() } ?: previous

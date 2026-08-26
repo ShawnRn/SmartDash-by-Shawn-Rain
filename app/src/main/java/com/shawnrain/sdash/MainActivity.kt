@@ -675,6 +675,7 @@ private fun requiredRuntimePermissions(): List<String> {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         permissions += Manifest.permission.BLUETOOTH_SCAN
         permissions += Manifest.permission.BLUETOOTH_CONNECT
+        permissions += Manifest.permission.BLUETOOTH_ADVERTISE
     }
     return permissions
 }

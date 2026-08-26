@@ -1,14 +1,18 @@
 package com.shawnrain.sdash.ble
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.*
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
+import androidx.core.content.ContextCompat
 import com.shawnrain.sdash.debug.AppLogger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -218,126 +222,184 @@ class HidRemoteManager(private val context: Context) {
         }
     }
 
+    private fun hasConnectPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.BLUETOOTH_CONNECT
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+    }
+
+    private fun hasAdvertisePermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.BLUETOOTH_ADVERTISE
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+    }
+
     private fun ByteArray.toHexString(): String = joinToString("") { "%02x".format(it) }
 
     init {
+        ensureInitialized()
+    }
+
+    fun ensureInitialized() {
+        if (!hasConnectPermission()) {
+            AppLogger.d(TAG, "缺少 BLUETOOTH_CONNECT 权限，推迟 HID/HOGP 初始化")
+            return
+        }
         checkSupport()
         setupHogpServer()
     }
 
     private fun checkSupport() {
+        if (!hasConnectPermission()) return
         val adapter = this.adapter ?: return
         var classicSupported = false
-        if (android.os.Build.VERSION.SDK_INT >= 28) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
                 val method = adapter.javaClass.getMethod("isBluetoothHidDeviceRoleSupported")
-                classicSupported = method.invoke(adapter) as Boolean
-            } catch (e: Exception) {
+                classicSupported = method.invoke(adapter) as? Boolean ?: false
+            } catch (e: Throwable) {
                 AppLogger.w(TAG, "Classic HID check failed: ${e.message}")
             }
         }
         _isClassicSupported.value = classicSupported
         
-        if (classicSupported) {
-            adapter.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
-                override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                    classicHidDevice = proxy as BluetoothHidDevice
-                    registerClassicApp()
-                }
-                override fun onServiceDisconnected(profile: Int) {
-                    classicHidDevice = null
-                }
-            }, BluetoothProfile.HID_DEVICE)
+        if (classicSupported && classicHidDevice == null) {
+            try {
+                adapter.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
+                    override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
+                        classicHidDevice = proxy as? BluetoothHidDevice
+                        registerClassicApp()
+                    }
+                    override fun onServiceDisconnected(profile: Int) {
+                        classicHidDevice = null
+                    }
+                }, BluetoothProfile.HID_DEVICE)
+            } catch (e: Throwable) {
+                AppLogger.w(TAG, "getProfileProxy HID_DEVICE 异常: ${e.message}")
+            }
         }
     }
 
     private fun registerClassicApp() {
-        val sdpSettings = BluetoothHidDeviceAppSdpSettings(
-            "SmartDash Remote",
-            "SmartDash Remote Control",
-            "ShawnRain",
-            BluetoothHidDevice.SUBCLASS1_COMBO,
-            REPORT_DESCRIPTOR
-        )
-        classicHidDevice?.registerApp(sdpSettings, null, null, Executors.newSingleThreadExecutor(), classicCallback)
+        if (!hasConnectPermission()) return
+        try {
+            val sdpSettings = BluetoothHidDeviceAppSdpSettings(
+                "SmartDash Remote",
+                "SmartDash Remote Control",
+                "ShawnRain",
+                BluetoothHidDevice.SUBCLASS1_COMBO,
+                REPORT_DESCRIPTOR
+            )
+            classicHidDevice?.registerApp(sdpSettings, null, null, Executors.newSingleThreadExecutor(), classicCallback)
+        } catch (e: Throwable) {
+            AppLogger.w(TAG, "registerClassicApp 失败: ${e.message}")
+        }
     }
 
     private fun setupHogpServer() {
-        val manager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-        gattServer = manager.openGattServer(context, gattCallback) ?: return
+        if (gattServer != null) return
+        if (!hasConnectPermission()) {
+            AppLogger.d(TAG, "缺少 BLUETOOTH_CONNECT 权限，跳过 setupHogpServer")
+            return
+        }
 
-        val hidService = BluetoothGattService(UUID_HID_SERVICE, BluetoothGattService.SERVICE_TYPE_PRIMARY)
+        try {
+            val manager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+            val server = manager?.openGattServer(context, gattCallback)
+            if (server == null) {
+                AppLogger.w(TAG, "openGattServer 返回 null")
+                return
+            }
+            gattServer = server
 
-        // Report Map Characteristic
-        val reportMap = BluetoothGattCharacteristic(
-            UUID_REPORT_MAP,
-            BluetoothGattCharacteristic.PROPERTY_READ,
-            BluetoothGattCharacteristic.PERMISSION_READ
-        )
-        hidService.addCharacteristic(reportMap)
+            val hidService = BluetoothGattService(UUID_HID_SERVICE, BluetoothGattService.SERVICE_TYPE_PRIMARY)
 
-        // Report Characteristic (Notify)
-        gattReportChar = BluetoothGattCharacteristic(UUID_REPORT,
-            BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
-            BluetoothGattCharacteristic.PERMISSION_READ or BluetoothGattCharacteristic.PERMISSION_WRITE
-        )
-        
-        val cccd = BluetoothGattDescriptor(UUID_CCCD, BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE)
-        gattReportChar?.addDescriptor(cccd)
-        
-        val reportRef = BluetoothGattDescriptor(UUID_REPORT_REF, BluetoothGattDescriptor.PERMISSION_READ)
-        gattReportChar?.addDescriptor(reportRef)
-        
-        hidService.addCharacteristic(gattReportChar)
-
-        // HID Information
-        hidService.addCharacteristic(
-            BluetoothGattCharacteristic(
-                UUID_HID_INFO,
+            // Report Map Characteristic
+            val reportMap = BluetoothGattCharacteristic(
+                UUID_REPORT_MAP,
                 BluetoothGattCharacteristic.PROPERTY_READ,
                 BluetoothGattCharacteristic.PERMISSION_READ
             )
-        )
-        
-        // Protocol Mode
-        hidService.addCharacteristic(
-            BluetoothGattCharacteristic(
-                UUID_PROTOCOL_MODE,
-                BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
+            hidService.addCharacteristic(reportMap)
+
+            // Report Characteristic (Notify)
+            val reportChar = BluetoothGattCharacteristic(
+                UUID_REPORT,
+                BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
                 BluetoothGattCharacteristic.PERMISSION_READ or BluetoothGattCharacteristic.PERMISSION_WRITE
             )
-        )
-        
-        // Control Point
-        hidService.addCharacteristic(
-            BluetoothGattCharacteristic(
-                UUID_CONTROL_POINT,
-                BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
-                BluetoothGattCharacteristic.PERMISSION_WRITE
+            
+            val cccd = BluetoothGattDescriptor(UUID_CCCD, BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE)
+            reportChar.addDescriptor(cccd)
+            
+            val reportRef = BluetoothGattDescriptor(UUID_REPORT_REF, BluetoothGattDescriptor.PERMISSION_READ)
+            reportChar.addDescriptor(reportRef)
+            
+            hidService.addCharacteristic(reportChar)
+            gattReportChar = reportChar
+
+            // HID Information
+            hidService.addCharacteristic(
+                BluetoothGattCharacteristic(
+                    UUID_HID_INFO,
+                    BluetoothGattCharacteristic.PROPERTY_READ,
+                    BluetoothGattCharacteristic.PERMISSION_READ
+                )
             )
-        )
-        
-        // Appearance (Standard requirement for some HID hosts)
-        hidService.addCharacteristic(
-            BluetoothGattCharacteristic(
-                UUID_APPEARANCE,
-                BluetoothGattCharacteristic.PROPERTY_READ,
+            
+            // Protocol Mode
+            hidService.addCharacteristic(
+                BluetoothGattCharacteristic(
+                    UUID_PROTOCOL_MODE,
+                    BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
+                    BluetoothGattCharacteristic.PERMISSION_READ or BluetoothGattCharacteristic.PERMISSION_WRITE
+                )
+            )
+            
+            // Control Point
+            hidService.addCharacteristic(
+                BluetoothGattCharacteristic(
+                    UUID_CONTROL_POINT,
+                    BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
+                    BluetoothGattCharacteristic.PERMISSION_WRITE
+                )
+            )
+            
+            // Appearance (Standard requirement for some HID hosts)
+            hidService.addCharacteristic(
+                BluetoothGattCharacteristic(
+                    UUID_APPEARANCE,
+                    BluetoothGattCharacteristic.PROPERTY_READ,
+                    BluetoothGattCharacteristic.PERMISSION_READ
+                )
+            )
+
+            val addedHid = server.addService(hidService)
+            AppLogger.d(TAG, "HOGP: HID Service added: $addedHid")
+            
+            // Battery Service (Optional but recommended for HOGP)
+            val batteryService = BluetoothGattService(UUID_BATTERY_SERVICE, BluetoothGattService.SERVICE_TYPE_PRIMARY)
+            val batteryLevel = BluetoothGattCharacteristic(
+                UUID_BATTERY_LEVEL,
+                BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
                 BluetoothGattCharacteristic.PERMISSION_READ
             )
-        )
-
-        val addedHid = gattServer?.addService(hidService) ?: false
-        AppLogger.d(TAG, "HOGP: HID Service added: $addedHid")
-        
-        // Battery Service (Optional but recommended for HOGP)
-        val batteryService = BluetoothGattService(UUID_BATTERY_SERVICE, BluetoothGattService.SERVICE_TYPE_PRIMARY)
-        val batteryLevel = BluetoothGattCharacteristic(UUID_BATTERY_LEVEL,
-            BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
-            BluetoothGattCharacteristic.PERMISSION_READ
-        )
-        batteryService.addCharacteristic(batteryLevel)
-        val addedBat = gattServer?.addService(batteryService) ?: false
-        AppLogger.d(TAG, "HOGP: Battery Service added: $addedBat")
+            batteryService.addCharacteristic(batteryLevel)
+            val addedBat = server.addService(batteryService)
+            AppLogger.d(TAG, "HOGP: Battery Service added: $addedBat")
+        } catch (e: Throwable) {
+            AppLogger.e(TAG, "setupHogpServer 异常", e)
+        }
     }
 
     fun togglePairingMode(active: Boolean, isInternalRestart: Boolean = false) {
@@ -346,8 +408,20 @@ class HidRemoteManager(private val context: Context) {
             return
         }
         lastToggleTime = now
-        
-        val advertiser = adapter?.bluetoothLeAdvertiser ?: return
+
+        if (!hasConnectPermission() || !hasAdvertisePermission()) {
+            AppLogger.w(TAG, "缺少 BLUETOOTH_CONNECT 或 BLUETOOTH_ADVERTISE 权限，无法切换配对广播")
+            return
+        }
+
+        ensureInitialized()
+
+        val advertiser = try {
+            adapter?.bluetoothLeAdvertiser
+        } catch (e: Throwable) {
+            AppLogger.w(TAG, "获取 bluetoothLeAdvertiser 失败: ${e.message}")
+            null
+        } ?: return
         
         if (!isInternalRestart) {
             shouldBeDiscoverable = active
@@ -367,9 +441,6 @@ class HidRemoteManager(private val context: Context) {
             
             isStarting = true
 
-            // Advertise Settings: 
-            // - Low Latency mode helps iOS find it faster
-            // - Connectable of course
             val settings = AdvertiseSettings.Builder()
                 .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
                 .setConnectable(true)
@@ -377,20 +448,15 @@ class HidRemoteManager(private val context: Context) {
                 .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
                 .build()
 
-            // Balanced Fix for Visibility vs. Size:
-            // - Primary: Identifiers (UUID + Appearance) -> Fast discovery
-            // - Response: Identity (Name) -> Friendly display
-            // This stays well below 31 bytes in each packet.
-            
-            if (originalAdapterName == null) {
-                originalAdapterName = adapter?.name
-            }
-            if (adapter?.name != HOGP_DEVICE_NAME) {
-                try {
-                    adapter?.name = HOGP_DEVICE_NAME
-                } catch (e: Exception) {
-                    AppLogger.w(TAG, "HOGP: 设置广播名称失败: ${e.message}")
+            try {
+                if (originalAdapterName == null) {
+                    originalAdapterName = adapter?.name
                 }
+                if (adapter?.name != HOGP_DEVICE_NAME) {
+                    adapter?.name = HOGP_DEVICE_NAME
+                }
+            } catch (e: Throwable) {
+                AppLogger.w(TAG, "HOGP: 设置广播名称失败: ${e.message}")
             }
 
             val data = AdvertiseData.Builder()
@@ -399,20 +465,27 @@ class HidRemoteManager(private val context: Context) {
                 .setIncludeTxPowerLevel(false)
                 .build()
 
-            advertiser.stopAdvertising(advertiseCallback)
-            advertiser.startAdvertising(settings, data, advertiseCallback)
-            
-            if (!isInternalRestart) {
-                AppLogger.i(TAG, "已启动 HOGP 广播 (Appearance: Remote Control)，请在 iPhone 上查找设备名称并配对")
+            try {
+                advertiser.stopAdvertising(advertiseCallback)
+                advertiser.startAdvertising(settings, data, advertiseCallback)
+                if (!isInternalRestart) {
+                    AppLogger.i(TAG, "已启动 HOGP 广播 (Appearance: Remote Control)，请在 iPhone 上查找设备名称并配对")
+                }
+            } catch (e: Throwable) {
+                AppLogger.e(TAG, "HOGP: startAdvertising 异常", e)
+                isStarting = false
+                _isHogpActive.value = false
             }
         } else {
             isStarting = false
-            advertiser.stopAdvertising(advertiseCallback)
+            try {
+                advertiser.stopAdvertising(advertiseCallback)
+            } catch (e: Throwable) {
+                AppLogger.w(TAG, "stopAdvertising 失败: ${e.message}")
+            }
             _isHogpActive.value = false
             restartHandler.removeCallbacksAndMessages(null)
             restoreAdapterNameIfNeeded()
-            // Clear connections when explicitly stopped? 
-            // Better to keep them if user just toggled something else, but here 'active' means 'should be on'
         }
     }
 
@@ -449,68 +522,107 @@ class HidRemoteManager(private val context: Context) {
     }
 
     fun sendMediaKey(usageCode: Int) {
-        // --- Try Classic HID First ---
-        classicConnectedDevice?.let { device ->
-            classicHidDevice?.let { hid ->
+        if (!hasConnectPermission()) {
+            AppLogger.w(TAG, "缺少 BLUETOOTH_CONNECT 权限，无法发送媒体键")
+            return
+        }
+
+        try {
+            // --- Try Classic HID First ---
+            classicConnectedDevice?.let { device ->
+                classicHidDevice?.let { hid ->
+                    val report = byteArrayOf(
+                        (usageCode and 0xFF).toByte(),
+                        ((usageCode shr 8) and 0xFF).toByte()
+                    )
+                    hid.sendReport(device, 1, report)
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        try {
+                            hid.sendReport(device, 1, byteArrayOf(0, 0))
+                        } catch (e: Throwable) {
+                            AppLogger.w(TAG, "Classic HID sendReport release error: ${e.message}")
+                        }
+                    }, 30)
+                    AppLogger.d(TAG, "Media key sent via Classic HID: 0x${Integer.toHexString(usageCode)}")
+                    return
+                }
+            }
+
+            // --- Try HOGP Second ---
+            val subscribedHosts = gattConnectedHosts.filterValues { it }.keys
+            if (subscribedHosts.isNotEmpty()) {
+                val char = gattReportChar ?: return
                 val report = byteArrayOf(
                     (usageCode and 0xFF).toByte(),
                     ((usageCode shr 8) and 0xFF).toByte()
                 )
-                hid.sendReport(device, 1, report)
+                lastHogpReport = report
+                subscribedHosts.forEach { device ->
+                    try {
+                        gattServer?.notifyCharacteristicChanged(device, char, false, report)
+                    } catch (e: Throwable) {
+                        AppLogger.w(TAG, "notifyCharacteristicChanged error: ${e.message}")
+                    }
+                }
+                
                 Handler(Looper.getMainLooper()).postDelayed({
-                    hid.sendReport(device, 1, byteArrayOf(0, 0))
+                    val emptyReport = byteArrayOf(0, 0)
+                    lastHogpReport = emptyReport
+                    subscribedHosts.forEach { device ->
+                        try {
+                            gattServer?.notifyCharacteristicChanged(device, char, false, emptyReport)
+                        } catch (e: Throwable) {
+                            AppLogger.w(TAG, "notifyCharacteristicChanged release error: ${e.message}")
+                        }
+                    }
                 }, 30)
-                AppLogger.d(TAG, "Media key sent via Classic HID: 0x${Integer.toHexString(usageCode)}")
+                AppLogger.d(TAG, "Media key sent via HOGP (Subscribed Hosts: ${subscribedHosts.size}): 0x${Integer.toHexString(usageCode)}")
                 return
             }
-        }
 
-        // --- Try HOGP Second ---
-        val subscribedHosts = gattConnectedHosts.filterValues { it }.keys
-        if (subscribedHosts.isNotEmpty()) {
-            val char = gattReportChar ?: return
-            val report = byteArrayOf(
-                (usageCode and 0xFF).toByte(),
-                ((usageCode shr 8) and 0xFF).toByte()
-            )
-            lastHogpReport = report
-            subscribedHosts.forEach { device ->
-                gattServer?.notifyCharacteristicChanged(device, char, false, report)
+            if (gattConnectedHosts.isNotEmpty()) {
+                AppLogger.w(TAG, "无法发送媒体键: 虽然有连接，但主机未开启 HID 通知 (未订阅)")
+            } else {
+                AppLogger.w(TAG, "无法发送媒体键: 没有任何 iPhone 连接")
             }
-            
-            Handler(Looper.getMainLooper()).postDelayed({
-                val emptyReport = byteArrayOf(0, 0)
-                lastHogpReport = emptyReport
-                subscribedHosts.forEach { device ->
-                    gattServer?.notifyCharacteristicChanged(device, char, false, emptyReport)
-                }
-            }, 30)
-            AppLogger.d(TAG, "Media key sent via HOGP (Subscribed Hosts: ${subscribedHosts.size}): 0x${Integer.toHexString(usageCode)}")
-            return
-        }
-
-        if (gattConnectedHosts.isNotEmpty()) {
-            AppLogger.w(TAG, "无法发送媒体键: 虽然有连接，但主机未开启 HID 通知 (未订阅)")
-        } else {
-            AppLogger.w(TAG, "无法发送媒体键: 没有任何 iPhone 连接")
+        } catch (e: Throwable) {
+            AppLogger.e(TAG, "sendMediaKey 失败", e)
         }
     }
 
     fun unregister() {
-        togglePairingMode(false)
-        classicHidDevice?.unregisterApp()
-        adapter?.closeProfileProxy(BluetoothProfile.HID_DEVICE, classicHidDevice)
-        gattServer?.close()
+        try {
+            togglePairingMode(false)
+        } catch (e: Throwable) {
+            AppLogger.w(TAG, "unregister togglePairingMode failed: ${e.message}")
+        }
+        try {
+            classicHidDevice?.unregisterApp()
+        } catch (e: Throwable) {
+            AppLogger.w(TAG, "classicHidDevice unregisterApp failed: ${e.message}")
+        }
+        try {
+            adapter?.closeProfileProxy(BluetoothProfile.HID_DEVICE, classicHidDevice)
+        } catch (e: Throwable) {
+            AppLogger.w(TAG, "closeProfileProxy failed: ${e.message}")
+        }
+        try {
+            gattServer?.close()
+        } catch (e: Throwable) {
+            AppLogger.w(TAG, "gattServer close failed: ${e.message}")
+        }
+        gattServer = null
     }
 
     private fun restoreAdapterNameIfNeeded() {
+        if (!hasConnectPermission()) return
         val targetName = originalAdapterName ?: return
-        if (adapter?.name == HOGP_DEVICE_NAME && targetName != HOGP_DEVICE_NAME) {
-            try {
+        try {
+            if (adapter?.name == HOGP_DEVICE_NAME && targetName != HOGP_DEVICE_NAME) {
                 adapter?.name = targetName
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "HOGP: 恢复原蓝牙名称失败: ${e.message}")
             }
+        } catch (e: Throwable) {
+            AppLogger.w(TAG, "HOGP: 恢复原蓝牙名称失败: ${e.message}")
         }
     }
 }

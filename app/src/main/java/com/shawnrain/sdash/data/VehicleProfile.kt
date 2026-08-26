@@ -109,7 +109,7 @@ data class VehicleProfile(
                     totalMileageKm = profile.totalMileageKm.coerceAtLeast(0f),
                     learnedInternalResistanceOhm = profile.learnedInternalResistanceOhm.coerceAtLeast(0f),
                     learnedEfficiencyWhKm = profile.learnedEfficiencyWhKm.coerceAtLeast(0f),
-                    learnedUsableEnergyRatio = profile.learnedUsableEnergyRatio.coerceIn(0.30f, 1.20f)
+                    learnedUsableEnergyRatio = profile.learnedUsableEnergyRatio.coerceIn(0.30f, 1.00f)
                 )
             }
         }

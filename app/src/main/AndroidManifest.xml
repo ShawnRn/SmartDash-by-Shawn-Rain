@@ -25,6 +25,7 @@
         android:required="false" />
 
     <application
+        android:name=".HabeApplication"
         android:allowBackup="false"
         android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
@@ -38,7 +39,9 @@
             android:exported="true"
             android:supportsPictureInPicture="true"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
-            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize">
+            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize"
+            android:autoRemoveFromRecents="false"
+            android:excludeFromRecents="false">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -61,6 +64,7 @@
             android:name=".service.DashcamForegroundService"
             android:enabled="true"
             android:exported="false"
+            android:stopWithTask="true"
             android:foregroundServiceType="camera|microphone" />
     </application>
 

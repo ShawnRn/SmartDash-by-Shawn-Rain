@@ -244,7 +244,7 @@ class SettingsRepository(private val context: Context) {
         val safeTotalMileageKm = finiteOr(profile.totalMileageKm, 0f).coerceAtLeast(0f)
         val safeLearnedInternalResistanceOhm = finiteOr(profile.learnedInternalResistanceOhm, 0f).coerceAtLeast(0f)
         val safeLearnedEfficiencyWhKm = finiteOr(profile.learnedEfficiencyWhKm, 0f).coerceAtLeast(0f)
-        val safeLearnedUsableEnergyRatio = finiteOr(profile.learnedUsableEnergyRatio, 0.9f).coerceIn(0.30f, 1.20f)
+        val safeLearnedUsableEnergyRatio = finiteOr(profile.learnedUsableEnergyRatio, 0.9f).coerceIn(0.30f, 1.00f)
 
         return profile.copy(
             name = profile.name.trim().ifBlank { "未命名车辆" },
@@ -1927,8 +1927,8 @@ class SettingsRepository(private val context: Context) {
                     learnedUsableEnergyRatio = maxOf(
                         localProfile.learnedUsableEnergyRatio,
                         remoteProfile.learnedUsableEnergyRatio
-                    ).takeIf { it in 0.30f..1.20f }
-                        ?: localProfile.learnedUsableEnergyRatio.takeIf { it in 0.30f..1.20f }
+                    ).takeIf { it in 0.30f..1.00f }
+                        ?: localProfile.learnedUsableEnergyRatio.takeIf { it in 0.30f..1.00f }
                         ?: remoteProfile.learnedUsableEnergyRatio,
                     // Total mileage: higher wins
                     totalMileageKm = maxOf(localProfile.totalMileageKm, remoteProfile.totalMileageKm),

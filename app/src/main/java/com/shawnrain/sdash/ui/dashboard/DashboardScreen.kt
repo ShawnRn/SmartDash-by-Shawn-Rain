@@ -77,6 +77,7 @@ import com.shawnrain.sdash.ui.navigation.BlurredModalBottomSheet
 import com.shawnrain.sdash.ui.navigation.PredictiveBackPopupTransform
 import com.shawnrain.sdash.ui.theme.bezierPillShape
 import com.shawnrain.sdash.ui.theme.bezierRoundedShape
+import com.shawnrain.sdash.ui.theme.LiquidGlassPill
 import com.shawnrain.sdash.ui.theme.icon
 import android.graphics.Bitmap
 import androidx.compose.animation.animateColorAsState
@@ -845,14 +846,9 @@ fun DashboardHeader(
                     Icon(Icons.Default.Add, contentDescription = "Add", tint = MaterialTheme.colorScheme.primary)
                 }
             } else {
-                Surface(
+                LiquidGlassPill(
                     onClick = onRideToggle,
-                    shape = bezierPillShape(),
-                    color = if (isRideActive) {
-                        MaterialTheme.colorScheme.errorContainer
-                    } else {
-                        MaterialTheme.colorScheme.primaryContainer
-                    }
+                    borderAlpha = 0.30f
                 ) {
                     Text(
                         text = if (isRideActive) "结束" else "开始",
@@ -875,23 +871,29 @@ fun DashboardHeader(
                     Text("完成", fontWeight = FontWeight.Bold)
                 }
             } else {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                LiquidGlassPill(
+                    alpha = 0.26f,
+                    borderAlpha = 0.24f
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Navigation,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = rideDirectionLabel,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Navigation,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = rideDirectionLabel,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
         }
@@ -1043,12 +1045,6 @@ private fun DashcamStatusBadge(
         else -> MaterialTheme.colorScheme.outline
     }
 
-    val containerColor = when {
-        isRecording -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
-        isReady -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
-        else -> MaterialTheme.colorScheme.surfaceVariant
-    }
-
     val textColor = when {
         isRecording -> MaterialTheme.colorScheme.error
         isReady -> MaterialTheme.colorScheme.primary
@@ -1062,9 +1058,9 @@ private fun DashcamStatusBadge(
         else -> "行车记录仪"
     }
 
-    Surface(
-        color = containerColor,
-        shape = bezierPillShape(),
+    LiquidGlassPill(
+        alpha = 0.26f,
+        borderAlpha = 0.26f,
         onClick = onClick
     ) {
         Row(
@@ -1392,9 +1388,9 @@ private fun CompactTelemetryBadge(
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     iconColor: androidx.compose.ui.graphics.Color? = null
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
-        shape = bezierPillShape()
+    LiquidGlassPill(
+        alpha = 0.26f,
+        borderAlpha = 0.24f
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -1435,13 +1431,9 @@ private fun ConnectionStatusBadge(
     onClick: () -> Unit,
     onTuningClick: (() -> Unit)? = null
 ) {
-    Surface(
-        color = if (isConnected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
-        },
-        shape = bezierPillShape(),
+    LiquidGlassPill(
+        alpha = 0.26f,
+        borderAlpha = if (isConnected) 0.30f else 0.24f,
         onClick = onClick
     ) {
         Row(

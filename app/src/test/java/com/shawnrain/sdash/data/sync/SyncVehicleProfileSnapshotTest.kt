@@ -12,7 +12,9 @@ class SyncVehicleProfileSnapshotTest {
         val snapshot = SyncSettingsSnapshot(
             autoRideStopEnabled = false,
             autoRideStopDelaySeconds = 180,
-            useMiSansFont = false
+            autoSpeedCalibrationEnabled = true,
+            useMiSansFont = false,
+            uiScale = 1.15f
         )
 
         val encoded = json.encodeToString(SyncSettingsSnapshot.serializer(), snapshot)
@@ -20,7 +22,9 @@ class SyncVehicleProfileSnapshotTest {
 
         assertEquals(false, decoded.autoRideStopEnabled)
         assertEquals(180, decoded.autoRideStopDelaySeconds)
+        assertEquals(true, decoded.autoSpeedCalibrationEnabled)
         assertEquals(false, decoded.useMiSansFont)
+        assertEquals(1.15f, decoded.uiScale, 0.001f)
     }
 
     @Test
@@ -37,7 +41,9 @@ class SyncVehicleProfileSnapshotTest {
 
         assertEquals(true, decoded.autoRideStopEnabled)
         assertEquals(75, decoded.autoRideStopDelaySeconds)
+        assertEquals(false, decoded.autoSpeedCalibrationEnabled)
         assertEquals(true, decoded.useMiSansFont)
+        assertEquals(1.0f, decoded.uiScale, 0.001f)
     }
 
     @Test

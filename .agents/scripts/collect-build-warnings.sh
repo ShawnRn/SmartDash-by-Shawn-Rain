@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+APP_BUILD_DIR="${SMARTDASH_GRADLE_BUILD_ROOT:-/Users/shawnrain/Library/Caches/SmartDash/gradle-build}/app"
 REPORT_DIR="${ROOT_DIR}/reports/build-warnings"
 LINT_DIR="${ROOT_DIR}/reports/lint"
 NORMALIZED_LOG="${REPORT_DIR}/normalized.txt"
@@ -48,8 +49,8 @@ run_gradle_capture() {
 }
 
 run_gradle_capture ":app:compileNormalDebugKotlin" "${KOTLIN_LOG}"
-run_gradle_capture ":app:assembleNormalDebug" "${DEBUG_LOG}" "${ROOT_DIR}/app/build/intermediates/project_dex_archive/normalDebug"
-run_gradle_capture ":app:assembleNormalRelease" "${RELEASE_LOG}" "${ROOT_DIR}/app/build/intermediates/project_dex_archive/normalRelease"
+run_gradle_capture ":app:assembleNormalDebug" "${DEBUG_LOG}" "${APP_BUILD_DIR}/intermediates/project_dex_archive/normalDebug"
+run_gradle_capture ":app:assembleNormalRelease" "${RELEASE_LOG}" "${APP_BUILD_DIR}/intermediates/project_dex_archive/normalRelease"
 run_gradle_capture ":app:lintNormalDebug" "${LINT_LOG}"
 
 {

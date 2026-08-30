@@ -12,7 +12,7 @@
 ## 2. 技术栈与构建基线
 - `namespace` / `applicationId`: `com.shawnrain.sdash`（2026-04-08 从 `com.shawnrain.habe` 迁移）
 - 品牌名 / 桌面显示名: `SmartDash`
-- Android Gradle Plugin: `8.5.0`
+- Android Gradle Plugin: `8.6.1`
 - `compileSdk`: `36`（`gradle.properties` 中 `android.suppressUnsupportedCompileSdk=36` 压制警告）
 - `targetSdk`: `36`
 - `minSdk`: `26`
@@ -25,7 +25,7 @@
 - 加密: AES-256-GCM（密码派生密钥，跨设备兼容）
 
 构建注意：
-- 当前 AGP `8.5.0` 对 `compileSdk = 36` 会有官方测试范围警告，但不阻塞 `assembleDebug`
+- 当前 AGP `8.6.1` 对 `compileSdk = 36` 会有官方测试范围警告，但不阻塞 `assembleDebug`
 - Java 17 是当前稳定构建前提
 - **编译前务必确认 `JAVA_HOME` 指向 JDK 17**，指向其他版本（如 AGP 内置 JDK 21）会导致 `JdkImageTransform` 失败
 - Gradle 已启用 daemon / parallel / build cache / configuration cache / R8 fullMode，用于缩短本地迭代构建时间
@@ -489,7 +489,7 @@ Release 签名约定：
 - 当前仓库本地单元测试仍为 `NO-SOURCE`
 - 后台小窗已改为原生 `PiP`，仅在支持 `Picture-in-Picture` 的系统路径下生效
 - `devRelease` 首次构建或 Gradle 脚本变更后，configuration cache 需要重建；若遇序列化错误需加 `--no-configuration-cache`
-- 当前 AGP 8.5.0 在 `devRelease` / `release` 上偶发 dex 中间产物重复问题；清理对应 `project_dex_archive/<variant>` 后可恢复
+- 当前 AGP 8.6.1 在 `devRelease` / `release` 上偶发 dex 中间产物重复问题；清理对应 `project_dex_archive/<variant>` 后可恢复
 - Google Drive 同步依赖 Google Play Services，在无 GMS 设备（如华为鸿蒙）上不可用
 - `VehicleProfile.lastModified` 字段已添加但旧数据默认为 0L，首次合并时可能误判为较新
 - SOC / 续航显示仍可能存在一定波动（电压法 + 负载压降 + 动态恢复本质特性），后续可进一步优化平滑参数

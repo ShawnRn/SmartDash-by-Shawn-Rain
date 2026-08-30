@@ -25,11 +25,11 @@ if should_route_remote_build; then
   LOCAL_BUILD_LOG="$LOG_DIR/$(basename "$REMOTE_BUILD_LOG")"
 
   mkdir -p "$(dirname "$DEV_RELEASE_APK_PATH")"
-  mkdir -p "$PROJECT_ROOT/app/build/outputs/apk/vivo/devRelease"
+  mkdir -p "$APP_BUILD_DIR/outputs/apk/vivo/devRelease"
 
   copy_remote_file_to_local "$REMOTE_TARGET" "$REMOTE_DEV_RELEASE_APK_PATH" "$DEV_RELEASE_APK_PATH"
-  copy_remote_file_to_local "$REMOTE_TARGET" "$REMOTE_NORMAL_APK" "$PROJECT_ROOT/app/build/outputs/apk/normal/devRelease/app-normal-devRelease.apk"
-  copy_remote_file_to_local "$REMOTE_TARGET" "$REMOTE_VIVO_APK" "$PROJECT_ROOT/app/build/outputs/apk/vivo/devRelease/app-vivo-devRelease.apk"
+  copy_remote_file_to_local "$REMOTE_TARGET" "$REMOTE_NORMAL_APK" "$APP_BUILD_DIR/outputs/apk/normal/devRelease/app-normal-devRelease.apk"
+  copy_remote_file_to_local "$REMOTE_TARGET" "$REMOTE_VIVO_APK" "$APP_BUILD_DIR/outputs/apk/vivo/devRelease/app-vivo-devRelease.apk"
   copy_remote_file_to_local "$REMOTE_TARGET" "$REMOTE_ARCHIVE_APK" "$LOCAL_ARCHIVE_APK"
   copy_remote_file_to_local "$REMOTE_TARGET" "$REMOTE_BUILD_LOG" "$LOCAL_BUILD_LOG"
 
@@ -37,8 +37,8 @@ if should_route_remote_build; then
   DESKTOP_DIR="/Users/shawnrain/Desktop"
   if [[ -d "$DESKTOP_DIR" ]]; then
     echo "Copying downloaded devRelease APKs to Desktop..."
-    cp "$PROJECT_ROOT/app/build/outputs/apk/normal/devRelease/app-normal-devRelease.apk" "$DESKTOP_DIR/SmartDash-normal-devRelease.apk"
-    cp "$PROJECT_ROOT/app/build/outputs/apk/vivo/devRelease/app-vivo-devRelease.apk" "$DESKTOP_DIR/SmartDash-vivo-devRelease.apk"
+    cp "$APP_BUILD_DIR/outputs/apk/normal/devRelease/app-normal-devRelease.apk" "$DESKTOP_DIR/SmartDash-normal-devRelease.apk"
+    cp "$APP_BUILD_DIR/outputs/apk/vivo/devRelease/app-vivo-devRelease.apk" "$DESKTOP_DIR/SmartDash-vivo-devRelease.apk"
     echo "Successfully copied to local Desktop:"
     echo "  - $DESKTOP_DIR/SmartDash-normal-devRelease.apk"
     echo "  - $DESKTOP_DIR/SmartDash-vivo-devRelease.apk"
@@ -73,8 +73,8 @@ run_gradle_logged_with_dex_retry "$LOG_FILE" devRelease :app:assembleDevRelease
 
 grep "BUILD SUCCESSFUL" "$LOG_FILE" >/dev/null
 
-DEV_NORMAL_APK="$PROJECT_ROOT/app/build/outputs/apk/normal/devRelease/app-normal-devRelease.apk"
-DEV_VIVO_APK="$PROJECT_ROOT/app/build/outputs/apk/vivo/devRelease/app-vivo-devRelease.apk"
+DEV_NORMAL_APK="$APP_BUILD_DIR/outputs/apk/normal/devRelease/app-normal-devRelease.apk"
+DEV_VIVO_APK="$APP_BUILD_DIR/outputs/apk/vivo/devRelease/app-vivo-devRelease.apk"
 
 test -f "$DEV_NORMAL_APK"
 test -f "$DEV_VIVO_APK"

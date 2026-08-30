@@ -18,6 +18,7 @@ import kotlin.math.pow
 import kotlin.math.sin
 
 private const val SuperellipseExponent = 3.35f
+private const val G2CapsuleExponent = 2.30f
 private val PillCornerRadius = 999.dp
 
 @Immutable
@@ -25,14 +26,19 @@ class BezierRoundedShape(
     topStart: CornerSize,
     topEnd: CornerSize,
     bottomEnd: CornerSize,
-    bottomStart: CornerSize
+    bottomStart: CornerSize,
+    private val exponent: Float = SuperellipseExponent
 ) : CornerBasedShape(topStart, topEnd, bottomEnd, bottomStart) {
 
-    constructor(cornerRadius: Dp) : this(
+    constructor(
+        cornerRadius: Dp,
+        exponent: Float = SuperellipseExponent
+    ) : this(
         topStart = CornerSize(cornerRadius),
         topEnd = CornerSize(cornerRadius),
         bottomEnd = CornerSize(cornerRadius),
-        bottomStart = CornerSize(cornerRadius)
+        bottomStart = CornerSize(cornerRadius),
+        exponent = exponent
     )
 
     override fun copy(
@@ -40,7 +46,13 @@ class BezierRoundedShape(
         topEnd: CornerSize,
         bottomEnd: CornerSize,
         bottomStart: CornerSize
-    ): BezierRoundedShape = BezierRoundedShape(topStart, topEnd, bottomEnd, bottomStart)
+    ): BezierRoundedShape = BezierRoundedShape(
+        topStart = topStart,
+        topEnd = topEnd,
+        bottomEnd = bottomEnd,
+        bottomStart = bottomStart,
+        exponent = exponent
+    )
 
     override fun createOutline(
         size: Size,
@@ -149,12 +161,21 @@ class BezierRoundedShape(
     private fun cornerSamples(radius: Float): Int = max(8, ceil(radius / 3f).toInt())
 
     private fun superellipseCos(angle: Float): Float =
-        cos(angle.toDouble()).coerceAtLeast(0.0).pow(2.0 / SuperellipseExponent).toFloat()
+        cos(angle.toDouble()).coerceAtLeast(0.0).pow(2.0 / exponent).toFloat()
 
     private fun superellipseSin(angle: Float): Float =
-        sin(angle.toDouble()).coerceAtLeast(0.0).pow(2.0 / SuperellipseExponent).toFloat()
+        sin(angle.toDouble()).coerceAtLeast(0.0).pow(2.0 / exponent).toFloat()
 }
 
 fun bezierRoundedShape(cornerRadius: Dp): BezierRoundedShape = BezierRoundedShape(cornerRadius)
 
 fun bezierPillShape(): BezierRoundedShape = BezierRoundedShape(PillCornerRadius)
+
+/**
+ * Capsule-like G2 continuous curve. The exponent stays close to a circular capsule
+ * while reaching zero curvature where each end meets the straight segment.
+ */
+fun g2CapsuleShape(): BezierRoundedShape = BezierRoundedShape(
+    cornerRadius = PillCornerRadius,
+    exponent = G2CapsuleExponent
+)

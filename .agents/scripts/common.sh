@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="$PROJECT_ROOT/.agents/logs"
 ARTIFACT_DIR="$PROJECT_ROOT/.agents/artifacts"
 JAVA_HOME_DEFAULT="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+SMARTDASH_CACHE_ROOT_DEFAULT="/Users/shawnrain/Library/Caches/SmartDash"
 
 export ANDROID_HOME="${ANDROID_HOME:-/Users/shawnrain/android-sdk}"
 export JAVA_HOME="${JAVA_HOME:-$JAVA_HOME_DEFAULT}"
@@ -14,14 +15,16 @@ export SMARTDASH_BUILD_HOST="${SMARTDASH_BUILD_HOST:-shawn-rains-macbook-pro}"
 export SMARTDASH_BUILD_HOST_IP="${SMARTDASH_BUILD_HOST_IP:-100.103.86.124}"
 export SMARTDASH_REMOTE_PROJECT_ROOT="${SMARTDASH_REMOTE_PROJECT_ROOT:-$PROJECT_ROOT}"
 export SMARTDASH_REMOTE_JAVA_HOME="${SMARTDASH_REMOTE_JAVA_HOME:-$JAVA_HOME_DEFAULT}"
+export SMARTDASH_GRADLE_BUILD_ROOT="${SMARTDASH_GRADLE_BUILD_ROOT:-$SMARTDASH_CACHE_ROOT_DEFAULT/gradle-build}"
 
-APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/normal/debug/app-normal-debug.apk"
-DEV_RELEASE_APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/devRelease/app-devRelease.apk"
-FAST_DEV_RELEASE_APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/fastDevRelease/app-fastDevRelease.apk"
-RELEASE_APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/normal/release/app-normal-release.apk"
-RELEASE_NORMAL_APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/normal/release/app-normal-release.apk"
-RELEASE_VIVO_APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/vivo/release/app-vivo-release.apk"
-VIVO_RELEASE_APK_PATH="$PROJECT_ROOT/app/build/outputs/apk/vivo/release/app-vivo-release.apk"
+APP_BUILD_DIR="$SMARTDASH_GRADLE_BUILD_ROOT/app"
+APK_PATH="$APP_BUILD_DIR/outputs/apk/normal/debug/app-normal-debug.apk"
+DEV_RELEASE_APK_PATH="$APP_BUILD_DIR/outputs/apk/normal/devRelease/app-normal-devRelease.apk"
+FAST_DEV_RELEASE_APK_PATH="$APP_BUILD_DIR/outputs/apk/normal/fastDevRelease/app-normal-fastDevRelease.apk"
+RELEASE_APK_PATH="$APP_BUILD_DIR/outputs/apk/normal/release/app-normal-release.apk"
+RELEASE_NORMAL_APK_PATH="$APP_BUILD_DIR/outputs/apk/normal/release/app-normal-release.apk"
+RELEASE_VIVO_APK_PATH="$APP_BUILD_DIR/outputs/apk/vivo/release/app-vivo-release.apk"
+VIVO_RELEASE_APK_PATH="$APP_BUILD_DIR/outputs/apk/vivo/release/app-vivo-release.apk"
 DEFAULT_RELEASE_KEYSTORE_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Shawn Rain/Secure/habe_android/signing"
 DEFAULT_RELEASE_KEYSTORE_FILE="$DEFAULT_RELEASE_KEYSTORE_DIR/habe-release.jks"
 SIGNING_FILE_PATTERN='(^|/)([^/]+\.(jks|keystore|p12)|signing\.properties|keystore\.properties|signing\.env|build_log\.txt|\.env(\..*)?)$'
@@ -209,6 +212,7 @@ run_remote_script_capture() {
   env_content+="export SMARTDASH_REMOTE_JAVA_HOME=$(shell_quote "$SMARTDASH_REMOTE_JAVA_HOME")"$'\n'
   env_content+="export JAVA_HOME=$(shell_quote "$SMARTDASH_REMOTE_JAVA_HOME")"$'\n'
   env_content+="export ANDROID_HOME=$(shell_quote "$ANDROID_HOME")"$'\n'
+  env_content+="export SMARTDASH_GRADLE_BUILD_ROOT=$(shell_quote "$SMARTDASH_GRADLE_BUILD_ROOT")"$'\n'
 
   # 将环境变量写入远端文件
   smartdash_ssh "$target" "cat <<EOF > $(shell_quote "$env_file")
@@ -303,6 +307,40 @@ copy_remote_file_to_local() {
 
 ensure_dirs() {
   mkdir -p "$LOG_DIR" "$ARTIFACT_DIR"
+  prune_generated_history
+}
+
+prune_file_group() {
+  local directory="$1"
+  local pattern="$2"
+  local keep_count="$3"
+  local files=()
+  local sorted_files=()
+
+  shopt -s nullglob
+  files=("$directory"/$pattern)
+  shopt -u nullglob
+  if [[ ${#files[@]} -le "$keep_count" ]]; then
+    return 0
+  fi
+
+  while IFS= read -r file; do
+    sorted_files+=("$file")
+  done < <(ls -1t "${files[@]}")
+
+  local index
+  for ((index = keep_count; index < ${#sorted_files[@]}; index++)); do
+    rm -f -- "${sorted_files[$index]}"
+  done
+}
+
+prune_generated_history() {
+  # Two recent paired builds per channel, plus two recent debug APKs.
+  prune_file_group "$ARTIFACT_DIR" 'habe-release-*.apk' 4
+  prune_file_group "$ARTIFACT_DIR" 'habe-dev-release-*.apk' 4
+  prune_file_group "$ARTIFACT_DIR" 'habe-fast-dev-release-*.apk' 4
+  prune_file_group "$ARTIFACT_DIR" 'habe-debug-*.apk' 2
+  prune_file_group "$LOG_DIR" '*.log' 80
 }
 
 require_cmd() {
@@ -432,6 +470,8 @@ fail_if_staged_signing_files() {
 run_gradle_logged() {
   local log_file="$1"
   shift
+  find "$APP_BUILD_DIR" -name "* 2.*" -delete 2>/dev/null || true
+  find "$PROJECT_ROOT/app/src" -name "* 2.*" -delete 2>/dev/null || true
   local tee_args=()
   if [[ "${RUN_GRADLE_LOG_MODE:-overwrite}" == "append" ]]; then
     tee_args=(-a)
@@ -461,11 +501,11 @@ clean_variant_dex_intermediates() {
     *) task_suffix="$variant" ;;
   esac
   rm -rf \
-    "$PROJECT_ROOT/app/build/intermediates/project_dex_archive/$variant" \
-    "$PROJECT_ROOT/app/build/intermediates/dex_archive_input_jar_hashes/$variant" \
-    "$PROJECT_ROOT/app/build/intermediates/mergeDex$task_suffix" \
-    "$PROJECT_ROOT/app/build/intermediates/dex_builder/$variant" \
-    "$PROJECT_ROOT/app/build/tmp/kotlin-classes/$variant"
+    "$APP_BUILD_DIR/intermediates/project_dex_archive/$variant" \
+    "$APP_BUILD_DIR/intermediates/dex_archive_input_jar_hashes/$variant" \
+    "$APP_BUILD_DIR/intermediates/mergeDex$task_suffix" \
+    "$APP_BUILD_DIR/intermediates/dex_builder/$variant" \
+    "$APP_BUILD_DIR/tmp/kotlin-classes/$variant"
 }
 
 variant_task_suffix() {
@@ -493,7 +533,7 @@ sanitize_variant_split_artifacts() {
         ;;
     esac
   done < <(
-    find "$PROJECT_ROOT/app/build/intermediates" \
+    find "$APP_BUILD_DIR/intermediates" \
       -type f \
       \( -name "* *.dex" -o -name "* *.jar" \) \
       -print0 2>/dev/null

@@ -16,6 +16,7 @@ import androidx.compose.animation.core.tween
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.SystemClock
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
@@ -54,6 +55,8 @@ import com.shawnrain.sdash.ble.protocols.syncLegacyFieldsFromWords
 import com.shawnrain.sdash.data.SpeedSource
 import com.shawnrain.sdash.data.DataSource
 import com.shawnrain.sdash.data.AutoCalibrator
+import com.shawnrain.sdash.data.AutomaticSpeedCalibrationInput
+import com.shawnrain.sdash.data.AutomaticSpeedCalibrator
 import com.shawnrain.sdash.data.GpsCalibrationState
 import com.shawnrain.sdash.data.SettingsRepository
 import com.shawnrain.sdash.data.RideSession
@@ -94,6 +97,7 @@ import com.shawnrain.sdash.data.telemetry.RangeEstimate
 import com.shawnrain.sdash.data.telemetry.RangeEstimator
 import com.shawnrain.sdash.data.telemetry.TelemetryReplayRunner
 import com.shawnrain.sdash.data.telemetry.TelemetrySample
+import com.shawnrain.sdash.data.telemetry.SampleDataMode
 import com.shawnrain.sdash.data.telemetry.SampleQuality
 import com.shawnrain.sdash.data.telemetry.RideAccumulator
 import com.shawnrain.sdash.data.telemetry.TelemetryStreamProcessor
@@ -441,6 +445,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val logLevel = settingsRepository.logLevel.stateIn(viewModelScope, SharingStarted.Lazily, AppLogLevel.INFO)
     val overlayEnabled = settingsRepository.overlayEnabled.stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val useMiSansFont = settingsRepository.useMiSansFont.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    val uiScale = settingsRepository.uiScale.stateIn(viewModelScope, SharingStarted.Eagerly, 1.0f)
     val driveBackupRetentionPolicy = settingsRepository.driveBackupRetentionPolicy.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
@@ -455,6 +460,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope,
         SharingStarted.Eagerly,
         75
+    )
+    val autoSpeedCalibrationEnabled = settingsRepository.autoSpeedCalibrationEnabled.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        false
     )
     val dashcamAutoRecordEnabled = settingsRepository.dashcamAutoRecord.stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val dashcamRecordAudio = settingsRepository.dashcamRecordAudio.stateIn(viewModelScope, SharingStarted.Eagerly, false)
@@ -500,6 +510,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         currentCircumferenceFlow = wheelCircumference,
         locationFlow = gpsTracker.location
     )
+    private val automaticSpeedCalibrator = AutomaticSpeedCalibrator()
+    val automaticSpeedCalibrationState = automaticSpeedCalibrator.state
 
     private val _dashboardItems = MutableStateFlow<List<com.shawnrain.sdash.data.MetricType>>(emptyList())
     val dashboardItems: StateFlow<List<com.shawnrain.sdash.data.MetricType>> = _dashboardItems.asStateFlow()
@@ -1800,6 +1812,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 )
                 _latestTelemetrySample.value = sample
+                val gpsLocation = gpsTracker.location.value
+                if (gpsLocation != null) {
+                    val gpsAgeMs = (
+                        (SystemClock.elapsedRealtimeNanos() - gpsLocation.elapsedRealtimeNanos) /
+                            1_000_000L
+                        ).coerceAtLeast(0L)
+                    val adjustment = automaticSpeedCalibrator.observe(
+                        AutomaticSpeedCalibrationInput(
+                            timestampMs = sample.timestampMs,
+                            gpsFixToken = gpsLocation.elapsedRealtimeNanos,
+                            gpsAgeMs = gpsAgeMs,
+                            gpsSpeedKmh = if (gpsLocation.hasSpeed()) gpsLocation.speed * 3.6f else 0f,
+                            gpsHorizontalAccuracyMeters = if (gpsLocation.hasAccuracy()) {
+                                gpsLocation.accuracy
+                            } else {
+                                Float.MAX_VALUE
+                            },
+                            gpsSpeedAccuracyMetersPerSecond = if (
+                                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                                gpsLocation.hasSpeedAccuracy()
+                            ) {
+                                gpsLocation.speedAccuracyMetersPerSecond
+                            } else {
+                                null
+                            },
+                            controllerSpeedKmh = sample.controllerSpeedKmH,
+                            currentCircumferenceMm = wheelCircumference.value,
+                            freshControllerSample = sample.allowLearning &&
+                                sample.quality == SampleQuality.GOOD &&
+                                sample.dataMode == SampleDataMode.RAW,
+                            rpmBasedSpeed = ProtocolParser.activeProtocolId.value == "zhike" ||
+                                raw.speedKmH <= 0.2f
+                        )
+                    )
+                    if (adjustment != null) {
+                        viewModelScope.launch {
+                            settingsRepository.saveWheelCircumference(adjustment.newCircumferenceMm)
+                            syncScheduler.onSettingsChanged()
+                            _calibrationMessage.value =
+                                "GPS 已自动校准控制器速度：轮径 ${adjustment.previousCircumferenceMm.toInt()} → ${adjustment.newCircumferenceMm.toInt()}mm"
+                        }
+                    }
+                }
                 if (_isRideActive.value && !isRidePausedForStop()) {
                     rideAccumulator.accumulate(sample)
                 }
@@ -1849,6 +1904,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _controllerReportedSpeed.value = resolvedSpeed
         }.launchIn(viewModelScope)
         autoCalibrator.startObserving()
+        autoSpeedCalibrationEnabled.onEach { enabled ->
+            automaticSpeedCalibrator.setEnabled(enabled)
+        }.launchIn(viewModelScope)
         headingTracker.start()
 
         // App lifecycle: trigger sync pull on foreground
@@ -1995,8 +2053,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }.launchIn(viewModelScope)
 
-        combine(speedSource, gpsCalibrationState, _isRideActive, _speedTestSession) { source, calibration, rideActive, speedTest ->
-            source == SpeedSource.GPS || calibration.isRunning || rideActive || speedTest.isActive
+        combine(
+            speedSource,
+            gpsCalibrationState,
+            autoSpeedCalibrationEnabled,
+            _isRideActive,
+            _speedTestSession
+        ) { source, calibration, autoCalibration, rideActive, speedTest ->
+            source == SpeedSource.GPS || calibration.isRunning || autoCalibration || rideActive || speedTest.isActive
         }.onEach { shouldTrack ->
             if (shouldTrack) gpsTracker.startTracking() else gpsTracker.stopTracking()
         }.launchIn(viewModelScope)
@@ -4022,10 +4086,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _calibrationMessage.value = if (enabled) "MiSans 字体已开启" else "系统默认字体已开启"
     }
 
+    fun saveUiScale(scale: Float): kotlinx.coroutines.Job = viewModelScope.launch {
+        val clamped = scale.coerceIn(0.75f, 1.30f)
+        settingsRepository.saveUiScale(clamped)
+        syncScheduler.onSettingsChanged()
+        _calibrationMessage.value = "UI 缩放已设为 ${(clamped * 100).toInt()}%"
+    }
+
     fun saveAutoRideStopEnabled(enabled: Boolean): kotlinx.coroutines.Job = viewModelScope.launch {
         settingsRepository.saveAutoRideStopEnabled(enabled)
         syncScheduler.onSettingsChanged()
         _calibrationMessage.value = if (enabled) "停车结束记录已开启" else "停车结束记录已关闭"
+    }
+
+    fun saveAutoSpeedCalibrationEnabled(enabled: Boolean): kotlinx.coroutines.Job = viewModelScope.launch {
+        settingsRepository.saveAutoSpeedCalibrationEnabled(enabled)
+        syncScheduler.onSettingsChanged()
+        _calibrationMessage.value = if (enabled) {
+            "长期 GPS 自动速度校准已开启"
+        } else {
+            "长期 GPS 自动速度校准已关闭"
+        }
     }
 
     fun saveAutoRideStopDelaySeconds(seconds: Int): kotlinx.coroutines.Job = viewModelScope.launch {

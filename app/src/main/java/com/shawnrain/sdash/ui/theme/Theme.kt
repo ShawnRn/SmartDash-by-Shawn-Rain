@@ -14,7 +14,9 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.Density
 import androidx.core.view.WindowCompat
 import androidx.compose.ui.unit.dp
 
@@ -34,6 +36,7 @@ data class SmartDashColors(
 )
 
 val LocalSmartDashColors = staticCompositionLocalOf { SmartDashColors() }
+val LocalUiScale = staticCompositionLocalOf { 1.0f }
 
 val MiSansFontFamily = FontFamily(
     Font(R.font.misans_light, FontWeight.Light),
@@ -95,6 +98,7 @@ fun HabeTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     useMiSans: Boolean = true,
+    uiScale: Float = 1.0f,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
@@ -115,10 +119,18 @@ fun HabeTheme(
 
     val customColors = SmartDashColors()
     val typography = getAppTypography(useMiSans)
+    val systemDensity = LocalDensity.current
+    val effectiveScale = uiScale.coerceIn(0.70f, 1.40f)
+    val scaledDensity = Density(
+        density = systemDensity.density * effectiveScale,
+        fontScale = systemDensity.fontScale
+    )
 
     CompositionLocalProvider(
+        LocalDensity provides scaledDensity,
         LocalSmartDashColors provides customColors,
-        LocalUseMiSansFont provides useMiSans
+        LocalUseMiSansFont provides useMiSans,
+        LocalUiScale provides effectiveScale
     ) {
         MaterialTheme(
             colorScheme = colorScheme,

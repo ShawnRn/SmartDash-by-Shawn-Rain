@@ -10,6 +10,8 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.widget.Toast
 import android.graphics.Color as AndroidColor
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -55,8 +57,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.BatteryChargingFull
@@ -148,6 +152,7 @@ import com.shawnrain.sdash.ui.navigation.PopupBackdropBlurLayer
 import com.shawnrain.sdash.ui.navigation.rememberPredictiveBackMotion
 import com.shawnrain.sdash.ui.theme.bezierPillShape
 import com.shawnrain.sdash.ui.theme.bezierRoundedShape
+import com.shawnrain.sdash.ui.theme.LiquidGlassSurface
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
@@ -186,8 +191,11 @@ fun SettingsScreen(
     val logLevel by viewModel.logLevel.collectAsState()
     val overlayEnabled by viewModel.overlayEnabled.collectAsState()
     val useMiSansFont by viewModel.useMiSansFont.collectAsState()
+    val uiScale by viewModel.uiScale.collectAsState()
     val autoRideStopEnabled by viewModel.autoRideStopEnabled.collectAsState()
     val autoRideStopDelaySeconds by viewModel.autoRideStopDelaySeconds.collectAsState()
+    val autoSpeedCalibrationEnabled by viewModel.autoSpeedCalibrationEnabled.collectAsState()
+    val automaticSpeedCalibrationState by viewModel.automaticSpeedCalibrationState.collectAsState()
     val dashcamAutoRecord by viewModel.dashcamAutoRecordEnabled.collectAsState()
     val dashcamRecordAudio by viewModel.dashcamRecordAudio.collectAsState()
     val dashcamSegmentDurationMin by viewModel.dashcamSegmentDurationMin.collectAsState()
@@ -358,7 +366,7 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            ElevatedCard(
+            LiquidGlassSurface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(bezierRoundedShape(16.dp))
@@ -434,7 +442,7 @@ fun SettingsScreen(
                 }
             }
 
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -499,7 +507,7 @@ fun SettingsScreen(
                 }
             }
 
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -562,7 +570,7 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -584,6 +592,42 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    LiquidGlassSurface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                viewModel.saveAutoSpeedCalibrationEnabled(!autoSpeedCalibrationEnabled)
+                            },
+                        shape = bezierRoundedShape(18.dp),
+                        alpha = 0.10f,
+                        borderAlpha = 0.12f,
+                        elevation = 0.dp
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "长期自动速度校准",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    automaticSpeedCalibrationState.status,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = autoSpeedCalibrationEnabled,
+                                onCheckedChange = viewModel::saveAutoSpeedCalibrationEnabled
+                            )
+                        }
+                    }
                     Text(
                         gpsCalibrationState.hint,
                         style = MaterialTheme.typography.bodyMedium,
@@ -651,7 +695,7 @@ fun SettingsScreen(
                 }
             }
 
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -726,7 +770,7 @@ fun SettingsScreen(
                 }
             }
 
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -802,7 +846,7 @@ fun SettingsScreen(
     }
 
     val uiDisplayPage = @Composable {
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -844,7 +888,122 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                var sliderPosition by remember(uiScale) { mutableFloatStateOf(uiScale) }
+                val displayPercent = (sliderPosition * 100).roundToInt()
+                val isDefault = abs(sliderPosition - 1.0f) < 0.005f
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AspectRatio,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text("界面缩放", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (!isDefault) {
+                            Surface(
+                                modifier = Modifier.clip(MaterialTheme.shapes.small),
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                                onClick = {
+                                    sliderPosition = 1.0f
+                                    viewModel.saveUiScale(1.0f)
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.RestartAlt,
+                                        contentDescription = "重置",
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        "重置",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            text = "$displayPercent%",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                Text(
+                    "独立于系统显示缩放与最小宽度，通过无级滑块微调 App 整体界面大小与字号。手指松开后生效。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Slider(
+                        value = sliderPosition,
+                        onValueChange = { newValue ->
+                            sliderPosition = newValue
+                        },
+                        onValueChangeFinished = {
+                            viewModel.saveUiScale(sliderPosition)
+                        },
+                        valueRange = 0.75f..1.30f,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "75% 紧凑",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (sliderPosition <= 0.76f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            "100% 默认",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isDefault) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            "130% 放大",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (sliderPosition >= 1.29f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -893,7 +1052,7 @@ fun SettingsScreen(
     }
 
     val systemDataPage = @Composable {
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -972,7 +1131,7 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1256,7 +1415,7 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1431,7 +1590,7 @@ fun SettingsScreen(
 
                         if (subPage == null) {
                             // 1. 车辆与连接 (Vehicle & Connection)
-                            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                            LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
                                 Column(
                                     modifier = Modifier.padding(16.dp),
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -1476,7 +1635,7 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.height(20.dp))
 
                             // 2. 记录与行车 (Ride & Tracking)
-                            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                            LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
                                 Column(
                                     modifier = Modifier.padding(16.dp),
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -1498,7 +1657,7 @@ fun SettingsScreen(
                                     SettingsNavigationItem(
                                         icon = Icons.Default.Speed,
                                         title = "记录与校准",
-                                        subtitle = "速度源：${speedSource.title} · 停车自动结束：${if (autoRideStopEnabled) "${autoRideStopDelaySeconds}秒" else "已禁用"}",
+                                        subtitle = "速度源：${speedSource.title} · GPS 自动校准：${if (autoSpeedCalibrationEnabled) "开启" else "关闭"}",
                                         onClick = { activeSubPage = SettingsSubPage.RIDE_TRACKING }
                                     )
                                 }
@@ -1507,7 +1666,7 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.height(20.dp))
 
                             // 3. 界面与个性化 (UI & Display)
-                            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                            LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
                                 Column(
                                     modifier = Modifier.padding(16.dp),
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -1522,7 +1681,7 @@ fun SettingsScreen(
                                     SettingsNavigationItem(
                                         icon = Icons.Default.PictureInPicture,
                                         title = "界面显示与海报",
-                                        subtitle = "悬浮仪表：${if (overlayEnabled) "开启" else "关闭"} · 字体：${if (useMiSansFont) "MiSans" else "默认"}",
+                                        subtitle = "缩放：${(uiScale * 100).roundToInt()}% · 悬浮：${if (overlayEnabled) "开启" else "关闭"} · 字体：${if (useMiSansFont) "MiSans" else "默认"}",
                                         onClick = { activeSubPage = SettingsSubPage.UI_DISPLAY }
                                     )
                                 }
@@ -1531,7 +1690,7 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.height(20.dp))
 
                             // 4. 数据与系统 (System & Data)
-                            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                            LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
                                 Column(
                                     modifier = Modifier.padding(16.dp),
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -1900,7 +2059,7 @@ private fun AboutSmartDashEntryCard(
     appUpdateState: AppUpdateState,
     onOpen: () -> Unit
 ) {
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+    LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -3631,7 +3790,7 @@ private fun DashcamSettingsCard(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -3772,7 +3931,7 @@ private fun DashcamSettingsCard(
             }
         }
 
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        LiquidGlassSurface(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("水印叠加", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
 
@@ -3832,10 +3991,15 @@ private fun SettingsNavigationItem(
     subtitle: String,
     onClick: () -> Unit
 ) {
-    Surface(
-        onClick = onClick,
-        color = Color.Transparent,
-        modifier = Modifier.fillMaxWidth()
+    val interactionSource = remember { MutableInteractionSource() }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
     ) {
         Row(
             modifier = Modifier

@@ -23,6 +23,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
@@ -48,7 +50,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryChargingFull
@@ -65,8 +69,6 @@ import androidx.compose.ui.draw.blur
 import kotlinx.coroutines.launch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
@@ -88,15 +90,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -115,6 +119,10 @@ import com.shawnrain.sdash.ui.connect.ConnectScreen
 import com.shawnrain.sdash.ui.dashboard.BaselineMetricValue
 import com.shawnrain.sdash.ui.dashboard.DashboardScreen
 import com.shawnrain.sdash.ui.navigation.PredictiveBackPage
+import com.shawnrain.sdash.ui.navigation.freezableLayerBackdrop
+import com.shawnrain.sdash.ui.navigation.LiquidGlassBottomBar
+import com.shawnrain.sdash.ui.navigation.LiquidGlassBottomBarItem
+import com.shawnrain.sdash.ui.navigation.rememberFreezableLayerBackdrop
 import com.shawnrain.sdash.ui.settings.SettingsScreen
 import com.shawnrain.sdash.ui.speedtest.SpeedtestScreen
 import com.shawnrain.sdash.ui.theme.HabeTheme
@@ -125,6 +133,8 @@ import kotlin.math.abs
 import kotlin.math.pow
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -173,6 +183,7 @@ class MainActivity : ComponentActivity() {
         }
 
         super.onCreate(savedInstanceState)
+        requestHighRefreshRate()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             systemBackObserver = OnBackInvokedCallback {
                 // Observe committed system back and avoid stealing it with auto PiP.
@@ -200,8 +211,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             val viewModel = mainViewModel
             val useMiSans by viewModel.useMiSansFont.collectAsState()
+            val uiScale by viewModel.uiScale.collectAsState()
 
-            HabeTheme(useMiSans = useMiSans) {
+            HabeTheme(
+                useMiSans = useMiSans,
+                uiScale = uiScale
+            ) {
                 PermissionBootstrapGate {
                     MainScreen(
                         viewModel = viewModel,
@@ -309,6 +324,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (!isInPictureInPictureMode) {
+            requestHighRefreshRate()
+        }
         if (::mainViewModel.isInitialized) {
             mainViewModel.setActivityResumed(true)
         }
@@ -318,6 +336,54 @@ class MainActivity : ComponentActivity() {
         super.onPause()
         if (::mainViewModel.isInitialized) {
             mainViewModel.setActivityResumed(false)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun requestHighRefreshRate() {
+        val targetDisplay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            display
+        } else {
+            windowManager.defaultDisplay
+        } ?: return
+        val currentMode = targetDisplay.mode
+        val sameSizeModes = targetDisplay.supportedModes.filter { mode ->
+            mode.physicalWidth == currentMode.physicalWidth &&
+                mode.physicalHeight == currentMode.physicalHeight
+        }
+        val maxRefreshRate = sameSizeModes.maxOfOrNull { it.refreshRate } ?: return
+        val thermalLimit = runCatching {
+            Settings.System.getInt(contentResolver, "thermal_limit_refresh_rate", 0).toFloat()
+        }.getOrDefault(0f)
+        val allowedRefreshRate = if (thermalLimit > 0f) {
+            min(maxRefreshRate, thermalLimit)
+        } else {
+            maxRefreshRate
+        }
+        val requestedRefreshRate = sameSizeModes
+            .map { it.refreshRate }
+            .filter { it <= allowedRefreshRate + 0.1f }
+            .maxOrNull() ?: currentMode.refreshRate
+
+        val attributes = window.attributes
+        if (attributes.preferredDisplayModeId != 0 ||
+            kotlin.math.abs(attributes.preferredRefreshRate - requestedRefreshRate) >= 0.1f
+        ) {
+            // Let ARR keep the current physical mode and request only the render rate.
+            attributes.preferredDisplayModeId = 0
+            attributes.preferredRefreshRate = requestedRefreshRate
+            if (Build.VERSION.SDK_INT >= 36) {
+                attributes.setFrameRateBoostOnTouchEnabled(true)
+                attributes.setFrameRatePowerSavingsBalanced(false)
+            }
+            window.attributes = attributes
+            AppLogger.i(
+                "RefreshRate",
+                "Requested refresh=${requestedRefreshRate}Hz thermalLimit=${thermalLimit}Hz"
+            )
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            window.decorView.setRequestedFrameRate(requestedRefreshRate)
         }
     }
 
@@ -777,28 +843,68 @@ fun MainScreen(
         Screen.Settings
     )
     val topLevelRoutes = remember(items) { items.mapTo(linkedSetOf()) { it.route } }
-    val topLevelRouteOrder = remember(items) { items.mapIndexed { index, screen -> screen.route to index }.toMap() }
-    val haptic = LocalHapticFeedback.current
-
+    var selectedTopLevelIndex by rememberSaveable { mutableIntStateOf(1) }
+    var isTopLevelTransitionRunning by remember { mutableStateOf(false) }
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
-    LaunchedEffect(currentDestination?.route) {
-        onRouteChanged(currentDestination?.route)
+    val isTopLevelHostActive = currentDestination?.route == Screen.Dashboard.route
+    val effectiveRoute = if (isTopLevelHostActive) {
+        items[selectedTopLevelIndex].route
+    } else {
+        currentDestination?.route
+    }
+    LaunchedEffect(effectiveRoute) {
+        onRouteChanged(effectiveRoute)
     }
     val isDashboardLandscape =
-        currentDestination?.hierarchy?.any { it.route == Screen.Dashboard.route } == true &&
+        isTopLevelHostActive && selectedTopLevelIndex == 1 &&
             configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val showDashcamRecordingsSheet by viewModel.showDashcamRecordingsSheet.collectAsState()
+    val isSettingsSubActive by viewModel.isSettingsSubPageActive.collectAsState()
+    val showBottomBar = isTopLevelHostActive &&
+        !(selectedTopLevelIndex == 2 && isSettingsSubActive) &&
+        !isDashboardLandscape
+    val liquidGlassItems = remember(items) {
+        items.map { screen ->
+            LiquidGlassBottomBarItem(
+                title = screen.title,
+                icon = screen.icon
+            )
+        }
+    }
+    val appBackdrop = rememberFreezableLayerBackdrop()
 
     LaunchedEffect(navController) {
         MainActivityRouteRequests.current.collect { request ->
-            navController.navigate(request.route) {
-                popUpTo(navController.graph.findStartDestination().id) {
-                    saveState = true
+            val requestedTopLevelIndex = items.indexOfFirst { it.route == request.route }
+            if (requestedTopLevelIndex >= 0) {
+                if (requestedTopLevelIndex != selectedTopLevelIndex) {
+                    isTopLevelTransitionRunning = true
                 }
-                launchSingleTop = true
-                restoreState = true
+                selectedTopLevelIndex = requestedTopLevelIndex
+                navController.navigate(Screen.Dashboard.route) {
+                    popUpTo(navController.graph.findStartDestination().id) {
+                        saveState = false
+                    }
+                    launchSingleTop = true
+                    restoreState = false
+                }
+            } else {
+                navController.navigate(request.route) {
+                    popUpTo(navController.graph.findStartDestination().id) {
+                        saveState = true
+                    }
+                    launchSingleTop = true
+                    restoreState = true
+                }
             }
+        }
+    }
+
+    LaunchedEffect(selectedTopLevelIndex) {
+        if (isTopLevelTransitionRunning) {
+            delay(190)
+            isTopLevelTransitionRunning = false
         }
     }
 
@@ -812,7 +918,13 @@ fun MainScreen(
         val dashcamState by dashcamManager.state.collectAsState()
 
         Scaffold(
-            modifier = Modifier.fillMaxSize().blur(if (showDashcamRecordingsSheet) 20.dp else 0.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .blur(if (showDashcamRecordingsSheet) 20.dp else 0.dp)
+                .freezableLayerBackdrop(
+                    backdrop = appBackdrop,
+                    frozen = isTopLevelTransitionRunning && isTopLevelHostActive
+                ),
             containerColor = MaterialTheme.colorScheme.background,
             snackbarHost = {
                 SnackbarHost(
@@ -849,86 +961,27 @@ fun MainScreen(
                         }
                     }
                 )
-            },
-            bottomBar = {
-                val isSettingsSubActive by viewModel.isSettingsSubPageActive.collectAsState()
-                val showBottomBar = currentDestination?.route in topLevelRoutes && !isSettingsSubActive
-                if (showBottomBar && !isDashboardLandscape) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.88f),
-                        tonalElevation = 3.dp
-                    ) {
-                    NavigationBar(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
-                        containerColor = Color.Transparent,
-                        tonalElevation = 0.dp
-                    ) {
-                        items.forEach { screen ->
-                            val isSelected =
-                                currentDestination?.hierarchy?.any { it.route == screen.route } == true
-                            NavigationBarItem(
-                                icon = { Icon(screen.icon, contentDescription = null) },
-                                label = { Text(screen.title) },
-                                selected = isSelected,
-                                onClick = {
-                                    if (isSelected) return@NavigationBarItem
-                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                    navController.navigate(screen.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            )
-                        }
-                    }
-                }
             }
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
             NavHost(
                 navController = navController,
                 startDestination = Screen.Dashboard.route,
                 modifier = Modifier.fillMaxSize(),
             enterTransition = {
                 if (isTopLevelTabTransition(initialState.destination.route, targetState.destination.route, topLevelRoutes)) {
-                    fadeIn(animationSpec = tween(120)) + slideInHorizontally(
-                        animationSpec = tween(120),
-                        initialOffsetX = { fullWidth ->
-                            topLevelOffset(
-                                fromRoute = initialState.destination.route,
-                                toRoute = targetState.destination.route,
-                                topLevelRouteOrder = topLevelRouteOrder,
-                                fullWidth = fullWidth
-                            )
-                        }
-                    )
+                    EnterTransition.None
                 } else {
                     fadeIn(animationSpec = tween(90))
                 }
             },
             exitTransition = {
                 if (isTopLevelTabTransition(initialState.destination.route, targetState.destination.route, topLevelRoutes)) {
-                    fadeOut(animationSpec = tween(90)) + slideOutHorizontally(
-                        animationSpec = tween(90),
-                        targetOffsetX = { fullWidth ->
-                            -topLevelOffset(
-                                fromRoute = initialState.destination.route,
-                                toRoute = targetState.destination.route,
-                                topLevelRouteOrder = topLevelRouteOrder,
-                                fullWidth = fullWidth
-                            ) / 2
-                        }
-                    )
+                    ExitTransition.None
                 } else {
                     fadeOut(animationSpec = tween(90))
                 }
@@ -950,15 +1003,69 @@ fun MainScreen(
                         }
                     )
                 }
-                composable(Screen.Dashboard.route) { 
-                    DashboardScreen(
-                        viewModel = viewModel,
-                        onNavigateToZhikeSettings = { navController.navigate(Screen.ZhikeSettings.route) },
-                        onNavigateToPlayback = { segmentId ->
-                            viewModel.selectPlaybackSegment(segmentId)
-                            navController.navigate(Screen.DashcamPlayback.route)
+                composable(Screen.Dashboard.route) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        items.indices.forEach { page ->
+                            val pageSelected = page == selectedTopLevelIndex
+                            val pageAlpha by animateFloatAsState(
+                                targetValue = if (pageSelected) 1f else 0f,
+                                animationSpec = tween(
+                                    durationMillis = 170,
+                                    easing = FastOutSlowInEasing
+                                ),
+                                label = "topLevelPageAlpha$page"
+                            )
+                            val pageBlurPx by animateFloatAsState(
+                                targetValue = if (pageSelected) 0f else 7f,
+                                animationSpec = tween(
+                                    durationMillis = 170,
+                                    easing = FastOutSlowInEasing
+                                ),
+                                label = "topLevelPageBlur$page"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .zIndex(if (pageSelected) 1f else 0f)
+                                    .graphicsLayer {
+                                        alpha = pageAlpha
+                                        renderEffect = if (pageBlurPx > 0.5f) {
+                                            BlurEffect(
+                                                radiusX = pageBlurPx,
+                                                radiusY = pageBlurPx,
+                                                edgeTreatment = TileMode.Decal
+                                            )
+                                        } else {
+                                            null
+                                        }
+                                    }
+                            ) {
+                                when (page) {
+                                    0 -> SpeedtestScreen(viewModel = viewModel)
+                                    1 -> DashboardScreen(
+                                viewModel = viewModel,
+                                onNavigateToZhikeSettings = {
+                                    navController.navigate(Screen.ZhikeSettings.route)
+                                },
+                                onNavigateToPlayback = { segmentId ->
+                                    viewModel.selectPlaybackSegment(segmentId)
+                                    navController.navigate(Screen.DashcamPlayback.route)
+                                }
+                                    )
+                                    2 -> SettingsScreen(
+                                        viewModel = viewModel,
+                                        onNavigateToBms = { navController.navigate(Screen.Bms.route) },
+                                        onNavigateToZhikeSettings = {
+                                            navController.navigate(Screen.ZhikeSettings.route)
+                                        },
+                                        onNavigateToPairing = {
+                                            navController.navigate(Screen.Pairing.route)
+                                        }
+                                    )
+                                }
+                            }
                         }
-                    ) 
+                    }
                 }
                 composable(
                     route = Screen.Pairing.route,
@@ -1144,41 +1251,65 @@ fun MainScreen(
                     }
                 )
             }
+            }
         }
-    }
 
-    val segments by dashcamManager.repository.segments.collectAsState()
-    val scope = rememberCoroutineScope()
-    DashcamRecordingsSheet(
-        isVisible = showDashcamRecordingsSheet,
-        segments = segments,
-        dashcamManager = dashcamManager,
-        onDismissRequest = {
-            viewModel.setShowDashcamRecordingsSheet(false)
-            val hasCameraPermission = androidx.core.content.ContextCompat.checkSelfPermission(
-                context,
-                android.Manifest.permission.CAMERA
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-            if (hasCameraPermission && dashcamManager.state.value == DashcamState.IDLE) {
-                dashcamManager.startPreviewOnly()
-            }
-        },
-        onPlaySegment = { segment ->
-            viewModel.setShowDashcamRecordingsSheet(false)
-            viewModel.selectPlaybackSegment(segment.id)
-            navController.navigate(Screen.DashcamPlayback.route)
-        },
-        onDeleteSegment = { segmentId ->
-            scope.launch {
-                dashcamManager.repository.deleteSegment(segmentId)
-            }
-        },
-        onDeleteAll = {
-            scope.launch {
-                dashcamManager.repository.deleteAllSegments()
-            }
+        if (showBottomBar) {
+            LiquidGlassBottomBar(
+                items = liquidGlassItems,
+                selectedIndex = selectedTopLevelIndex,
+                backdrop = appBackdrop,
+                onItemSelected = { index ->
+                    isTopLevelTransitionRunning = true
+                    selectedTopLevelIndex = index
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 18.dp)
+                    .padding(bottom = 12.dp)
+                    .then(
+                        if (showDashcamRecordingsSheet) {
+                            Modifier.blur(20.dp)
+                        } else {
+                            Modifier
+                        }
+                    )
+            )
         }
-    )
+
+        val segments by dashcamManager.repository.segments.collectAsState()
+        val scope = rememberCoroutineScope()
+        DashcamRecordingsSheet(
+            isVisible = showDashcamRecordingsSheet,
+            segments = segments,
+            dashcamManager = dashcamManager,
+            onDismissRequest = {
+                viewModel.setShowDashcamRecordingsSheet(false)
+                val hasCameraPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.CAMERA
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (hasCameraPermission && dashcamManager.state.value == DashcamState.IDLE) {
+                    dashcamManager.startPreviewOnly()
+                }
+            },
+            onPlaySegment = { segment ->
+                viewModel.setShowDashcamRecordingsSheet(false)
+                viewModel.selectPlaybackSegment(segment.id)
+                navController.navigate(Screen.DashcamPlayback.route)
+            },
+            onDeleteSegment = { segmentId ->
+                scope.launch {
+                    dashcamManager.repository.deleteSegment(segmentId)
+                }
+            },
+            onDeleteAll = {
+                scope.launch {
+                    dashcamManager.repository.deleteAllSegments()
+                }
+            }
+        )
     }
 }
 
@@ -1498,18 +1629,6 @@ private fun isTopLevelTabTransition(
     topLevelRoutes: Set<String>
 ): Boolean {
     return fromRoute in topLevelRoutes && toRoute in topLevelRoutes
-}
-
-private fun topLevelOffset(
-    fromRoute: String?,
-    toRoute: String?,
-    topLevelRouteOrder: Map<String, Int>,
-    fullWidth: Int
-): Int {
-    val fromIndex = topLevelRouteOrder[fromRoute] ?: return fullWidth / 24
-    val toIndex = topLevelRouteOrder[toRoute] ?: return fullWidth / 24
-    val direction = if (toIndex >= fromIndex) 1 else -1
-    return (fullWidth / 24) * direction
 }
 
 sealed class Screen(

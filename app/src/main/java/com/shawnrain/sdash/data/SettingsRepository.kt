@@ -129,9 +129,11 @@ class SettingsRepository(private val context: Context) {
         val LOG_LEVEL = stringPreferencesKey("log_level")
         val OVERLAY_ENABLED = booleanPreferencesKey("overlay_enabled")
         val USE_MISANS_FONT = booleanPreferencesKey("use_misans_font")
+        val UI_SCALE = floatPreferencesKey("ui_scale")
         val DRIVE_BACKUP_RETENTION = stringPreferencesKey("drive_backup_retention")
         val AUTO_RIDE_STOP_ENABLED = booleanPreferencesKey("auto_ride_stop_enabled")
         val AUTO_RIDE_STOP_DELAY_SECONDS = intPreferencesKey("auto_ride_stop_delay_seconds")
+        val AUTO_SPEED_CALIBRATION_ENABLED = booleanPreferencesKey("auto_speed_calibration_enabled")
         val RIDE_HISTORY_NORMALIZATION_VERSION = intPreferencesKey("ride_history_normalization_version")
         val RIDE_HISTORY_STORAGE_MIGRATION_VERSION = intPreferencesKey("ride_history_storage_migration_version")
         val DASHCAM_AUTO_RECORD = booleanPreferencesKey("dashcam_auto_record")
@@ -384,6 +386,10 @@ class SettingsRepository(private val context: Context) {
         pref.safeGet(USE_MISANS_FONT) ?: true
     }.distinctUntilChanged()
 
+    val uiScale: Flow<Float> = preferencesFlow.map { pref ->
+        (pref.safeGet(UI_SCALE) ?: 1.0f).coerceIn(0.75f, 1.30f)
+    }.distinctUntilChanged()
+
     val driveBackupRetentionPolicy: Flow<BackupRetentionPolicy> = preferencesFlow.map { pref ->
         BackupRetentionPolicy.fromName(pref.safeGet(DRIVE_BACKUP_RETENTION))
     }.distinctUntilChanged()
@@ -394,6 +400,10 @@ class SettingsRepository(private val context: Context) {
 
     val autoRideStopDelaySeconds: Flow<Int> = preferencesFlow.map { pref ->
         (pref.safeGet(AUTO_RIDE_STOP_DELAY_SECONDS) ?: 75).coerceIn(15, 600)
+    }.distinctUntilChanged()
+
+    val autoSpeedCalibrationEnabled: Flow<Boolean> = preferencesFlow.map { pref ->
+        pref.safeGet(AUTO_SPEED_CALIBRATION_ENABLED) ?: false
     }.distinctUntilChanged()
 
     val dashcamAutoRecord: Flow<Boolean> = preferencesFlow.map { pref ->
@@ -672,6 +682,13 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
+    suspend fun saveAutoSpeedCalibrationEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[AUTO_SPEED_CALIBRATION_ENABLED] = enabled
+            markSyncedAt(it, AUTO_SPEED_CALIBRATION_ENABLED.name)
+        }
+    }
+
     suspend fun saveRideOverviewItems(items: List<MetricType>) {
         val id = currentVehicleId.first()
         context.dataStore.edit {
@@ -731,6 +748,14 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit {
             it[USE_MISANS_FONT] = enabled
             markSyncedAt(it, USE_MISANS_FONT.name)
+        }
+    }
+
+    suspend fun saveUiScale(scale: Float) {
+        val clamped = scale.coerceIn(0.75f, 1.30f)
+        context.dataStore.edit {
+            it[UI_SCALE] = clamped
+            markSyncedAt(it, UI_SCALE.name)
         }
     }
 
@@ -1164,9 +1189,11 @@ class SettingsRepository(private val context: Context) {
         pref[LOG_LEVEL] = AppLogLevel.fromName(snapshot.logLevel).name
         pref[OVERLAY_ENABLED] = snapshot.overlayEnabled
         pref[USE_MISANS_FONT] = snapshot.useMiSansFont
+        pref[UI_SCALE] = snapshot.uiScale.coerceIn(0.75f, 1.30f)
         pref[DRIVE_BACKUP_RETENTION] = snapshot.driveBackupRetention
         pref[AUTO_RIDE_STOP_ENABLED] = snapshot.autoRideStopEnabled
         pref[AUTO_RIDE_STOP_DELAY_SECONDS] = snapshot.autoRideStopDelaySeconds.coerceIn(15, 600)
+        pref[AUTO_SPEED_CALIBRATION_ENABLED] = snapshot.autoSpeedCalibrationEnabled
         pref[stringPreferencesKey(K_POSTER_TEMPLATE)] = PosterTemplates.byId(snapshot.posterTemplateId).id
         pref[stringPreferencesKey(K_POSTER_ASPECT_RATIO)] =
             runCatching { PosterAspectRatio.valueOf(snapshot.posterAspectRatio) }.getOrNull()?.name
@@ -1178,9 +1205,11 @@ class SettingsRepository(private val context: Context) {
             LOG_LEVEL.name,
             OVERLAY_ENABLED.name,
             USE_MISANS_FONT.name,
+            UI_SCALE.name,
             DRIVE_BACKUP_RETENTION.name,
             AUTO_RIDE_STOP_ENABLED.name,
             AUTO_RIDE_STOP_DELAY_SECONDS.name,
+            AUTO_SPEED_CALIBRATION_ENABLED.name,
             K_POSTER_TEMPLATE,
             K_POSTER_ASPECT_RATIO,
             K_POSTER_SHOW_TRACK,
@@ -2197,6 +2226,7 @@ class SettingsRepository(private val context: Context) {
         if (name == LOG_LEVEL.name) return true
         if (name == OVERLAY_ENABLED.name) return true
         if (name == USE_MISANS_FONT.name) return true
+        if (name == UI_SCALE.name) return true
         if (name == DRIVE_BACKUP_RETENTION.name) return true
         if (name == RIDE_HISTORY_NORMALIZATION_VERSION.name) return true
         if (name == RIDE_HISTORY_STORAGE_MIGRATION_VERSION.name) return true
@@ -2218,6 +2248,7 @@ class SettingsRepository(private val context: Context) {
         if (name == LOG_LEVEL.name) return BackupValueKind.STRING
         if (name == OVERLAY_ENABLED.name) return BackupValueKind.BOOLEAN
         if (name == USE_MISANS_FONT.name) return BackupValueKind.BOOLEAN
+        if (name == UI_SCALE.name) return BackupValueKind.FLOAT
         if (name == DRIVE_BACKUP_RETENTION.name) return BackupValueKind.STRING
         if (name == RIDE_HISTORY_NORMALIZATION_VERSION.name) return BackupValueKind.INT
         if (name == RIDE_HISTORY_STORAGE_MIGRATION_VERSION.name) return BackupValueKind.INT

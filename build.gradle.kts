@@ -6,17 +6,21 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.3.0" apply false
 }
 
-// Keep generated Gradle output out of iCloud Drive. The location can be
-// overridden for CI/worktrees, while Android Studio and scripts share the same default.
-val smartDashBuildRoot = providers.environmentVariable("SMARTDASH_GRADLE_BUILD_ROOT")
-    .orElse(
-        File(
-            System.getProperty("user.home"),
-            "Library/Caches/SmartDash/gradle-build"
-        ).absolutePath
-    )
+// Keep generated Gradle output out of iCloud Drive for local development.
+// CI retains Gradle's conventional project-relative output paths because the
+// release workflow collects and verifies artifacts from app/build/outputs.
+val isCiBuild = providers.environmentVariable("CI").orNull?.toBoolean() == true
+if (!isCiBuild) {
+    val smartDashBuildRoot = providers.environmentVariable("SMARTDASH_GRADLE_BUILD_ROOT")
+        .orElse(
+            File(
+                System.getProperty("user.home"),
+                "Library/Caches/SmartDash/gradle-build"
+            ).absolutePath
+        )
 
-layout.buildDirectory.set(file("${smartDashBuildRoot.get()}/root"))
-subprojects {
-    layout.buildDirectory.set(file("${smartDashBuildRoot.get()}/$name"))
+    layout.buildDirectory.set(file("${smartDashBuildRoot.get()}/root"))
+    subprojects {
+        layout.buildDirectory.set(file("${smartDashBuildRoot.get()}/$name"))
+    }
 }

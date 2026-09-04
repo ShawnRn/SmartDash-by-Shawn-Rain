@@ -10,6 +10,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -571,13 +573,39 @@ fun DashboardScreen(
                     onBack = { showAddPicker = false },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
-                        Text("添加数据模块", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 16.dp))
-                        val available = MetricType.entries.filter { it !in displayedDashboardItems }
+                    val available = buildList {
+                        if (MetricType.MEDIA_CONTROL !in displayedDashboardItems) {
+                            add(MetricType.MEDIA_CONTROL)
+                        }
+                        addAll(
+                            MetricType.entries.filter {
+                                it != MetricType.MEDIA_CONTROL && it !in displayedDashboardItems
+                            }
+                        )
+                    }
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.75f),
+                        contentPadding = PaddingValues(16.dp)
+                    ) {
+                        item {
+                            Text(
+                                "添加数据模块",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.padding(bottom = 16.dp)
+                            )
+                        }
                         if (available.isEmpty()) {
-                            Text("所有支持的数据模块均已添加", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+                            item {
+                                Text(
+                                    "所有支持的数据模块均已添加",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
                         } else {
-                            available.forEach { type ->
+                            items(available, key = { it.name }) { type ->
                                 Surface(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -604,7 +632,7 @@ fun DashboardScreen(
                                 }
                             }
                         }
-                        Spacer(modifier = Modifier.height(32.dp))
+                        item { Spacer(modifier = Modifier.height(32.dp)) }
                     }
                 }
             }

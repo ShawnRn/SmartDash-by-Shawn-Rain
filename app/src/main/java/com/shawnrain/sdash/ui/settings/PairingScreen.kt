@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.shawnrain.sdash.MainViewModel
 import com.shawnrain.sdash.ui.navigation.P2PageHeader
+import com.shawnrain.sdash.ui.navigation.rememberFreezableLayerBackdrop
+import com.shawnrain.sdash.ui.navigation.freezableLayerBackdrop
 import com.shawnrain.sdash.ui.theme.bezierPillShape
 import com.shawnrain.sdash.ui.theme.bezierRoundedShape
 
@@ -37,6 +39,7 @@ fun PairingScreen(
     val isHidConnected by viewModel.isHidConnected.collectAsState()
     val isHidSubscribed by viewModel.isHidSubscribed.collectAsState()
     val isHidSupported = viewModel.isHidSupported
+    val pageBackdrop = rememberFreezableLayerBackdrop()
     
     val infiniteTransition = rememberInfiniteTransition(label = "PairingPulse")
     val pulseScale by infiniteTransition.animateFloat(
@@ -63,23 +66,18 @@ fun PairingScreen(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0.dp)
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            P2PageHeader(
-                title = "iPhone 配对",
-                subtitle = "模拟遥控逻辑",
-                onBack = null, 
-                modifier = Modifier.fillMaxWidth()
-            )
-
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .freezableLayerBackdrop(backdrop = pageBackdrop, frozen = false)
+                    .background(MaterialTheme.colorScheme.background)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                    .padding(start = 24.dp, top = 148.dp, end = 24.dp, bottom = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Spacer(modifier = Modifier.height(32.dp))
@@ -250,6 +248,15 @@ fun PairingScreen(
                 
                 Spacer(modifier = Modifier.height(24.dp))
             }
+            P2PageHeader(
+                title = "iPhone 配对",
+                subtitle = "模拟遥控逻辑",
+                onBack = onNavigateBack,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter),
+                backdrop = pageBackdrop
+            )
         }
     }
 }

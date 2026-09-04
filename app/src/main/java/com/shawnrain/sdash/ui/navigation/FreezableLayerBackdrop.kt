@@ -1,68 +1,26 @@
 package com.shawnrain.sdash.ui.navigation
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Stable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.GraphicsLayerScope
-import androidx.compose.ui.graphics.rememberGraphicsLayer
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.graphics.layer.GraphicsLayer
-import androidx.compose.ui.graphics.layer.drawLayer
-import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInWindow
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.toIntSize
-import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+
+/**
+ * Compatibility wrapper around Backdrop's native layer recorder.
+ *
+ * The previous custom recorder copied the graphics layer but ignored Backdrop's layerBlock,
+ * preventing the complete effect pipeline from being applied consistently. Keeping this wrapper
+ * preserves the existing call sites while routing every glass surface through the same supported
+ * source implementation used by the library examples.
+ */
+internal typealias FreezableLayerBackdrop = LayerBackdrop
 
 @Composable
-internal fun rememberFreezableLayerBackdrop(): FreezableLayerBackdrop {
-    val graphicsLayer = rememberGraphicsLayer()
-    return remember(graphicsLayer) { FreezableLayerBackdrop(graphicsLayer) }
-}
-
-@Stable
-internal class FreezableLayerBackdrop(
-    internal val graphicsLayer: GraphicsLayer
-) : Backdrop {
-    internal var layerCoordinates: LayoutCoordinates? = null
-
-    override val isCoordinatesDependent: Boolean = true
-
-    override fun DrawScope.drawBackdrop(
-        density: Density,
-        coordinates: LayoutCoordinates?,
-        layerBlock: (GraphicsLayerScope.() -> Unit)?
-    ) {
-        val targetCoordinates = coordinates ?: return
-        val sourceCoordinates = layerCoordinates ?: return
-        val offset = try {
-            sourceCoordinates.localPositionOf(targetCoordinates)
-        } catch (_: Exception) {
-            targetCoordinates.positionInWindow() - sourceCoordinates.positionInWindow()
-        }
-        withTransform({ translate(-offset.x, -offset.y) }) {
-            drawLayer(graphicsLayer)
-        }
-    }
-}
+internal fun rememberFreezableLayerBackdrop(): FreezableLayerBackdrop = rememberLayerBackdrop()
 
 internal fun Modifier.freezableLayerBackdrop(
     backdrop: FreezableLayerBackdrop,
     frozen: Boolean
 ): Modifier =
-    onGloballyPositioned { coordinates ->
-        if (coordinates.isAttached) {
-            backdrop.layerCoordinates = coordinates
-        }
-    }.drawWithContent {
-        drawContent()
-        if (!frozen) {
-            backdrop.graphicsLayer.record(size.toIntSize()) {
-                this@drawWithContent.drawContent()
-            }
-        }
-    }
+    layerBackdrop(backdrop)

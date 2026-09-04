@@ -117,6 +117,7 @@ class DashcamManager private constructor(private val context: Context) {
 
     private var surfaceProvider: Preview.SurfaceProvider? = null
     private var wasPreviewingBeforeBackground = false
+    private var isAppForeground = true
 
     private var isRecordingRequested = false
     private var pendingStartPreview = false
@@ -815,6 +816,7 @@ class DashcamManager private constructor(private val context: Context) {
     }
 
     fun onAppVisibilityChanged(isForeground: Boolean) {
+        isAppForeground = isForeground
         AppLogger.i(TAG, "onAppVisibilityChanged: isForeground=$isForeground, state=${_state.value}, hasSurfaceProvider=${surfaceProvider != null}, wasPreviewingBeforeBackground=$wasPreviewingBeforeBackground")
         if (isForeground) {
             if (_state.value == DashcamState.RECORDING) {
@@ -895,7 +897,7 @@ class DashcamManager private constructor(private val context: Context) {
         currentTelemetryProvider = null
         releaseDummySurface()
 
-        if (surfaceProvider != null) {
+        if (surfaceProvider != null && isAppForeground) {
             _state.value = DashcamState.PREVIEWING
             AppLogger.i(TAG, "Dashcam recording stopped, reverting to previewing")
         } else {

@@ -57,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -270,23 +271,26 @@ fun DashcamPlaybackScreen(
                 exit = androidx.compose.animation.fadeOut()
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    // Top Bar Scrim
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .align(Alignment.TopCenter)
                             .background(
-                                androidx.compose.ui.graphics.Brush.verticalGradient(
-                                    colors = listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)
+                                Brush.verticalGradient(
+                                    0f to Color.Black.copy(alpha = 0.62f),
+                                    0.72f to Color.Black.copy(alpha = 0.34f),
+                                    1f to Color.Transparent
                                 )
                             )
                             .statusBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 androidx.compose.material3.IconButton(

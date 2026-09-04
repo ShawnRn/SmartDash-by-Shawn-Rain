@@ -16,6 +16,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.shawnrain.sdash.MainViewModel
 import com.shawnrain.sdash.ui.navigation.P2PageHeader
+import com.shawnrain.sdash.ui.navigation.rememberFreezableLayerBackdrop
+import com.shawnrain.sdash.ui.navigation.freezableLayerBackdrop
 import com.shawnrain.sdash.ui.theme.bezierRoundedShape
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -27,19 +29,20 @@ fun BmsScreen(
 ) {
     val bmsMetrics by viewModel.bmsMetrics.collectAsState()
     val bmsLabel by viewModel.bmsActiveProtocolLabel.collectAsState()
+    val pageBackdrop = rememberFreezableLayerBackdrop()
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        P2PageHeader(
-            title = "电池与BMS",
-            subtitle = bmsLabel,
-            onBack = onBack
-        )
-        
-        LazyColumn(modifier = Modifier.padding(horizontal = 24.dp)) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .freezableLayerBackdrop(backdrop = pageBackdrop, frozen = false)
+                .background(MaterialTheme.colorScheme.background),
+            contentPadding = PaddingValues(start = 24.dp, top = 132.dp, end = 24.dp)
+        ) {
             item {
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -93,6 +96,13 @@ fun BmsScreen(
                 Spacer(modifier = Modifier.height(48.dp))
             }
         }
+        P2PageHeader(
+            title = "电池与BMS",
+            subtitle = bmsLabel,
+            onBack = onBack,
+            modifier = Modifier.align(Alignment.TopCenter),
+            backdrop = pageBackdrop
+        )
     }
 }
 

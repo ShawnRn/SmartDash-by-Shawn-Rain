@@ -82,6 +82,8 @@ import com.shawnrain.sdash.ble.protocols.resolveLockState
 import com.shawnrain.sdash.ble.protocols.syncLegacyFieldsFromWords
 import com.shawnrain.sdash.ui.navigation.BlurredAlertDialog
 import com.shawnrain.sdash.ui.navigation.SecondaryScreenTopBar
+import com.shawnrain.sdash.ui.navigation.freezableLayerBackdrop
+import com.shawnrain.sdash.ui.navigation.rememberFreezableLayerBackdrop
 import com.shawnrain.sdash.ui.theme.bezierPillShape
 import com.shawnrain.sdash.ui.theme.bezierRoundedShape
 import java.util.Locale
@@ -130,6 +132,7 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val pageBackdrop = rememberFreezableLayerBackdrop()
 
     // File picker launcher for import
     val importLauncher = rememberLauncherForActivityResult(
@@ -205,7 +208,9 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
         ZhikeParameterCatalog.groups
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
+        modifier = Modifier.freezableLayerBackdrop(backdrop = pageBackdrop, frozen = false),
         snackbarHost = {
             SnackbarHost(
                 hostState = snackbarHostState,
@@ -241,46 +246,7 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 }
             )
         },
-        topBar = {
-            SecondaryScreenTopBar(
-                title = "智科调校",
-                subtitle = controllerCapabilities?.let { 
-                    "控制器参数${it.firmwareVersionLabel?.let { v -> " (固件: $v)" } ?: ""}"
-                } ?: "控制器参数",
-                onBack = onBack,
-                actions = {
-                    // 自学习操作入口
-                    IconButton(onClick = {
-                        showSelfLearningWarning = true
-                    }) {
-                        if (isSelfLearning) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.width(20.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        } else {
-                            Icon(
-                                Icons.Default.Build, 
-                                contentDescription = "自学习",
-                                tint = if (isSelfLearning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-
-                    IconButton(onClick = {
-                        authError = null
-                        viewModel.readZhikeSettings()
-                    }) {
-                        if (isSyncing) {
-                            CircularProgressIndicator(modifier = Modifier.width(24.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Default.Refresh, contentDescription = "刷新")
-                        }
-                    }
-                }
-            )
-        },
+        topBar = {},
         bottomBar = {
             if (isDirty) {
                 Surface(tonalElevation = 8.dp) {
@@ -482,7 +448,12 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 .padding(padding)
                 .fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                start = 16.dp,
+                top = 96.dp,
+                end = 16.dp,
+                bottom = 16.dp
+            )
         ) {
             item {
                 InfoCard()
@@ -519,6 +490,47 @@ fun ZhikeSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 Spacer(modifier = Modifier.height(96.dp))
             }
         }
+    }
+
+    SecondaryScreenTopBar(
+        title = "智科调校",
+        subtitle = controllerCapabilities?.let {
+            "控制器参数${it.firmwareVersionLabel?.let { v -> " (固件: $v)" } ?: ""}"
+        } ?: "控制器参数",
+        onBack = onBack,
+        backdrop = pageBackdrop,
+        modifier = Modifier.align(Alignment.TopCenter),
+        actions = {
+            IconButton(onClick = {
+                showSelfLearningWarning = true
+            }) {
+                if (isSelfLearning) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.width(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.Build,
+                        contentDescription = "自学习",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+
+            IconButton(onClick = {
+                authError = null
+                viewModel.readZhikeSettings()
+            }) {
+                if (isSyncing) {
+                    CircularProgressIndicator(modifier = Modifier.width(24.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.Refresh, contentDescription = "刷新")
+                }
+            }
+        }
+    )
     }
 
 

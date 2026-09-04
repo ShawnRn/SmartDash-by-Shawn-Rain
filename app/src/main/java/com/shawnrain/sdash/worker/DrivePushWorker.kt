@@ -62,7 +62,9 @@ class DrivePushWorker(
 
             WorkManager.getInstance(context).enqueueUniqueWork(
                 WORK_NAME,
-                ExistingWorkPolicy.APPEND_OR_REPLACE,
+                // Pending mutations live in Room, so one replacement worker can flush all of
+                // them. Chaining every trigger needlessly wakes the app several times.
+                ExistingWorkPolicy.REPLACE,
                 workRequest
             )
             AppLogger.i(TAG, "Push worker enqueued: reason=$reason")

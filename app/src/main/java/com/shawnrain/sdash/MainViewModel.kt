@@ -20,9 +20,6 @@ import android.os.SystemClock
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.DefaultLifecycleObserver
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewModelScope
 import com.shawnrain.sdash.ble.AutoConnectManager
 import com.shawnrain.sdash.ble.AutoConnectState
@@ -42,6 +39,9 @@ import com.shawnrain.sdash.data.gps.DirectionSource
 import com.shawnrain.sdash.data.gps.DirectionLabelFormatter
 import com.shawnrain.sdash.data.gps.GradeEstimator
 import com.shawnrain.sdash.data.gps.GpsTracker
+import com.shawnrain.sdash.data.lifecycle.AppResourceDecision
+import com.shawnrain.sdash.data.lifecycle.AppResourcePolicy
+import com.shawnrain.sdash.data.lifecycle.AppResourceSnapshot
 import com.shawnrain.sdash.data.dashcam.DashcamState
 import com.shawnrain.sdash.ble.protocols.WriteFailurePhase
 import com.shawnrain.sdash.ble.protocols.ZhikeParameterCatalog
@@ -141,7 +141,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -235,11 +234,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val DISTANCE_FALLBACK_MAX_DT_SECONDS = 3f
         private const val SPEED_TEST_SAMPLE_INTERVAL_MS = 120L
         private const val HISTORY_LIMIT = 30
-        private const val AUTO_RECONNECT_SCAN_WINDOW_MS = 5000L
-        private const val AUTO_RECONNECT_SCAN_COOLDOWN_MS = 12000L
         private const val AUTO_RECONNECT_SUPPRESS_MS = 180000L
         private const val CONTROLLER_IGNORE_MS = 30 * 60 * 1000L
         private const val GPS_FRESH_TIMEOUT_MS = 3000L
+        private const val SPEED_TEST_GPS_WARMUP_MS = 30_000L
+        private const val APP_BACKGROUND_TRANSITION_DEBOUNCE_MS = 1_000L
+        private const val BACKGROUND_IDLE_CONNECTION_GRACE_MS = 30_000L
+        private const val CONTROLLER_MOVING_SPEED_KMH = 3f
+        private const val CONTROLLER_MOVING_RPM = 120f
         private const val MIN_VALID_EFFICIENCY_WH_KM = 5.0f
         private const val MAX_VALID_EFFICIENCY_WH_KM = 120.0f
         private const val DEFAULT_STARTUP_EFFICIENCY_WH_KM = 35.0f
@@ -263,6 +265,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var isControllerLastConnected = false
     private val _isActivityResumed = kotlinx.coroutines.flow.MutableStateFlow(false)
     val isActivityResumed = _isActivityResumed.asStateFlow()
+    private val _isAppForeground = MutableStateFlow(true)
+    private val _isSpeedTestGpsWarmingUp = MutableStateFlow(false)
+    private var speedTestGpsWarmupJob: Job? = null
+    private var appBackgroundTransitionJob: Job? = null
+    private var backgroundIdleReleaseJob: Job? = null
 
     fun setActivityResumed(resumed: Boolean) {
         AppLogger.i(TAG, "setActivityResumed: $resumed")
@@ -364,10 +371,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentRpm = MutableStateFlow(0f)
     private val _controllerReportedSpeed = MutableStateFlow(0f)
     private val _latestZhikeSettings = MutableStateFlow<ZhikeSettings?>(null)
-    private var autoReconnectAttemptedAddress: String? = null
     private var autoReconnectSuppressedUntilMs = 0L
-    private var autoReconnectScanActive = false
-    private var autoReconnectWatchdogJob: Job? = null
     private var pendingControllerConnectIntent: ControllerConnectIntent = ControllerConnectIntent.TEMPORARY
     private val ignoredControllerAddresses = mutableMapOf<String, Long>()
     private val _latestTelemetrySample = MutableStateFlow<TelemetrySample?>(null)
@@ -1682,8 +1686,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 AppLogger.i(TAG, "启动自动连接：$lastName ($lastAddress)")
             }
 
-            // Start auto-connect (will immediately try to connect to last known device)
-            autoConnectManager.start()
+            autoConnectManager.onAppForeground()
         }
 
         // Wire BLE connection state to auto-connect manager
@@ -1699,13 +1702,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 is ConnectionState.Disconnected -> {
                     val lastAddress = lastControllerDeviceAddress.value
-                    if (lastAddress != null && isAutoReconnectAllowed(lastAddress)) {
+                    if (lastAddress != null && isAutoReconnectEligible(lastAddress)) {
                         autoConnectManager.onDisconnected(lastAddress)
                     }
                 }
                 is ConnectionState.Error -> {
                     val lastAddress = lastControllerDeviceAddress.value
-                    if (lastAddress != null && isAutoReconnectAllowed(lastAddress)) {
+                    if (lastAddress != null && isAutoReconnectEligible(lastAddress)) {
                         autoConnectManager.onDisconnected(lastAddress)
                     }
                 }
@@ -1907,15 +1910,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         autoSpeedCalibrationEnabled.onEach { enabled ->
             automaticSpeedCalibrator.setEnabled(enabled)
         }.launchIn(viewModelScope)
-        headingTracker.start()
-
-        // App lifecycle: trigger sync pull on foreground
-        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onStart(owner: LifecycleOwner) {
-                // App came to foreground: pull any remote updates
-                syncScheduler.onAppForeground()
-            }
-        })
 
         ProtocolParser.autoConfigUpdates.onEach { (key, value) ->
             if (key == "polePairs") {
@@ -1947,8 +1941,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bleManager.connectionState.onEach { state ->
             if (state is ConnectionState.Connected) {
                 isControllerLastConnected = true
-                autoReconnectAttemptedAddress = state.device.address
-                stopAutoReconnectWatchdog()
                 if (pendingRideStopReason == RideStopReason.DISCONNECTED) {
                     cancelPendingRideStop("控制器已恢复连接，继续记录本次行程")
                 } else {
@@ -1992,9 +1984,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 isControllerLastConnected = false
-                lastControllerDeviceAddress.value?.let { address ->
-                    startAutoReconnectWatchdog(address, reason = "disconnect")
-                }
             }
         }.launchIn(viewModelScope)
 
@@ -2031,19 +2020,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     protocolId = lastControllerProtocolId.value,
                     lastConnectedAt = System.currentTimeMillis()
                 )
-                tryAutoReconnect(address, reason = "startup")
-                startAutoReconnectWatchdog(address, reason = "startup")
+                if (_isAppForeground.value && isAutoReconnectEligible(address)) {
+                    autoConnectManager.onAppForeground()
+                }
             }
-        }.launchIn(viewModelScope)
-
-        bleManager.scannedDevices.onEach { devices ->
-            val address = lastControllerDeviceAddress.value ?: return@onEach
-            if (!isAutoReconnectAllowed(address)) return@onEach
-            val target = devices.firstOrNull { it.address == address } ?: return@onEach
-            AppLogger.i(TAG, "守护扫描发现记忆控制器，准备自动连接 address=$address")
-            stopAutoReconnectWatchdog()
-            autoReconnectAttemptedAddress = address
-            bleManager.connect(target)
         }.launchIn(viewModelScope)
 
         gpsTracker.location.onEach { location ->
@@ -2054,16 +2034,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }.launchIn(viewModelScope)
 
         combine(
+            _isAppForeground,
             speedSource,
             gpsCalibrationState,
             autoSpeedCalibrationEnabled,
             _isRideActive,
-            _speedTestSession
-        ) { source, calibration, autoCalibration, rideActive, speedTest ->
-            source == SpeedSource.GPS || calibration.isRunning || autoCalibration || rideActive || speedTest.isActive
-        }.onEach { shouldTrack ->
-            if (shouldTrack) gpsTracker.startTracking() else gpsTracker.stopTracking()
-        }.launchIn(viewModelScope)
+            _speedTestSession,
+            _isSpeedTestGpsWarmingUp,
+            bleManager.connectionState,
+            _controllerReportedSpeed,
+            _currentRpm,
+            dashcamManager.state
+        ) { args ->
+            AppResourcePolicy.evaluate(
+                AppResourceSnapshot(
+                    isAppForeground = args[0] as Boolean,
+                    usesGpsSpeed = args[1] == SpeedSource.GPS,
+                    isGpsCalibrationActive = (args[2] as GpsCalibrationState).isRunning,
+                    isAutomaticSpeedCalibrationEnabled = args[3] as Boolean,
+                    isRideActive = args[4] as Boolean,
+                    isSpeedTestActive = (args[5] as SpeedTestSessionUiState).isActive,
+                    isSpeedTestGpsWarmingUp = args[6] as Boolean,
+                    isControllerConnected = args[7] is ConnectionState.Connected,
+                    isControllerMoving = (args[8] as Float) >= CONTROLLER_MOVING_SPEED_KMH ||
+                        kotlin.math.abs(args[9] as Float) >= CONTROLLER_MOVING_RPM,
+                    isDashcamRecording = args[10] == DashcamState.RECORDING ||
+                        args[10] == DashcamState.SEGMENT_GAP
+                )
+            )
+        }
+            .distinctUntilChanged()
+            .onEach(::applyAppResourceDecision)
+            .launchIn(viewModelScope)
 
         metrics.onEach { handleMetricsTick(it) }.launchIn(viewModelScope)
 
@@ -3450,7 +3452,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startSpeedTest(label: String, targetSpeedKmh: Float): String? {
-        gpsTracker.startTracking()
+        beginSpeedTestGpsWarmup()
         if (!isRecentGpsAvailable()) {
             return "请先等待 GPS 定位稳定后再开始测试"
         }
@@ -3478,15 +3480,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             targetSpeedKmh = targetSpeedKmh,
             statusText = "准备就绪 / 请起步"
         )
+        endSpeedTestGpsWarmup()
         return null
     }
 
     fun stopSpeedTest() {
+        endSpeedTestGpsWarmup()
         if (!_speedTestSession.value.isActive) return
         _speedTestSession.value = _speedTestSession.value.copy(
             isActive = false,
             statusText = "已手动停止"
         )
+    }
+
+    private fun beginSpeedTestGpsWarmup() {
+        _isSpeedTestGpsWarmingUp.value = true
+        speedTestGpsWarmupJob?.cancel()
+        speedTestGpsWarmupJob = viewModelScope.launch {
+            delay(SPEED_TEST_GPS_WARMUP_MS)
+            _isSpeedTestGpsWarmingUp.value = false
+            speedTestGpsWarmupJob = null
+        }
+    }
+
+    private fun endSpeedTestGpsWarmup() {
+        speedTestGpsWarmupJob?.cancel()
+        speedTestGpsWarmupJob = null
+        _isSpeedTestGpsWarmingUp.value = false
     }
 
     fun deleteSpeedTestRecord(id: String) {
@@ -4028,7 +4048,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         syncScheduler.onSettingsChanged()
     }
     fun selectVehicle(id: String): kotlinx.coroutines.Job = viewModelScope.launch {
-        autoReconnectAttemptedAddress = null
         settingsRepository.saveCurrentVehicleId(id)
         syncScheduler.onSettingsChanged()
         val vehicle = vehicleProfiles.value.firstOrNull { it.id == id } ?: return@launch
@@ -4046,7 +4065,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun deleteVehicleProfile(id: String): kotlinx.coroutines.Job = viewModelScope.launch {
         val target = vehicleProfiles.value.firstOrNull { it.id == id } ?: return@launch
-        autoReconnectAttemptedAddress = null
         settingsRepository.deleteVehicleProfile(id)
         syncScheduler.onVehicleProfileDeleted(id)
         _calibrationMessage.value = "已删除车辆档案：${target.name}"
@@ -4245,7 +4263,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val count = result.settingsImported + result.ridesImported
                 _localBackupMessage.value = "数据恢复完成：已应用 $count 项资料"
-                autoReconnectAttemptedAddress = null
             } catch (e: Exception) {
                 AppLogger.e(TAG, "恢复备份失败", e)
                 _localBackupMessage.value = "数据恢复失败：${e.message ?: "未知错误"}"
@@ -4255,14 +4272,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     fun handleAppVisibilityChanged(isForeground: Boolean) {
+        appBackgroundTransitionJob?.cancel()
+        appBackgroundTransitionJob = null
         if (isForeground) {
-            // App 回到前台：立即尝试直连最后设备
-            lastControllerDeviceAddress.value?.let { address ->
-                if (isAutoReconnectAllowed(address)) {
-                    autoConnectManager.onAppForeground()
-                    tryAutoReconnect(address, reason = "app-foreground")
-                }
+            commitAppVisibilityChanged(true)
+        } else {
+            appBackgroundTransitionJob = viewModelScope.launch {
+                delay(APP_BACKGROUND_TRANSITION_DEBOUNCE_MS)
+                commitAppVisibilityChanged(false)
+                appBackgroundTransitionJob = null
             }
+        }
+    }
+
+    private fun commitAppVisibilityChanged(isForeground: Boolean) {
+        if (_isAppForeground.value == isForeground) return
+        _isAppForeground.value = isForeground
+        if (isForeground) {
+            syncScheduler.onAppForeground()
             // 自动补录逻辑
             val isConnected = bleManager.connectionState.value is ConnectionState.Connected
             val isRecording = dashcamManager.state.value == DashcamState.RECORDING
@@ -4272,32 +4299,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             DashcamManager.getInstance(getApplication()).onAppVisibilityChanged(true)
         } else {
-            // App 进入后台：启动低功耗后台扫描
-            lastControllerDeviceAddress.value
-                ?.takeIf { isAutoReconnectAllowed(it) }
-                ?.let { autoConnectManager.onAppBackground() }
-
             // 触发自动同步上传 (后台/息屏)
             syncScheduler.onAppBackground()
             DashcamManager.getInstance(getApplication()).onAppVisibilityChanged(false)
         }
     }
 
-    private fun tryAutoReconnect(address: String, reason: String) {
-        if (address.isBlank()) return
-        if (!isAutoReconnectAllowed(address)) return
-        if (autoReconnectAttemptedAddress == address) return
-        if (bleManager.connectionState.value !is ConnectionState.Disconnected) return
-        val rememberedName = lastControllerDeviceName.value?.takeIf { it.isNotBlank() }
-        val rememberedProtocolId = lastControllerProtocolId.value?.takeIf { it.isNotBlank() }
-        val started = runCatching {
-            bleManager.connect(address, rememberedName, rememberedProtocolId)
-        }.onFailure { error ->
-            AppLogger.e(TAG, "自动重连失败 reason=$reason address=$address", error)
-        }.getOrDefault(false)
-        if (started) {
-            autoReconnectAttemptedAddress = address
-            AppLogger.i(TAG, "自动重连已发起 reason=$reason address=$address name=${rememberedName ?: "-"} protocol=${rememberedProtocolId ?: "-"}")
+    private fun applyAppResourceDecision(decision: AppResourceDecision) {
+        if (decision.keepGpsTracking) gpsTracker.startTracking() else gpsTracker.stopTracking()
+        if (decision.keepHeadingSensor) headingTracker.start() else headingTracker.stop()
+        bleManager.setTelemetryPollingEnabled(decision.keepTelemetryPolling)
+
+        val reconnectAddress = lastControllerDeviceAddress.value
+        if (reconnectAddress != null && isAutoReconnectEligible(reconnectAddress)) {
+            if (_isAppForeground.value) {
+                autoConnectManager.onAppForeground()
+            } else {
+                autoConnectManager.onAppBackground(decision.hasExplicitBackgroundTask)
+            }
+        } else {
+            autoConnectManager.stop()
+        }
+
+        if (decision.releaseIdleConnectionsAfterGrace) {
+            scheduleBackgroundIdleConnectionRelease()
+        } else {
+            backgroundIdleReleaseJob?.cancel()
+            backgroundIdleReleaseJob = null
+        }
+
+        AppLogger.i(
+            TAG,
+            "Resource policy foreground=${_isAppForeground.value} gps=${decision.keepGpsTracking} " +
+                "heading=${decision.keepHeadingSensor} polling=${decision.keepTelemetryPolling} " +
+                "reconnect=${decision.allowControllerReconnect} activeTask=${decision.hasExplicitBackgroundTask}"
+        )
+    }
+
+    private fun scheduleBackgroundIdleConnectionRelease() {
+        if (backgroundIdleReleaseJob?.isActive == true) return
+        backgroundIdleReleaseJob = viewModelScope.launch {
+            delay(BACKGROUND_IDLE_CONNECTION_GRACE_MS)
+            if (!_isAppForeground.value &&
+                !_isRideActive.value &&
+                !_speedTestSession.value.isActive &&
+                !gpsCalibrationState.value.isRunning &&
+                dashcamManager.state.value != DashcamState.RECORDING &&
+                dashcamManager.state.value != DashcamState.SEGMENT_GAP
+            ) {
+                AppLogger.i(TAG, "后台空闲宽限结束，释放 BLE/GATT 并交由系统冻结或回收进程")
+                autoConnectManager.stop()
+                bleManager.setTelemetryPollingEnabled(false)
+                bleManager.disconnect()
+                bmsBleManager.disconnect()
+            }
+            backgroundIdleReleaseJob = null
         }
     }
 
@@ -4358,7 +4414,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun connectAndBindController(device: android.bluetooth.BluetoothDevice) {
         autoReconnectSuppressedUntilMs = 0L
-        stopAutoReconnectWatchdog()
+        autoConnectManager.stop()
         pendingControllerConnectIntent = ControllerConnectIntent.BIND_CONFIRMED
         viewModelScope.launch {
             settingsRepository.saveLastControllerProfile(
@@ -4367,24 +4423,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 protocolId = activeProtocolId.value ?: lastControllerProtocolId.value
             )
         }
-        autoReconnectAttemptedAddress = device.address
         bleManager.connect(device)
     }
 
     fun connectTemporaryController(device: android.bluetooth.BluetoothDevice) {
         autoReconnectSuppressedUntilMs = Long.MAX_VALUE
-        stopAutoReconnectWatchdog()
+        autoConnectManager.stop()
         pendingControllerConnectIntent = ControllerConnectIntent.TEMPORARY
-        autoReconnectAttemptedAddress = null
         bleManager.connect(device)
     }
 
     fun connectRememberedController() {
         val address = lastControllerDeviceAddress.value ?: return
         autoReconnectSuppressedUntilMs = 0L
-        stopAutoReconnectWatchdog()
+        autoConnectManager.stop()
         pendingControllerConnectIntent = ControllerConnectIntent.REMEMBERED
-        autoReconnectAttemptedAddress = address
         bleManager.connect(
             address = address,
             nameHint = lastControllerDeviceName.value,
@@ -4399,7 +4452,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             autoConnectManager.removeController(rememberedAddress)
         }
         suppressAutoReconnect(Long.MAX_VALUE)
-        stopAutoReconnectWatchdog()
+        autoConnectManager.stop()
         bleManager.stopScan()
         viewModelScope.launch {
             settingsRepository.clearLastControllerDevice()
@@ -4420,7 +4473,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun disconnect(): Unit {
         pendingControllerConnectIntent = ControllerConnectIntent.TEMPORARY
         suppressAutoReconnect(Long.MAX_VALUE)
-        stopAutoReconnectWatchdog()
+        autoConnectManager.stop()
         bleManager.disconnect()
     }
     fun disconnectBms(): Unit = bmsBleManager.disconnect()
@@ -4429,11 +4482,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         autoReconnectSuppressedUntilMs = System.currentTimeMillis() + durationMs
     }
 
-    private fun isAutoReconnectAllowed(address: String): Boolean {
+    private fun isAutoReconnectEligible(address: String): Boolean {
         if (address.isBlank()) return false
         if (System.currentTimeMillis() < autoReconnectSuppressedUntilMs) return false
-        if (isControllerAddressIgnored(address)) return false
-        return bleManager.connectionState.value is ConnectionState.Disconnected
+        return !isControllerAddressIgnored(address)
     }
 
     private fun isControllerAddressIgnored(address: String): Boolean {
@@ -4441,37 +4493,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (System.currentTimeMillis() <= until) return true
         ignoredControllerAddresses.remove(address)
         return false
-    }
-
-    private fun startAutoReconnectWatchdog(address: String, reason: String) {
-        if (!isAutoReconnectAllowed(address)) return
-        if (autoReconnectWatchdogJob?.isActive == true) return
-        autoReconnectWatchdogJob = viewModelScope.launch {
-            AppLogger.i(TAG, "自动连接守护已启动 reason=$reason address=$address")
-            while (isAutoReconnectAllowed(address)) {
-                if (!autoReconnectScanActive) {
-                    autoReconnectScanActive = true
-                    startScan()
-                    AppLogger.d(TAG, "自动连接守护开启扫描窗口 address=$address")
-                }
-                delay(AUTO_RECONNECT_SCAN_WINDOW_MS)
-                if (autoReconnectScanActive) {
-                    autoReconnectScanActive = false
-                    stopScan()
-                }
-                delay(AUTO_RECONNECT_SCAN_COOLDOWN_MS)
-            }
-            autoReconnectScanActive = false
-        }
-    }
-
-    private fun stopAutoReconnectWatchdog() {
-        autoReconnectWatchdogJob?.cancel()
-        autoReconnectWatchdogJob = null
-        if (autoReconnectScanActive) {
-            autoReconnectScanActive = false
-            stopScan()
-        }
     }
 
     // --- Zhike Settings Actions ---
@@ -4797,6 +4818,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         syncScheduler.onAppBackground()
 
         // Disconnect BLE managers to prevent lingering connections
+        backgroundIdleReleaseJob?.cancel()
+        speedTestGpsWarmupJob?.cancel()
+        appBackgroundTransitionJob?.cancel()
+        autoConnectManager.stop()
         bleManager.disconnect()
         bmsBleManager.disconnect()
         headingTracker.stop()
@@ -4858,6 +4883,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // 2. Disconnect Controller BLE
         runCatching {
             bleManager.disconnect()
+        }
+        runCatching {
+            autoConnectManager.stop()
         }
 
         // 3. Disconnect BMS BLE

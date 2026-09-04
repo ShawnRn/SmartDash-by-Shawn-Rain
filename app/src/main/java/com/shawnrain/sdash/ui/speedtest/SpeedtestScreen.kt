@@ -132,6 +132,9 @@ import com.shawnrain.sdash.ui.navigation.ApplyDialogWindowBlurEffect
 import com.shawnrain.sdash.ui.navigation.BlurredAlertDialog
 import com.shawnrain.sdash.ui.navigation.BlurredModalBottomSheet
 import com.shawnrain.sdash.ui.navigation.P2PageHeader
+import com.shawnrain.sdash.ui.navigation.DynamicBlurTopBar
+import com.shawnrain.sdash.ui.navigation.rememberFreezableLayerBackdrop
+import com.shawnrain.sdash.ui.navigation.freezableLayerBackdrop
 import com.shawnrain.sdash.ui.navigation.PredictiveBackPopupTransform
 import com.shawnrain.sdash.ui.navigation.PopupBackdropBlurLayer
 import com.shawnrain.sdash.ui.navigation.rememberPredictiveBackMotion
@@ -153,7 +156,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 
 private val speedPageContentPadding = PaddingValues(
     start = 20.dp,
-    top = 20.dp,
+    top = 188.dp,
     end = 20.dp,
     bottom = 28.dp
 )
@@ -241,6 +244,7 @@ fun SpeedtestScreen(
     val isSyncing = driveSyncState is SyncState.Syncing
     val rideSelectionMode = selectedRideIds.isNotEmpty()
     val loadRideRecordErrorMessage = "读取行程详情失败"
+    val pageBackdrop = rememberFreezableLayerBackdrop()
     BackHandler(enabled = rideSelectionMode) {
         selectedRideIds = emptySet()
     }
@@ -263,47 +267,19 @@ fun SpeedtestScreen(
                 )
             )
         ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Header(metrics.speedKmH.toFloat())
-            TabRow(
-                selectedTabIndex = pagerState.currentPage,
-                containerColor = Color.Transparent,
-                indicator = { tabPositions ->
-                    val current = tabPositions.getOrNull(pagerState.currentPage) ?: return@TabRow
-                    val offsetFraction = pagerState.currentPageOffsetFraction
-                    val targetIndex = when {
-                        offsetFraction > 0f && pagerState.currentPage < tabPositions.lastIndex -> pagerState.currentPage + 1
-                        offsetFraction < 0f && pagerState.currentPage > 0 -> pagerState.currentPage - 1
-                        else -> pagerState.currentPage
-                    }
-                    val target = tabPositions.getOrNull(targetIndex) ?: current
-                    val fraction = abs(offsetFraction)
-                    val indicatorStart = lerp(current.left, target.left, fraction)
-                    val indicatorEnd = lerp(current.right, target.right, fraction)
-                    TabRowDefaults.SecondaryIndicator(
-                        modifier = Modifier
-                            .wrapContentSize(Alignment.BottomStart)
-                            .offset(x = indicatorStart)
-                            .width(indicatorEnd - indicatorStart)
-                    )
-                }
-            ) {
-                SpeedPageTab.entries.forEachIndexed { index, tab ->
-                    Tab(
-                        selected = pagerState.currentPage == index,
-                        onClick = {
-                            scope.launch {
-                                pagerState.animateScrollToPage(index)
-                            }
-                        },
-                        text = { Text(tab.title) }
-                    )
-                }
-            }
-
             HorizontalPager(
                 state = pagerState,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .freezableLayerBackdrop(backdrop = pageBackdrop, frozen = false)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.background,
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)
+                            )
+                        )
+                    )
             ) { page ->
                 when (SpeedPageTab.entries[page]) {
                     SpeedPageTab.TEST -> {
@@ -457,6 +433,50 @@ fun SpeedtestScreen(
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+        DynamicBlurTopBar(
+            backdrop = pageBackdrop,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Header(metrics.speedKmH.toFloat())
+                TabRow(
+                    selectedTabIndex = pagerState.currentPage,
+                    containerColor = Color.Transparent,
+                    divider = {},
+                    indicator = { tabPositions ->
+                        val current = tabPositions.getOrNull(pagerState.currentPage) ?: return@TabRow
+                        val offsetFraction = pagerState.currentPageOffsetFraction
+                        val targetIndex = when {
+                            offsetFraction > 0f && pagerState.currentPage < tabPositions.lastIndex -> pagerState.currentPage + 1
+                            offsetFraction < 0f && pagerState.currentPage > 0 -> pagerState.currentPage - 1
+                            else -> pagerState.currentPage
+                        }
+                        val target = tabPositions.getOrNull(targetIndex) ?: current
+                        val fraction = abs(offsetFraction)
+                        val indicatorStart = lerp(current.left, target.left, fraction)
+                        val indicatorEnd = lerp(current.right, target.right, fraction)
+                        TabRowDefaults.SecondaryIndicator(
+                            modifier = Modifier
+                                .wrapContentSize(Alignment.BottomStart)
+                                .offset(x = indicatorStart)
+                                .width(indicatorEnd - indicatorStart)
+                        )
+                    }
+                ) {
+                    SpeedPageTab.entries.forEachIndexed { index, tab ->
+                        Tab(
+                            selected = pagerState.currentPage == index,
+                            onClick = {
+                                scope.launch { pagerState.animateScrollToPage(index) }
+                            },
+                            text = { Text(tab.title) }
+                        )
                     }
                 }
             }
@@ -807,7 +827,8 @@ private fun PosterPreviewDialog(
                     P2PageHeader(
                         title = title,
                         subtitle = "预览后可直接分享或保存到相册",
-                        onBack = null
+                        onBack = null,
+                        includeStatusBar = false
                     )
                     Box(
                         modifier = Modifier
@@ -826,7 +847,8 @@ private fun PosterPreviewDialog(
 private fun Header(currentSpeed: Float) {
     P2PageHeader(
         title = "性能与行程",
-        subtitle = "当前车速 ${formatFloat(currentSpeed)} km/h"
+        subtitle = "当前车速 ${formatFloat(currentSpeed)} km/h",
+        glass = false
     )
 }
 

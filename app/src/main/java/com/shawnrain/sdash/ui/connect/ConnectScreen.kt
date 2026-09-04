@@ -174,6 +174,7 @@ fun ConnectScreen(viewModel: MainViewModel, onNavigateToDashboard: () -> Unit, m
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 24.dp)
+            .statusBarsPadding()
             .padding(top = topPadding),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {

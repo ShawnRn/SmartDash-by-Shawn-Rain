@@ -39,6 +39,8 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -48,12 +50,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Bluetooth
@@ -91,6 +96,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
@@ -98,7 +104,9 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
@@ -127,12 +135,16 @@ import com.shawnrain.sdash.ui.settings.SettingsScreen
 import com.shawnrain.sdash.ui.speedtest.SpeedtestScreen
 import com.shawnrain.sdash.ui.theme.HabeTheme
 import com.shawnrain.sdash.ui.theme.bezierRoundedShape
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.highlight.Highlight
+import com.kyant.backdrop.shadow.InnerShadow
+import com.kyant.backdrop.shadow.Shadow
+import com.kyant.capsule.ContinuousCapsule
 import kotlin.math.min
-import kotlin.math.max
-import kotlin.math.abs
-import kotlin.math.pow
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import kotlinx.coroutines.channels.BufferOverflow
@@ -253,7 +265,13 @@ class MainActivity : ComponentActivity() {
             BACK_CHAIN_TAG,
             "onUserLeaveHint currentRoute=$currentRoute pipEnabled=$pipEnabled inPip=$isInPictureInPictureMode finishing=$isFinishing"
         )
-        requestTelemetryPictureInPicture()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // Android 12+ performs the home/recents transition more reliably when auto-enter is
+            // configured before the gesture completes. Explicit entry here can race the system.
+            updatePictureInPictureParams()
+        } else {
+            requestTelemetryPictureInPicture()
+        }
     }
 
     override fun onPictureInPictureModeChanged(
@@ -488,9 +506,10 @@ class MainActivity : ComponentActivity() {
             .setAspectRatio(TELEMETRY_PIP_ASPECT_RATIO)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setSeamlessResizeEnabled(false)
-            // Only enable autoEnter for Dashboard route to avoid system-level portrait orientation conflicts on non-dashboard tabs.
-            // For other portrait-locked routes, autoEnter is disabled and we rely on onUserLeaveHint fallback with manual orientation reset.
-            val autoEnter = pipEnabled && (currentRoute == Screen.Dashboard.route)
+            // PiP always renders the dedicated telemetry HUD, regardless of the currently visible
+            // top-level page. Keeping auto-enter enabled across routes avoids missing home/recents
+            // gestures when Settings or Speedtest is visible.
+            val autoEnter = pipEnabled
             builder.setAutoEnterEnabled(autoEnter)
             AppLogger.d(BACK_CHAIN_TAG, "updatePiPParams setAutoEnterEnabled=$autoEnter currentRoute=$currentRoute")
         }
@@ -909,7 +928,7 @@ fun MainScreen(
     }
 
     if (isInPictureInPictureMode) {
-        TelemetryPipScreen(viewModel = viewModel)
+        InitialTelemetryPipScreen(viewModel = viewModel)
         return
     }
 
@@ -924,44 +943,10 @@ fun MainScreen(
                 .freezableLayerBackdrop(
                     backdrop = appBackdrop,
                     frozen = isTopLevelTransitionRunning && isTopLevelHostActive
-                ),
+            ),
             containerColor = MaterialTheme.colorScheme.background,
-            snackbarHost = {
-                SnackbarHost(
-                    hostState = globalSnackbarHostState,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
-                    snackbar = { data ->
-                        Surface(
-                            color = MaterialTheme.colorScheme.inverseSurface,
-                            contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-                            shape = bezierRoundedShape(16.dp),
-                            tonalElevation = 6.dp,
-                            shadowElevation = 8.dp,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = data.visuals.message,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.inverseOnSurface,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                data.visuals.actionLabel?.let { action ->
-                                    TextButton(
-                                        onClick = { data.performAction() },
-                                        modifier = Modifier.padding(start = 8.dp)
-                                    ) {
-                                        Text(action, color = MaterialTheme.colorScheme.inversePrimary)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                )
-            }
+            contentWindowInsets = WindowInsets(0.dp),
+            snackbarHost = {}
         ) { innerPadding ->
             Box(
                 modifier = Modifier
@@ -1254,6 +1239,89 @@ fun MainScreen(
             }
         }
 
+        SnackbarHost(
+            hostState = globalSnackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = if (showBottomBar) 96.dp else 20.dp)
+                .zIndex(3f),
+            snackbar = { data ->
+                val darkTheme = isSystemInDarkTheme()
+                val actionLabel = data.visuals.actionLabel
+                Box(
+                    modifier = Modifier
+                        .widthIn(min = 112.dp, max = 560.dp)
+                        .defaultMinSize(minHeight = 50.dp)
+                        .drawBackdrop(
+                            backdrop = appBackdrop,
+                            shape = { ContinuousCapsule },
+                            effects = {
+                                vibrancy()
+                                blur(8.dp.toPx())
+                                lens(20.dp.toPx(), 20.dp.toPx())
+                            },
+                            highlight = {
+                                Highlight.Default.copy(
+                                    width = 0.7.dp,
+                                    blurRadius = 0.45.dp,
+                                    alpha = if (darkTheme) 0.52f else 0.68f
+                                )
+                            },
+                            shadow = {
+                                Shadow(
+                                    radius = 14.dp,
+                                    offset = DpOffset.Zero,
+                                    color = Color.Black.copy(alpha = if (darkTheme) 0.24f else 0.12f)
+                                )
+                            },
+                            innerShadow = {
+                                InnerShadow(
+                                    radius = 4.dp,
+                                    offset = DpOffset(0.dp, 1.dp),
+                                    color = Color.Black.copy(alpha = if (darkTheme) 0.10f else 0.04f)
+                                )
+                            },
+                            onDrawSurface = {
+                                drawRect(
+                                    if (darkTheme) {
+                                        Color(0xFF121212).copy(alpha = 0.44f)
+                                    } else {
+                                        Color(0xFFFAFAFA).copy(alpha = 0.44f)
+                                    }
+                                )
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = data.visuals.message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            textAlign = if (actionLabel == null) TextAlign.Center else TextAlign.Start,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = if (actionLabel == null) Modifier else Modifier.weight(1f)
+                        )
+                        actionLabel?.let { action ->
+                            TextButton(
+                                onClick = { data.performAction() },
+                                modifier = Modifier.padding(start = 8.dp)
+                            ) {
+                                Text(action, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                }
+            }
+        )
+
         if (showBottomBar) {
             LiquidGlassBottomBar(
                 items = liquidGlassItems,
@@ -1318,18 +1386,20 @@ private fun TelemetryPipScreen(
     viewModel: MainViewModel
 ) {
     val metrics by viewModel.metrics.collectAsState()
-    val currentVehicle by viewModel.currentVehicle.collectAsState()
     val speedText = metrics.speedKmH.toInt().coerceAtLeast(0).toString()
     val powerKw = metrics.totalPowerW / 1000f
+    val powerText = String.format("%.1f", powerKw)
+    val rangeText = String.format("%.1f", metrics.estimatedRangeKm.coerceAtLeast(0f))
+    val efficiencyText = String.format("%.1f", metrics.avgEfficiencyWhKm.coerceAtLeast(0f))
+    val darkTheme = isSystemInDarkTheme()
 
-    // 18:9 ratio base size
-    val baseWidth = 350.dp
-    val baseHeight = 175.dp
+    val baseWidth = 360.dp
+    val baseHeight = 180.dp
 
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.95f)),
+            .background(MaterialTheme.colorScheme.surface),
         contentAlignment = Alignment.Center
     ) {
         val scale = min(maxWidth / baseWidth, maxHeight / baseHeight)
@@ -1342,282 +1412,234 @@ private fun TelemetryPipScreen(
                 .height(scaledHeight),
             contentAlignment = Alignment.Center
         ) {
-            Column(
+            Box(
                 modifier = Modifier
                     .requiredSize(baseWidth, baseHeight)
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
                     }
+                    .clip(bezierRoundedShape(30.dp))
             ) {
-                Row(
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Left Area: Speed Box centered (Unified app style)
-                    Box(
-                        modifier = Modifier
-                            .width(110.dp)
-                            .fillMaxHeight()
-                            .clip(bezierRoundedShape(18.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerLow),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        val useMiSans = com.shawnrain.sdash.ui.theme.LocalUseMiSansFont.current
-                        val pipFontFamily = if (useMiSans) com.shawnrain.sdash.ui.theme.MiSansFontFamily else androidx.compose.ui.text.font.FontFamily.Monospace
-                        val pipFontFeatureSettings = if (useMiSans) "tnum" else null
-
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Text(
-                                text = speedText,
-                                fontSize = 52.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
-                                fontFamily = pipFontFamily,
-                                style = androidx.compose.material3.LocalTextStyle.current.copy(fontFeatureSettings = pipFontFeatureSettings),
-                                color = MaterialTheme.colorScheme.primary,
-                                lineHeight = 52.sp
-                            )
-                            Text(
-                                text = "km/h",
-                                fontSize = 12.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                fontFamily = pipFontFamily,
-                                style = androidx.compose.material3.LocalTextStyle.current.copy(fontFeatureSettings = pipFontFeatureSettings),
-                                color = Color.Gray
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(20.dp))
-
-                    // Right Area: 2 columns to form a perfect 2x2 grid
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Column 1: SOC & Voltage
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight(),
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            // SOC
-                            PipGridItem(
-                                value = metrics.soc.toInt().coerceIn(0, 100).toString(),
-                                unit = "%",
-                                label = "SOC",
-                                valueColor = when {
-                                    metrics.soc < 20f -> Color(0xFFFF5252)
-                                    metrics.soc < 40f -> Color(0xFFFF9800)
-                                    else -> MaterialTheme.colorScheme.onBackground
+                        .fillMaxSize()
+                        .background(
+                            Brush.linearGradient(
+                                colors = if (darkTheme) {
+                                    listOf(
+                                        Color(0xFF11161E),
+                                        Color(0xFF1B2734),
+                                        Color(0xFF10151C)
+                                    )
+                                } else {
+                                    listOf(
+                                        Color(0xFFEAF4FB),
+                                        Color(0xFFDCEAF3),
+                                        Color(0xFFF4F7F8)
+                                    )
                                 }
                             )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            // Voltage
-                            val series = currentVehicle.batterySeries.coerceAtLeast(1)
-                            val underVoltageThreshold = series * 3.2f
-                            val isUnderVoltage = metrics.voltage < 45.0f || metrics.voltage < underVoltageThreshold
-                            PipGridItem(
-                                value = String.format("%.1f", metrics.voltage),
-                                unit = "V",
-                                label = "电压",
-                                valueColor = if (isUnderVoltage) Color(0xFFFF9800) else MaterialTheme.colorScheme.onBackground
+                        )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .size(190.dp)
+                            .blur(52.dp)
+                            .background(
+                                MaterialTheme.colorScheme.primary.copy(
+                                    alpha = if (darkTheme) 0.24f else 0.20f
+                                ),
+                                CircleShape
                             )
-                        }
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .size(170.dp)
+                            .blur(48.dp)
+                            .background(
+                                MaterialTheme.colorScheme.tertiary.copy(
+                                    alpha = if (darkTheme) 0.16f else 0.13f
+                                ),
+                                CircleShape
+                            )
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = if (darkTheme) 0.07f else 0.28f),
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = if (darkTheme) 0.10f else 0.03f)
+                                    )
+                                )
+                            )
+                    )
+                }
 
-                        // Column 2: Range & Temp
-                        Column(
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(5.dp),
+                    shape = bezierRoundedShape(27.dp),
+                    color = if (darkTheme) {
+                        Color.White.copy(alpha = 0.055f)
+                    } else {
+                        Color.White.copy(alpha = 0.24f)
+                    },
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    shadowElevation = 0.dp
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 24.dp, vertical = 15.dp)
+                    ) {
+                        PipPrimarySpeed(
+                            value = speedText,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Box(
                             modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight(),
-                            verticalArrangement = Arrangement.Center
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(Color.White.copy(alpha = if (darkTheme) 0.17f else 0.48f))
+                        )
+                        Row(
+                            modifier = Modifier
+                                .weight(0.72f)
+                                .fillMaxWidth()
+                                .padding(top = 9.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Range
-                            PipGridItem(
-                                value = metrics.estimatedRangeKm.toInt().coerceAtLeast(0).toString(),
-                                unit = "km",
-                                label = "续航"
+                            PipSupportingMetric(
+                                label = "功率",
+                                value = powerText,
+                                unit = "kW",
+                                valueColor = if (powerKw < -0.05f) {
+                                    com.shawnrain.sdash.ui.theme.LocalSmartDashColors.current.regenGreen
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                                modifier = Modifier.weight(0.9f)
                             )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            // Temp
-                            val isOverTemp = metrics.controllerTemp > 65f
-                            PipGridItem(
-                                value = metrics.controllerTemp.toInt().toString(),
-                                unit = "°C",
-                                label = "温控",
-                                valueColor = if (isOverTemp) Color(0xFFFF5252) else MaterialTheme.colorScheme.onBackground
+                            PipSupportingMetric(
+                                label = "预估续航",
+                                value = rangeText,
+                                unit = "km",
+                                modifier = Modifier.weight(1.05f)
+                            )
+                            PipSupportingMetric(
+                                label = "平均能耗",
+                                value = efficiencyText,
+                                unit = "Wh/km",
+                                modifier = Modifier.weight(1.15f)
                             )
                         }
                     }
                 }
-
-                // PowerBalanceBar at the bottom spanning the full width
-                PipPowerBalanceBar(
-                    powerKw = powerKw,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(8.dp)
-                )
             }
         }
     }
 }
 
 @Composable
-private fun PipPowerBalanceBar(
-    powerKw: Float,
-    modifier: Modifier = Modifier
-) {
-    var positivePeakKw by remember { mutableFloatStateOf(3.5f) }
-    var regenPeakKw by remember { mutableFloatStateOf(0.8f) }
-
-    LaunchedEffect(powerKw) {
-        positivePeakKw = when {
-            powerKw > 0f -> max(positivePeakKw * 0.985f, max(3.5f, powerKw * 1.12f))
-            else -> max(positivePeakKw * 0.992f, 3.5f)
-        }
-        regenPeakKw = when {
-            powerKw < 0f -> max(regenPeakKw * 0.978f, max(0.8f, abs(powerKw) * 1.12f))
-            else -> max(regenPeakKw * 0.99f, 0.8f)
-        }
-    }
-
-    val targetFraction = when {
-        powerKw > 0f -> (powerKw / positivePeakKw).coerceIn(0f, 1f)
-        powerKw < 0f -> (abs(powerKw) / regenPeakKw).coerceIn(0f, 1f)
-        else -> 0f
-    }
-    val visualTargetFraction = remember(targetFraction, powerKw) {
-        val hasActivePower = abs(powerKw) >= 0.08f
-        if (!hasActivePower) 0f else {
-            val raw = targetFraction.coerceIn(0f, 1f)
-            if (powerKw >= 0f) {
-                max(0.06f, raw.pow(0.82f))
-            } else {
-                max(0.16f, raw.pow(0.56f))
-            }.coerceIn(0f, 1f)
-        }
-    }
-    val animatedFraction by animateFloatAsState(
-        targetValue = visualTargetFraction,
-        animationSpec = tween(durationMillis = 180),
-        label = "pip_power_balance_fraction"
-    )
-    val isOutput = powerKw >= 0f
-    val hasActivePower = abs(powerKw) >= 0.08f
-    val barColor = remember(animatedFraction, isOutput) {
-        if (isOutput) {
-            if (animatedFraction < 0.5f) {
-                androidx.compose.ui.graphics.lerp(
-                    Color(0xFF10B981), // 绿
-                    Color(0xFFF59E0B), // 黄
-                    animatedFraction * 2f
-                )
-            } else {
-                androidx.compose.ui.graphics.lerp(
-                    Color(0xFFF59E0B), // 黄
-                    Color(0xFFEF4444), // 红
-                    ((animatedFraction - 0.5f) * 2f).coerceIn(0f, 1f)
-                )
-            }
-        } else {
-            if (animatedFraction < 0.5f) {
-                androidx.compose.ui.graphics.lerp(
-                    Color(0xFFF59E0B), // 黄/橙
-                    Color(0xFF84CC16), // 黄绿
-                    animatedFraction * 2f
-                )
-            } else {
-                androidx.compose.ui.graphics.lerp(
-                    Color(0xFF84CC16), // 黄绿
-                    Color(0xFF10B981), // 强绿
-                    ((animatedFraction - 0.5f) * 2f).coerceIn(0f, 1f)
-                )
-            }
-        }
-    }
-
-    Box(
-        modifier = modifier
-            .clip(bezierRoundedShape(999.dp))
-            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f))
-    ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxHeight()
-                .width(1.5.dp)
-                .background(Color.White.copy(alpha = 0.38f))
-        )
-        if (hasActivePower) {
-            Box(
-                modifier = Modifier
-                    .align(if (isOutput) Alignment.CenterEnd else Alignment.CenterStart)
-                    .fillMaxHeight()
-                    .fillMaxWidth(0.5f * animatedFraction)
-                    .clip(bezierRoundedShape(999.dp))
-                    .background(barColor.copy(alpha = 0.86f))
-            )
-        }
-    }
-}
-
-@Composable
-private fun PipGridItem(
+private fun PipPrimarySpeed(
     value: String,
-    unit: String,
-    label: String,
-    valueColor: Color = MaterialTheme.colorScheme.onBackground,
-    unitColor: Color = Color.Gray
+    modifier: Modifier = Modifier
 ) {
     val useMiSans = com.shawnrain.sdash.ui.theme.LocalUseMiSansFont.current
     val pipFontFamily = if (useMiSans) com.shawnrain.sdash.ui.theme.MiSansFontFamily else androidx.compose.ui.text.font.FontFamily.Monospace
     val pipFontFeatureSettings = if (useMiSans) "tnum" else null
 
-    Column(horizontalAlignment = Alignment.Start) {
-        Text(
-            text = label,
-            fontSize = 13.sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Normal,
-            color = Color.Gray.copy(alpha = 0.9f),
-            fontFamily = pipFontFamily,
-            style = androidx.compose.material3.LocalTextStyle.current.copy(fontFeatureSettings = pipFontFeatureSettings)
-        )
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.Start,
+        verticalArrangement = Arrangement.Center
+    ) {
         Row(
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.Start
         ) {
             Text(
                 text = value,
-                fontSize = 30.sp,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                fontSize = 60.sp,
+                lineHeight = 62.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = pipFontFamily,
+                style = androidx.compose.material3.LocalTextStyle.current.copy(fontFeatureSettings = pipFontFeatureSettings),
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.alignByBaseline(),
+                maxLines = 1
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "km/h",
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = pipFontFamily,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.90f),
+                modifier = Modifier.alignByBaseline(),
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun PipSupportingMetric(
+    label: String,
+    value: String,
+    unit: String,
+    modifier: Modifier = Modifier,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface
+) {
+    val useMiSans = com.shawnrain.sdash.ui.theme.LocalUseMiSansFont.current
+    val pipFontFamily = if (useMiSans) com.shawnrain.sdash.ui.theme.MiSansFontFamily else androidx.compose.ui.text.font.FontFamily.Monospace
+    val pipFontFeatureSettings = if (useMiSans) "tnum" else null
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.Start,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            lineHeight = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.94f),
+            fontFamily = pipFontFamily,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.height(3.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = value,
+                fontSize = 24.sp,
+                lineHeight = 27.sp,
+                fontWeight = FontWeight.Bold,
                 fontFamily = pipFontFamily,
                 style = androidx.compose.material3.LocalTextStyle.current.copy(fontFeatureSettings = pipFontFeatureSettings),
                 color = valueColor,
-                modifier = Modifier.alignByBaseline()
+                modifier = Modifier.alignByBaseline(),
+                maxLines = 1
             )
-            Spacer(modifier = Modifier.width(3.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = unit,
-                fontSize = 12.sp,
+                fontSize = 10.sp,
+                lineHeight = 13.sp,
+                fontWeight = FontWeight.SemiBold,
                 fontFamily = pipFontFamily,
-                style = androidx.compose.material3.LocalTextStyle.current.copy(fontFeatureSettings = pipFontFeatureSettings),
-                color = unitColor,
-                modifier = Modifier.alignByBaseline()
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f),
+                modifier = Modifier.alignByBaseline(),
+                maxLines = 1
             )
         }
     }

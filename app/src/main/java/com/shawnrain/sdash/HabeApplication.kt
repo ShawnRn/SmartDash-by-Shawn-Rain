@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import com.shawnrain.sdash.debug.AppLogger
+import com.shawnrain.sdash.worker.PeriodicDriveSyncWorker
 import java.util.concurrent.atomic.AtomicInteger
 
 class HabeApplication : Application(), ViewModelStoreOwner {
@@ -22,6 +23,9 @@ class HabeApplication : Application(), ViewModelStoreOwner {
 
     override fun onCreate() {
         super.onCreate()
+        // Legacy builds scheduled a permanent 30-minute Drive poll. SmartDash now syncs only on
+        // foreground and real local mutations, so cancel the old persisted job on every cold start.
+        PeriodicDriveSyncWorker.cancelPeriodicSync(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
 

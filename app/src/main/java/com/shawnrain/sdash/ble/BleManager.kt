@@ -87,10 +87,12 @@ class BleManager(private val context: Context) {
     private var activeProtocolId: String? = null
     private var pendingDeviceNameHint: String? = null
     private var pendingProtocolIdHint: String? = null
+    private var telemetryPollingEnabled = true
 
     private val pollingHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val pollingRunnable = object : Runnable {
         override fun run() {
+            if (!telemetryPollingEnabled) return
             if (activeProtocolId == "zhike") {
                 sendZhikeMainCommand("AA13FF01AA130001")
             }
@@ -340,6 +342,10 @@ class BleManager(private val context: Context) {
     }
 
     private fun startPolling() {
+        if (!telemetryPollingEnabled) {
+            AppLogger.d(TAG, "跳过轮询启动：后台资源策略已暂停遥测")
+            return
+        }
         pollingHandler.removeCallbacks(pollingRunnable)
         AppLogger.d(TAG, "启动轮询定时器，2s 后进入实时请求")
         pollingHandler.postDelayed(pollingRunnable, 2000) // Start after initial discovery
@@ -348,6 +354,18 @@ class BleManager(private val context: Context) {
     private fun stopPolling() {
         pollingHandler.removeCallbacks(pollingRunnable)
         AppLogger.d(TAG, "停止轮询定时器")
+    }
+
+    fun setTelemetryPollingEnabled(enabled: Boolean) {
+        if (telemetryPollingEnabled == enabled) return
+        telemetryPollingEnabled = enabled
+        if (enabled && connectionState.value is ConnectionState.Connected && activeProtocolId != null) {
+            AppLogger.i(TAG, "前台或活跃任务恢复，重新启用控制器遥测轮询")
+            startPolling()
+        } else if (!enabled) {
+            AppLogger.i(TAG, "后台空闲，暂停控制器遥测轮询")
+            stopPolling()
+        }
     }
 
     fun sendCommand(hex: String) {

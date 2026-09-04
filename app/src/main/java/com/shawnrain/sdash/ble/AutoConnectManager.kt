@@ -46,6 +46,8 @@ class AutoConnectManager(
     private var autoConnectJob: Job? = null
     private var isConnecting = false
     private var backgroundScanJob: Job? = null
+    private var isAppForeground = true
+    private var keepReconnectAliveInBackground = false
 
     /**
      * Registers a known controller for auto-connect.
@@ -83,6 +85,21 @@ class AutoConnectManager(
         stop()
         AppLogger.i(TAG, "启动自动连接，已知设备数: ${knownControllers.size}")
 
+        when (val connection = bleManager.connectionState.value) {
+            is ConnectionState.Connected -> {
+                onConnected(
+                    connection.device.address,
+                    knownControllers[connection.device.address]?.name
+                )
+                return
+            }
+            is ConnectionState.Connecting -> {
+                AppLogger.d(TAG, "控制器已在连接中，跳过重复直连")
+                return
+            }
+            else -> Unit
+        }
+
         if (knownControllers.isEmpty()) {
             _state.value = AutoConnectState.Idle
             return
@@ -96,7 +113,7 @@ class AutoConnectManager(
         if (lastDevice != null) {
             // Fast path: immediately try direct connect
             AppLogger.i(TAG, "🚀 快速直连最后设备: ${lastDevice.name} (${lastDevice.address})")
-            scope.launch {
+            autoConnectJob = scope.launch {
                 attemptConnect(lastDevice)
             }
         } else {
@@ -110,7 +127,11 @@ class AutoConnectManager(
         autoConnectJob = null
         backgroundScanJob?.cancel()
         backgroundScanJob = null
+        bleManager.stopScan()
         isConnecting = false
+        if (bleManager.connectionState.value !is ConnectionState.Connected) {
+            _state.value = AutoConnectState.Idle
+        }
         AppLogger.i(TAG, "停止自动连接")
     }
 
@@ -135,16 +156,25 @@ class AutoConnectManager(
      * Call when app goes to foreground: try direct connect immediately
      */
     fun onAppForeground() {
-        // Foreground usually implies we want faster connection
+        isAppForeground = true
+        keepReconnectAliveInBackground = false
         start()
     }
 
     /**
-     * Call when app goes to background: start low-power background scanning
+     * Background reconnect is only allowed while an explicit user task is still active.
+     * A parked/idle app stops scanning entirely so it cannot keep the Bluetooth radio awake.
      */
-    fun onAppBackground() {
-        AppLogger.i(TAG, "🌙 App 后台，启动低功耗扫描")
-        startBackgroundScan()
+    fun onAppBackground(keepAlive: Boolean) {
+        isAppForeground = false
+        keepReconnectAliveInBackground = keepAlive
+        if (keepAlive) {
+            AppLogger.i(TAG, "App 后台但存在活跃任务，启用低占空比重连")
+            startBackgroundScan()
+        } else {
+            AppLogger.i(TAG, "App 后台且空闲，停止控制器重连扫描")
+            stop()
+        }
     }
 
     fun onConnected(address: String, name: String? = null) {
@@ -166,17 +196,21 @@ class AutoConnectManager(
 
     fun onDisconnected(address: String) {
         isConnecting = false
-        _state.value = AutoConnectState.Searching
-        AppLogger.w(TAG, "⚠️ 控制器断开: $address，准备自动重连")
-
-        startBackgroundScan()
+        if (isReconnectAllowed()) {
+            _state.value = AutoConnectState.Searching
+            AppLogger.w(TAG, "控制器断开: $address，准备自动重连")
+            startBackgroundScan()
+        } else {
+            _state.value = AutoConnectState.Idle
+            AppLogger.i(TAG, "控制器断开: $address，后台空闲状态不重连")
+        }
     }
 
     fun connectTo(address: String) {
         stop()
         val controller = knownControllers[address]
         if (controller != null) {
-            scope.launch {
+            autoConnectJob = scope.launch {
                 attemptConnect(controller)
             }
         } else {
@@ -207,9 +241,12 @@ class AutoConnectManager(
             return true
         } else {
             isConnecting = false
-            // Direct connect failed, wait a bit and start cycle
-            AppLogger.w(TAG, "直连失败，进入自动扫描循环")
-            startBackgroundScan()
+            if (isReconnectAllowed()) {
+                AppLogger.w(TAG, "直连失败，进入自动扫描循环")
+                startBackgroundScan()
+            } else {
+                _state.value = AutoConnectState.Idle
+            }
             return false
         }
     }
@@ -219,18 +256,32 @@ class AutoConnectManager(
      * This is more radio-efficient than continuous scanning.
      */
     private fun startBackgroundScan() {
-        if (knownControllers.isEmpty()) return
+        if (knownControllers.isEmpty() || !isReconnectAllowed()) return
+        if (bleManager.connectionState.value is ConnectionState.Connected) {
+            backgroundScanJob?.cancel()
+            backgroundScanJob = null
+            return
+        }
 
         backgroundScanJob?.cancel()
         backgroundScanJob = scope.launch {
-            while (true) {
+            while (isReconnectAllowed()) {
                 // Get the last connected device to scan for
                 val lastDevice = knownControllers.values
                     .filter { it.lastConnectedAt > 0 }
                     .maxByOrNull { it.lastConnectedAt } ?: knownControllers.values.first()
 
-                val scanDuration = if (isThrottled) 2000L else 5000L
-                val waitDuration = if (isThrottled) 15000L else 5000L
+                val inBackground = !isAppForeground
+                val scanDuration = when {
+                    inBackground -> 2_000L
+                    isThrottled -> 2_000L
+                    else -> 5_000L
+                }
+                val waitDuration = when {
+                    inBackground -> 60_000L
+                    isThrottled -> 15_000L
+                    else -> 5_000L
+                }
 
                 AppLogger.d(TAG, "🔍 守护扫描轮次 (throttled=$isThrottled): ${lastDevice.address}")
                 
@@ -251,8 +302,11 @@ class AutoConnectManager(
                 
                 // If we got connected meanwhile, the job would be cancelled by onConnected
             }
+            bleManager.stopScan()
         }
     }
+
+    private fun isReconnectAllowed(): Boolean = isAppForeground || keepReconnectAliveInBackground
 }
 
 /**

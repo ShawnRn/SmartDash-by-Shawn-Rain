@@ -8,9 +8,16 @@ import android.location.LocationManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.shawnrain.sdash.debug.AppLogger
 
 class GpsTracker(context: Context) {
+    companion object {
+        private const val TAG = "GpsTracker"
+    }
+
     private val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    @Volatile
+    private var isTracking = false
     
     private val _gpsSpeed = MutableStateFlow(0f)
     val gpsSpeed: StateFlow<Float> = _gpsSpeed.asStateFlow()
@@ -31,6 +38,7 @@ class GpsTracker(context: Context) {
 
     @SuppressLint("MissingPermission")
     fun startTracking() {
+        if (isTracking) return
         try {
             locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
@@ -38,13 +46,24 @@ class GpsTracker(context: Context) {
                 0f,
                 locationListener
             )
+            isTracking = true
+            AppLogger.i(TAG, "GPS tracking started (500ms high accuracy)")
         } catch (e: Exception) {
-            e.printStackTrace()
+            isTracking = false
+            AppLogger.e(TAG, "Failed to start GPS tracking", e)
         }
     }
 
     fun stopTracking() {
-        locationManager.removeUpdates(locationListener)
-        _gpsSpeed.value = 0f
+        if (!isTracking) return
+        try {
+            locationManager.removeUpdates(locationListener)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to stop GPS tracking cleanly", e)
+        } finally {
+            isTracking = false
+            _gpsSpeed.value = 0f
+            AppLogger.i(TAG, "GPS tracking stopped")
+        }
     }
 }

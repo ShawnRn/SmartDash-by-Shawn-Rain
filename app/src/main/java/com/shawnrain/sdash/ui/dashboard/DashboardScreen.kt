@@ -74,7 +74,10 @@ import com.shawnrain.sdash.data.VehicleProfile
 import com.shawnrain.sdash.debug.AppLogger
 import com.shawnrain.sdash.ui.connect.ConnectionQuickSheet
 import com.shawnrain.sdash.ui.navigation.BlurredModalBottomSheet
+import com.shawnrain.sdash.ui.navigation.DynamicBlurTopBar
 import com.shawnrain.sdash.ui.navigation.PredictiveBackPopupTransform
+import com.shawnrain.sdash.ui.navigation.freezableLayerBackdrop
+import com.shawnrain.sdash.ui.navigation.rememberFreezableLayerBackdrop
 import com.shawnrain.sdash.ui.theme.bezierPillShape
 import com.shawnrain.sdash.ui.theme.bezierRoundedShape
 import com.shawnrain.sdash.ui.theme.LiquidGlassPill
@@ -223,6 +226,7 @@ fun DashboardScreen(
     val context = LocalContext.current
     val dashcamManager = remember { DashcamManager.getInstance(context) }
     val dashcamState by dashcamManager.state.collectAsState()
+    val pageBackdrop = rememberFreezableLayerBackdrop()
     val showDashcamRecordingsSheet by viewModel.showDashcamRecordingsSheet.collectAsState()
     var isNavigatingToPlayback by remember { mutableStateOf(false) }
 
@@ -434,26 +438,15 @@ fun DashboardScreen(
                 .fillMaxSize()
         ) {
             if (!isLandscape) {
+            Box(modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .freezableLayerBackdrop(backdrop = pageBackdrop, frozen = false)
+                    .background(MaterialTheme.colorScheme.background)
                     .padding(horizontal = PageHorizontalPadding)
+                    .padding(top = 92.dp)
             ) {
-                DashboardTopSection(
-                    isEditMode = isEditMode,
-                    isRideActive = isRideActive,
-                    rideDirectionLabel = rideDirectionLabel,
-                    onEditModeToggle = { editing ->
-                        if (editing) {
-                            enterDashboardEditMode()
-                        } else {
-                            saveDashboardDraft()
-                        }
-                    },
-                    onAddClick = { showAddPicker = true },
-                    onRideToggle = { viewModel.toggleRideTracking() }
-                )
-
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -535,6 +528,27 @@ fun DashboardScreen(
                         itemBounds = itemBounds
                     )
                 }
+            }
+            DynamicBlurTopBar(
+                backdrop = pageBackdrop,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+            ) {
+                DashboardTopSection(
+                    modifier = Modifier
+                        .statusBarsPadding()
+                        .padding(horizontal = PageHorizontalPadding),
+                    isEditMode = isEditMode,
+                    isRideActive = isRideActive,
+                    rideDirectionLabel = rideDirectionLabel,
+                    onEditModeToggle = { editing ->
+                        if (editing) enterDashboardEditMode() else saveDashboardDraft()
+                    },
+                    onAddClick = { showAddPicker = true },
+                    onRideToggle = { viewModel.toggleRideTracking() }
+                )
+            }
             }
         } else {
             LandscapeDashboardFocus(
@@ -656,6 +670,7 @@ private fun LandscapeDashboardFocus(
 
 @Composable
 private fun DashboardTopSection(
+    modifier: Modifier = Modifier,
     isEditMode: Boolean,
     isRideActive: Boolean,
     rideDirectionLabel: String,
@@ -663,7 +678,7 @@ private fun DashboardTopSection(
     onAddClick: () -> Unit,
     onRideToggle: () -> Unit
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier.fillMaxWidth()) {
         DashboardHeader(
             isEditMode = isEditMode,
             isRideActive = isRideActive,
@@ -834,77 +849,79 @@ fun DashboardHeader(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(48.dp)
+            .height(56.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (isEditMode) {
-                IconButton(onClick = onAddClick) {
-                    Icon(Icons.Default.Add, contentDescription = "Add", tint = MaterialTheme.colorScheme.primary)
-                }
-            } else {
-                LiquidGlassPill(
-                    onClick = onRideToggle,
-                    borderAlpha = 0.30f
-                ) {
-                    Text(
-                        text = if (isRideActive) "结束" else "开始",
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                        color = if (isRideActive) {
-                            MaterialTheme.colorScheme.onErrorContainer
-                        } else {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        },
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(1.dp))
-
-            if (isEditMode) {
-                TextButton(onClick = { onEditModeToggle(false) }) {
-                    Text("完成", fontWeight = FontWeight.Bold)
-                }
-            } else {
-                LiquidGlassPill(
-                    alpha = 0.26f,
-                    borderAlpha = 0.24f
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        Box(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isEditMode) {
+                    IconButton(onClick = onAddClick) {
+                        Icon(Icons.Default.Add, contentDescription = "Add", tint = MaterialTheme.colorScheme.primary)
+                    }
+                } else {
+                    LiquidGlassPill(
+                        onClick = onRideToggle,
+                        borderAlpha = 0.30f
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Navigation,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(15.dp)
-                        )
                         Text(
-                            text = rideDirectionLabel,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1
+                            text = if (isRideActive) "结束" else "开始",
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                            color = if (isRideActive) {
+                                MaterialTheme.colorScheme.onErrorContainer
+                            } else {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            },
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
-            }
-        }
 
-        Text(
-            "SmartDash",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.align(Alignment.Center)
-        )
+                Spacer(modifier = Modifier.width(1.dp))
+
+                if (isEditMode) {
+                    TextButton(onClick = { onEditModeToggle(false) }) {
+                        Text("完成", fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    LiquidGlassPill(
+                        alpha = 0.26f,
+                        borderAlpha = 0.24f
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Navigation,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = rideDirectionLabel,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+
+            Text(
+                "SmartDash",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        }
     }
 }
 

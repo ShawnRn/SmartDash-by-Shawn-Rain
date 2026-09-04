@@ -150,6 +150,8 @@ import com.shawnrain.sdash.ui.navigation.P2PageHeader
 import com.shawnrain.sdash.ui.navigation.PredictiveBackPopupTransform
 import com.shawnrain.sdash.ui.navigation.PopupBackdropBlurLayer
 import com.shawnrain.sdash.ui.navigation.rememberPredictiveBackMotion
+import com.shawnrain.sdash.ui.navigation.rememberFreezableLayerBackdrop
+import com.shawnrain.sdash.ui.navigation.freezableLayerBackdrop
 import com.shawnrain.sdash.ui.theme.bezierPillShape
 import com.shawnrain.sdash.ui.theme.bezierRoundedShape
 import com.shawnrain.sdash.ui.theme.LiquidGlassSurface
@@ -1568,23 +1570,25 @@ fun SettingsScreen(
                 label = "SettingsSubPageTransition",
                 modifier = Modifier.fillMaxSize()
             ) { subPage ->
-                Column(
+                val pageBackdrop = rememberFreezableLayerBackdrop()
+                val scrollState = if (subPage == null) mainScrollState else rememberScrollState()
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(MaterialTheme.colorScheme.background)
                 ) {
-                    P2PageHeader(
-                        title = subPage?.title ?: "设置",
-                        subtitle = "当前活跃车辆「${currentVehicle.name}」",
-                        onBack = subPage?.let { { activeSubPage = null } },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    val scrollState = if (subPage == null) mainScrollState else rememberScrollState()
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .freezableLayerBackdrop(backdrop = pageBackdrop, frozen = false)
+                            .background(MaterialTheme.colorScheme.background)
                             .verticalScroll(scrollState)
-                            .padding(start = 24.dp, end = 24.dp, bottom = bottomContentPadding)
+                            .padding(
+                                start = 24.dp,
+                                top = 132.dp,
+                                end = 24.dp,
+                                bottom = bottomContentPadding
+                            )
                     ) {
                         Spacer(modifier = Modifier.height(8.dp))
 
@@ -1845,6 +1849,15 @@ fun SettingsScreen(
                             }
                         }
                     }
+                    P2PageHeader(
+                        title = subPage?.title ?: "设置",
+                        subtitle = "当前活跃车辆「${currentVehicle.name}」",
+                        onBack = subPage?.let { { activeSubPage = null } },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter),
+                        backdrop = pageBackdrop
+                    )
                 }
             }
         }

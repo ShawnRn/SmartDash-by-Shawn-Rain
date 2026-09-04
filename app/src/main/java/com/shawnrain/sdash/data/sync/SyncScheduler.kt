@@ -28,7 +28,7 @@ import kotlinx.coroutines.withContext
  * - Settings change → enqueue mutation + schedule push (debounced)
  * - Vehicle profile change → enqueue mutation + schedule push
  * - App foreground → schedule V3 pull/migration
- * - Auth success → reconcile to V3 + periodic sync
+ * - Auth success → one-time V3 reconcile
  * - Manual sync → V3 reconcile (pull then push)
  */
 class SyncScheduler(
@@ -295,8 +295,9 @@ class SyncScheduler(
 
                 migrator.reconcileAndPublish()
 
-                // Start periodic sync
-                PeriodicDriveSyncWorker.enqueuePeriodicSync(context)
+                // Remove jobs persisted by older builds. Foreground pulls and mutation-driven
+                // pushes provide freshness without waking an otherwise idle app every 30 minutes.
+                PeriodicDriveSyncWorker.cancelPeriodicSync(context)
                 ensurePayloadRefreshScheduledIfNeeded(SyncTriggerReason.AUTH_SUCCESS)
                 ensureLocalPushScheduledIfNeeded(SyncTriggerReason.AUTH_SUCCESS)
             } catch (e: Exception) {

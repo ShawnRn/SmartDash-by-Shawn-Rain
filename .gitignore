@@ -51,6 +51,9 @@ build_log.txt
 .agent/
 .agents/logs/
 .agents/artifacts/
+.agents/qa/
+artifacts/
+design-qa.md
 
 # Local reverse-engineering / helper tools
 tools/unveilr/

@@ -43,7 +43,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -1262,7 +1262,7 @@ private fun SelectionParameterRow(
                 modifier = Modifier
                     .width(164.dp)
                     .menuAnchor(
-                        type = MenuAnchorType.PrimaryNotEditable,
+                        type = ExposedDropdownMenuAnchorType.PrimaryNotEditable,
                         enabled = !isVersionLocked
                     ),
                 trailingIcon = {

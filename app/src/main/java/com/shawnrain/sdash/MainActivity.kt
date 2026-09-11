@@ -1354,13 +1354,6 @@ fun MainScreen(
             dashcamManager = dashcamManager,
             onDismissRequest = {
                 viewModel.setShowDashcamRecordingsSheet(false)
-                val hasCameraPermission = androidx.core.content.ContextCompat.checkSelfPermission(
-                    context,
-                    android.Manifest.permission.CAMERA
-                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                if (hasCameraPermission && dashcamManager.state.value == DashcamState.IDLE) {
-                    dashcamManager.startPreviewOnly()
-                }
             },
             onPlaySegment = { segment ->
                 viewModel.setShowDashcamRecordingsSheet(false)

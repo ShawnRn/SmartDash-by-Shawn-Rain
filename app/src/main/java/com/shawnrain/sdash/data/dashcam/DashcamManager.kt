@@ -18,6 +18,7 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.core.UseCaseGroup
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.FileOutputOptions
 import androidx.camera.video.Quality
 import androidx.camera.video.QualitySelector
@@ -130,6 +131,9 @@ class DashcamManager private constructor(private val context: Context) {
     private var dummySurface: android.view.Surface? = null
     private var currentOverlayConfig = DashcamOverlayConfig()
     private var overlayEffect: androidx.camera.effects.OverlayEffect? = null
+    private var currentVideoQuality = "1080P"
+    private var currentVideoFps = 30
+    private var currentDashboardPreviewEnabled = false
     private val handler = Handler(Looper.getMainLooper())
     private val segmentEndRunnable = Runnable { stopCurrentRecordingOnly() }
 
@@ -158,6 +162,42 @@ class DashcamManager private constructor(private val context: Context) {
                         stopPreviewOnly()
                         startPreviewOnly()
                     }
+                }
+            }
+        }
+
+        coroutineScope.launch {
+            settingsRepository.dashcamVideoQuality.collect { quality ->
+                if (currentVideoQuality != quality) {
+                    AppLogger.i(TAG, "dashcamVideoQuality setting changed to: $quality")
+                    currentVideoQuality = quality
+                    if (_state.value == DashcamState.PREVIEWING) {
+                        stopPreviewOnly()
+                        startPreviewOnly()
+                    }
+                }
+            }
+        }
+
+        coroutineScope.launch {
+            settingsRepository.dashcamVideoFps.collect { fps ->
+                if (currentVideoFps != fps) {
+                    AppLogger.i(TAG, "dashcamVideoFps setting changed to: $fps")
+                    currentVideoFps = fps
+                    if (_state.value == DashcamState.PREVIEWING) {
+                        stopPreviewOnly()
+                        startPreviewOnly()
+                    }
+                }
+            }
+        }
+
+        coroutineScope.launch {
+            settingsRepository.dashcamDashboardPreviewEnabled.collect { enabled ->
+                currentDashboardPreviewEnabled = enabled
+                if (!enabled && _state.value == DashcamState.PREVIEWING) {
+                    AppLogger.i(TAG, "Dashboard preview disabled, releasing camera preview to IDLE")
+                    stopPreviewOnly()
                 }
             }
         }
@@ -511,6 +551,66 @@ class DashcamManager private constructor(private val context: Context) {
         extender.setCaptureRequestOption(VIVO_CURRENT_UI_MODULE_KEY, VIVO_VIDEO_UI_MODULE)
         extender.setCaptureRequestOption(VIVO_CAMERA_TYPE_KEY, VIVO_CAMERA_TYPE_VALUE)
     }
+
+    private fun buildQualitySelector(): QualitySelector {
+        val targetQuality = when (currentVideoQuality.uppercase()) {
+            "4K", "UHD" -> Quality.UHD
+            "2K", "QHD" -> Quality.UHD
+            else -> Quality.FHD
+        }
+        val fallback = if (targetQuality == Quality.UHD) {
+            FallbackStrategy.lowerQualityOrHigherThan(Quality.FHD)
+        } else {
+            FallbackStrategy.lowerQualityOrHigherThan(targetQuality)
+        }
+        return QualitySelector.from(targetQuality, fallback)
+    }
+
+    private fun findBestFpsRange(chars: CameraCharacteristics?, targetFps: Int): android.util.Range<Int>? {
+        val ranges = chars?.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES) ?: return null
+        val exactFixed = ranges.firstOrNull { it.lower == targetFps && it.upper == targetFps }
+        if (exactFixed != null) return exactFixed
+        
+        val matchingUpper = ranges.filter { it.upper == targetFps }.maxByOrNull { it.lower }
+        if (matchingUpper != null) return matchingUpper
+        
+        val containing = ranges.filter { targetFps in it.lower..it.upper }.minByOrNull { it.upper - it.lower }
+        if (containing != null) return containing
+        
+        return ranges.minByOrNull { kotlin.math.abs(it.upper - targetFps) }
+    }
+
+    @androidx.annotation.OptIn(androidx.camera.camera2.interop.ExperimentalCamera2Interop::class)
+    private fun applyTargetFps(
+        previewBuilder: Preview.Builder,
+        videoCaptureBuilder: VideoCapture.Builder<Recorder>,
+        cameraTarget: DashcamCameraTarget
+    ) {
+        val targetFps = currentVideoFps
+        val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? android.hardware.camera2.CameraManager
+        val cameraId = cameraTarget.bindCameraId ?: runCatching { cameraManager?.cameraIdList?.firstOrNull() }.getOrNull()
+        val chars = cameraId?.let { id ->
+            runCatching { cameraManager?.getCameraCharacteristics(id) }.getOrNull()
+        }
+        val matchedRange = findBestFpsRange(chars, targetFps)
+        if (matchedRange != null) {
+            AppLogger.i(TAG, "Configuring camera FPS range: $matchedRange for target $targetFps fps")
+            runCatching {
+                videoCaptureBuilder.setTargetFrameRate(matchedRange)
+            }.onFailure { e ->
+                AppLogger.w(TAG, "Failed to set target frame rate on VideoCapture builder: ${e.message}")
+            }
+            runCatching {
+                Camera2Interop.Extender(videoCaptureBuilder)
+                    .setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, matchedRange)
+                Camera2Interop.Extender(previewBuilder)
+                    .setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, matchedRange)
+            }.onFailure { e ->
+                AppLogger.w(TAG, "Failed to set CONTROL_AE_TARGET_FPS_RANGE via Camera2Interop: ${e.message}")
+            }
+        }
+    }
+
     private fun getDummySurfaceProvider(): Preview.SurfaceProvider {
         return Preview.SurfaceProvider { request ->
             val texture = android.graphics.SurfaceTexture(0).also {
@@ -713,7 +813,7 @@ class DashcamManager private constructor(private val context: Context) {
         
         preview?.setSurfaceProvider(provider)
         
-        if (provider != null && _state.value == DashcamState.IDLE) {
+        if (provider != null && _state.value == DashcamState.IDLE && currentDashboardPreviewEnabled) {
             startPreviewOnly()
         } else if (provider == null && _state.value == DashcamState.PREVIEWING) {
             stopPreviewOnly()
@@ -747,12 +847,13 @@ class DashcamManager private constructor(private val context: Context) {
                 .setTargetRotation(targetRotation)
 
             val recorder = Recorder.Builder()
-                .setQualitySelector(QualitySelector.from(Quality.FHD))
+                .setQualitySelector(buildQualitySelector())
                 .build()
                 
             val videoCaptureBuilder = VideoCapture.Builder(recorder)
                 .setTargetRotation(targetRotation)
             applyCamera2TargetOptions(previewBuilder, videoCaptureBuilder, cameraTarget)
+            applyTargetFps(previewBuilder, videoCaptureBuilder, cameraTarget)
 
             preview = previewBuilder.build().also {
                 it.setSurfaceProvider(surfaceProvider)
@@ -823,20 +924,28 @@ class DashcamManager private constructor(private val context: Context) {
                 if (activeRecording == null) {
                     AppLogger.w(TAG, "State is RECORDING but activeRecording is null. Reverting to preview.")
                     stopRecording()
-                    startPreviewOnly()
+                    if (currentDashboardPreviewEnabled) {
+                        startPreviewOnly()
+                    }
                 } else if (surfaceProvider != null) {
                     AppLogger.i(TAG, "Restoring real preview surface during recording")
                     preview?.setSurfaceProvider(surfaceProvider)
                 }
             } else if (_state.value == DashcamState.ERROR) {
-                AppLogger.i(TAG, "Returning to foreground in ERROR state, trying to restart preview")
-                startPreviewOnly()
+                if (currentDashboardPreviewEnabled) {
+                    AppLogger.i(TAG, "Returning to foreground in ERROR state, trying to restart preview")
+                    startPreviewOnly()
+                }
             } else if (wasPreviewingBeforeBackground) {
                 wasPreviewingBeforeBackground = false
-                AppLogger.i(TAG, "Restoring preview automatically after returning to foreground")
-                startPreviewOnly()
+                if (currentDashboardPreviewEnabled) {
+                    AppLogger.i(TAG, "Restoring preview automatically after returning to foreground")
+                    startPreviewOnly()
+                }
             } else if (surfaceProvider != null && _state.value == DashcamState.IDLE) {
-                startPreviewOnly()
+                if (currentDashboardPreviewEnabled) {
+                    startPreviewOnly()
+                }
             }
             releaseDummySurface()
         } else {
@@ -897,9 +1006,9 @@ class DashcamManager private constructor(private val context: Context) {
         currentTelemetryProvider = null
         releaseDummySurface()
 
-        if (surfaceProvider != null && isAppForeground) {
+        if (surfaceProvider != null && isAppForeground && currentDashboardPreviewEnabled) {
             _state.value = DashcamState.PREVIEWING
-            AppLogger.i(TAG, "Dashcam recording stopped, reverting to previewing")
+            AppLogger.i(TAG, "Dashcam recording stopped, reverting to previewing (dashboard preview enabled)")
         } else {
             try {
                 cameraProvider?.unbindAll()
@@ -912,7 +1021,7 @@ class DashcamManager private constructor(private val context: Context) {
                 AppLogger.e(TAG, "Error unbinding camera on stop", e)
             }
             _state.value = DashcamState.IDLE
-            AppLogger.i(TAG, "Dashcam recording completely stopped and camera released")
+            AppLogger.i(TAG, "Dashcam recording completely stopped and camera released to IDLE")
         }
         
         DashcamForegroundService.stopService(context)
@@ -934,12 +1043,13 @@ class DashcamManager private constructor(private val context: Context) {
             .setTargetRotation(targetRotation)
 
         val recorder = Recorder.Builder()
-            .setQualitySelector(QualitySelector.from(Quality.FHD))
+            .setQualitySelector(buildQualitySelector())
             .build()
 
         val videoCaptureBuilder = VideoCapture.Builder(recorder)
             .setTargetRotation(targetRotation)
         applyCamera2TargetOptions(previewBuilder, videoCaptureBuilder, cameraTarget)
+        applyTargetFps(previewBuilder, videoCaptureBuilder, cameraTarget)
 
         preview = previewBuilder.build().also {
             it.setSurfaceProvider(surfaceProvider ?: getDummySurfaceProvider())

@@ -145,6 +145,9 @@ class SettingsRepository(private val context: Context) {
         val DASHCAM_OVERLAY_GPS = booleanPreferencesKey("dashcam_overlay_gps")
         val DASHCAM_OVERLAY_SOC = booleanPreferencesKey("dashcam_overlay_soc")
         val DASHCAM_CAMERA_ID = stringPreferencesKey("dashcam_camera_id")
+        val DASHCAM_VIDEO_QUALITY = stringPreferencesKey("dashcam_video_quality")
+        val DASHCAM_VIDEO_FPS = intPreferencesKey("dashcam_video_fps")
+        val DASHCAM_DASHBOARD_PREVIEW_ENABLED = booleanPreferencesKey("dashcam_dashboard_preview_enabled")
         val DEBUG_ALLOW_RECORD_WITHOUT_CONTROLLER = booleanPreferencesKey("debug_allow_record_without_controller")
         private val DEFAULT_DASHBOARD_ITEMS = listOf(
             MetricType.SOC,
@@ -407,7 +410,19 @@ class SettingsRepository(private val context: Context) {
     }.distinctUntilChanged()
 
     val dashcamAutoRecord: Flow<Boolean> = preferencesFlow.map { pref ->
-        pref.safeGet(DASHCAM_AUTO_RECORD) ?: true
+        pref.safeGet(DASHCAM_AUTO_RECORD) ?: false
+    }.distinctUntilChanged()
+
+    val dashcamVideoQuality: Flow<String> = preferencesFlow.map { pref ->
+        pref.safeGet(DASHCAM_VIDEO_QUALITY) ?: "1080P"
+    }.distinctUntilChanged()
+
+    val dashcamVideoFps: Flow<Int> = preferencesFlow.map { pref ->
+        pref.safeGet(DASHCAM_VIDEO_FPS) ?: 30
+    }.distinctUntilChanged()
+
+    val dashcamDashboardPreviewEnabled: Flow<Boolean> = preferencesFlow.map { pref ->
+        pref.safeGet(DASHCAM_DASHBOARD_PREVIEW_ENABLED) ?: false
     }.distinctUntilChanged()
 
     val dashcamRecordAudio: Flow<Boolean> = preferencesFlow.map { pref ->
@@ -801,6 +816,27 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit {
             it[DASHCAM_CAMERA_ID] = cameraId
             markSyncedAt(it, DASHCAM_CAMERA_ID.name)
+        }
+    }
+
+    suspend fun saveDashcamVideoQuality(quality: String) {
+        context.dataStore.edit {
+            it[DASHCAM_VIDEO_QUALITY] = quality
+            markSyncedAt(it, DASHCAM_VIDEO_QUALITY.name)
+        }
+    }
+
+    suspend fun saveDashcamVideoFps(fps: Int) {
+        context.dataStore.edit {
+            it[DASHCAM_VIDEO_FPS] = fps
+            markSyncedAt(it, DASHCAM_VIDEO_FPS.name)
+        }
+    }
+
+    suspend fun saveDashcamDashboardPreviewEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[DASHCAM_DASHBOARD_PREVIEW_ENABLED] = enabled
+            markSyncedAt(it, DASHCAM_DASHBOARD_PREVIEW_ENABLED.name)
         }
     }
 

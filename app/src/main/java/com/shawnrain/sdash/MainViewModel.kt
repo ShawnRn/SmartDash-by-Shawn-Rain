@@ -470,10 +470,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         SharingStarted.Eagerly,
         false
     )
-    val dashcamAutoRecordEnabled = settingsRepository.dashcamAutoRecord.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    val dashcamAutoRecordEnabled = settingsRepository.dashcamAutoRecord.stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val dashcamRecordAudio = settingsRepository.dashcamRecordAudio.stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val dashcamSegmentDurationMin = settingsRepository.dashcamSegmentDurationMin.stateIn(viewModelScope, SharingStarted.Eagerly, 3)
     val dashcamStorageLimitMb = settingsRepository.dashcamStorageLimitMb.stateIn(viewModelScope, SharingStarted.Eagerly, 4096)
+    val dashcamVideoQuality = settingsRepository.dashcamVideoQuality.stateIn(viewModelScope, SharingStarted.Eagerly, "1080P")
+    val dashcamVideoFps = settingsRepository.dashcamVideoFps.stateIn(viewModelScope, SharingStarted.Eagerly, 30)
+    val dashcamDashboardPreviewEnabled = settingsRepository.dashcamDashboardPreviewEnabled.stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val dashcamOverlayConfig = settingsRepository.dashcamOverlayConfig.stateIn(
         viewModelScope, SharingStarted.Eagerly,
         com.shawnrain.sdash.data.dashcam.DashcamOverlayConfig()
@@ -4168,6 +4171,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun saveDashcamCameraId(cameraId: String) {
         viewModelScope.launch {
             settingsRepository.saveDashcamCameraId(cameraId)
+        }
+    }
+
+    fun saveDashcamVideoQuality(quality: String) {
+        viewModelScope.launch {
+            settingsRepository.saveDashcamVideoQuality(quality)
+        }
+    }
+
+    fun saveDashcamVideoFps(fps: Int) {
+        viewModelScope.launch {
+            settingsRepository.saveDashcamVideoFps(fps)
+        }
+    }
+
+    fun saveDashcamDashboardPreviewEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.saveDashcamDashboardPreviewEnabled(enabled)
         }
     }
 

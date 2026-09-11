@@ -245,24 +245,21 @@ fun DashboardScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
+    val dashcamDashboardPreviewEnabled by viewModel.dashcamDashboardPreviewEnabled.collectAsStateWithLifecycle()
+
+    LaunchedEffect(dashcamDashboardPreviewEnabled, showDashcamRecordingsSheet) {
         val hasCameraPermission = androidx.core.content.ContextCompat.checkSelfPermission(
             context,
             android.Manifest.permission.CAMERA
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (hasCameraPermission && 
+        if (dashcamDashboardPreviewEnabled && 
+            hasCameraPermission && 
             dashcamManager.state.value == DashcamState.IDLE && 
             !showDashcamRecordingsSheet
         ) {
             dashcamManager.startPreviewOnly()
-        }
-    }
-
-    LaunchedEffect(showDashcamRecordingsSheet) {
-        if (showDashcamRecordingsSheet) {
-            if (dashcamManager.state.value == DashcamState.PREVIEWING) {
-                dashcamManager.stopPreviewOnly()
-            }
+        } else if (!dashcamDashboardPreviewEnabled && dashcamManager.state.value == DashcamState.PREVIEWING) {
+            dashcamManager.stopPreviewOnly()
         }
     }
 
@@ -1255,7 +1252,12 @@ fun SquareSpeedIndicator(
             val dashcamState by dashcamManager.state.collectAsState()
             val scope = rememberCoroutineScope()
 
-            if (dashcamState == DashcamState.PREVIEWING || dashcamState == DashcamState.RECORDING || dashcamState == DashcamState.SEGMENT_GAP) {
+            val previewEnabled by viewModel.dashcamDashboardPreviewEnabled.collectAsStateWithLifecycle()
+            val shouldShowPreview = (dashcamState == DashcamState.PREVIEWING && previewEnabled) ||
+                dashcamState == DashcamState.RECORDING ||
+                dashcamState == DashcamState.SEGMENT_GAP
+
+            if (shouldShowPreview) {
                 AndroidView(
                     factory = { ctx ->
                         val view = viewModel.getOrCreatePreviewView(ctx, dashcamManager)
@@ -1277,9 +1279,7 @@ fun SquareSpeedIndicator(
                 )
             }
 
-            val hasPreview = dashcamState == DashcamState.PREVIEWING || 
-                             dashcamState == DashcamState.RECORDING || 
-                             dashcamState == DashcamState.SEGMENT_GAP
+            val hasPreview = shouldShowPreview
 
             val targetValColor = if (hasPreview) Color.White else MaterialTheme.colorScheme.onSurface
             val valueColor by animateColorAsState(

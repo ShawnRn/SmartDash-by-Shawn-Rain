@@ -93,7 +93,7 @@ import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.*
@@ -202,6 +202,9 @@ fun SettingsScreen(
     val dashcamRecordAudio by viewModel.dashcamRecordAudio.collectAsState()
     val dashcamSegmentDurationMin by viewModel.dashcamSegmentDurationMin.collectAsState()
     val dashcamStorageLimitMb by viewModel.dashcamStorageLimitMb.collectAsState()
+    val dashcamVideoQuality by viewModel.dashcamVideoQuality.collectAsState()
+    val dashcamVideoFps by viewModel.dashcamVideoFps.collectAsState()
+    val dashcamDashboardPreviewEnabled by viewModel.dashcamDashboardPreviewEnabled.collectAsState()
     val dashcamOverlayConfig by viewModel.dashcamOverlayConfig.collectAsState()
     val dashcamCameraId by viewModel.dashcamCameraId.collectAsState()
     val debugAllowRecordWithoutController by viewModel.debugAllowRecordWithoutController.collectAsState()
@@ -728,7 +731,7 @@ fun SettingsScreen(
                             label = { Text("速度数据源") },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandSpeedSource) },
                             colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                         )
                         ExposedDropdownMenu(expanded = expandSpeedSource, onDismissRequest = { expandSpeedSource = false }) {
                             SpeedSource.entries.forEach { src ->
@@ -755,7 +758,7 @@ fun SettingsScreen(
                             label = { Text("电池数据来源") },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandBattSource) },
                             colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                         )
                         ExposedDropdownMenu(expanded = expandBattSource, onDismissRequest = { expandBattSource = false }) {
                             DataSource.entries.forEach { src ->
@@ -834,6 +837,12 @@ fun SettingsScreen(
         DashcamSettingsCard(
             autoRecord = dashcamAutoRecord,
             onAutoRecordChange = viewModel::saveDashcamAutoRecord,
+            dashboardPreviewEnabled = dashcamDashboardPreviewEnabled,
+            onDashboardPreviewEnabledChange = viewModel::saveDashcamDashboardPreviewEnabled,
+            videoQuality = dashcamVideoQuality,
+            onVideoQualityChange = viewModel::saveDashcamVideoQuality,
+            videoFps = dashcamVideoFps,
+            onVideoFpsChange = viewModel::saveDashcamVideoFps,
             recordAudio = dashcamRecordAudio,
             onRecordAudioChange = viewModel::saveDashcamRecordAudio,
             segmentDuration = dashcamSegmentDurationMin,
@@ -1186,7 +1195,7 @@ fun SettingsScreen(
                                 onValueChange = {},
                                 readOnly = true,
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                                modifier = Modifier.menuAnchor(type = MenuAnchorType.PrimaryEditable, enabled = true),
+                                modifier = Modifier.menuAnchor(type = ExposedDropdownMenuAnchorType.PrimaryEditable, enabled = true),
                                 colors = OutlinedTextFieldDefaults.colors(
                                     unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
                                 )
@@ -1447,7 +1456,7 @@ fun SettingsScreen(
                         readOnly = true,
                         label = { Text("日志级别") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandLogLevel) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                        modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                     )
                     ExposedDropdownMenu(expanded = expandLogLevel, onDismissRequest = { expandLogLevel = false }) {
                         AppLogLevel.entries.forEach { level ->
@@ -1654,7 +1663,7 @@ fun SettingsScreen(
                                     SettingsNavigationItem(
                                         icon = Icons.Default.Videocam,
                                         title = "行车记录仪",
-                                        subtitle = "自动录制：${if (dashcamAutoRecord) "开启" else "关闭"} · 时长：${dashcamSegmentDurationMin}分钟",
+                                        subtitle = "规格：$dashcamVideoQuality / ${dashcamVideoFps}fps · 自动录制：${if (dashcamAutoRecord) "开启" else "关闭"}",
                                         onClick = { activeSubPage = SettingsSubPage.DASHCAM }
                                     )
                                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -1845,7 +1854,6 @@ fun SettingsScreen(
                                 SettingsSubPage.DASHCAM -> dashcamPage()
                                 SettingsSubPage.UI_DISPLAY -> uiDisplayPage()
                                 SettingsSubPage.SYSTEM_DATA -> systemDataPage()
-                                else -> {}
                             }
                         }
                     }
@@ -3478,7 +3486,7 @@ private fun VehicleEditorDialog(
                                 label = { Text("轮圈大小") },
                                 supportingText = { Text("从预设轮圈中选择") },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandRimMenu) },
-                                modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             )
                             ExposedDropdownMenu(
                                 expanded = expandRimMenu,
@@ -3517,7 +3525,7 @@ private fun VehicleEditorDialog(
                                 label = { Text("轮胎规格") },
                                 supportingText = { Text("从对应轮圈的预设规格中选择") },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandTireMenu) },
-                                modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             )
                             ExposedDropdownMenu(
                                 modifier = Modifier.heightIn(max = 320.dp),
@@ -3753,6 +3761,12 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 private fun DashcamSettingsCard(
     autoRecord: Boolean,
     onAutoRecordChange: (Boolean) -> Unit,
+    dashboardPreviewEnabled: Boolean,
+    onDashboardPreviewEnabledChange: (Boolean) -> Unit,
+    videoQuality: String,
+    onVideoQualityChange: (String) -> Unit,
+    videoFps: Int,
+    onVideoFpsChange: (Int) -> Unit,
     recordAudio: Boolean,
     onRecordAudioChange: (Boolean) -> Unit,
     segmentDuration: Int,
@@ -3775,10 +3789,14 @@ private fun DashcamSettingsCard(
         }
     }
 
+    var expandQualityMenu by remember { mutableStateOf(false) }
+    var expandFpsMenu by remember { mutableStateOf(false) }
     var expandDurationMenu by remember { mutableStateOf(false) }
     var expandStorageMenu by remember { mutableStateOf(false) }
     var expandCameraMenu by remember { mutableStateOf(false) }
 
+    val videoQualityOptions = listOf("1080P", "2K", "4K")
+    val videoFpsOptions = listOf(25, 30, 60, 120)
     val segmentDurationOptions = listOf(1, 3, 5, 10, 15)
     val storageLimitOptions = listOf(
         1024 to "1 GB",
@@ -3823,7 +3841,30 @@ private fun DashcamSettingsCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("自动录制", style = MaterialTheme.typography.bodyMedium)
+                    Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                        Text("仪表盘相机背景", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            if (dashboardPreviewEnabled) "已开启时速卡片后相机背景（显著增加功耗与发热）" else "在仪表盘时速卡片后显示实时相机画面（功耗较高）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (dashboardPreviewEnabled) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(checked = dashboardPreviewEnabled, onCheckedChange = onDashboardPreviewEnabledChange)
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                        Text("自动录制", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "开启后进入应用自动启动后台循环录制",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Switch(checked = autoRecord, onCheckedChange = onAutoRecordChange)
                 }
 
@@ -3854,6 +3895,64 @@ private fun DashcamSettingsCard(
                 }
 
                 ExposedDropdownMenuBox(
+                    expanded = expandQualityMenu,
+                    onExpandedChange = { expandQualityMenu = it }
+                ) {
+                    OutlinedTextField(
+                        value = videoQuality,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("视频录制分辨率") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandQualityMenu) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                        modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expandQualityMenu,
+                        onDismissRequest = { expandQualityMenu = false }
+                    ) {
+                        videoQualityOptions.forEach { opt ->
+                            DropdownMenuItem(
+                                text = { Text(opt) },
+                                onClick = {
+                                    onVideoQualityChange(opt)
+                                    expandQualityMenu = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                ExposedDropdownMenuBox(
+                    expanded = expandFpsMenu,
+                    onExpandedChange = { expandFpsMenu = it }
+                ) {
+                    OutlinedTextField(
+                        value = "$videoFps fps",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("视频录制帧率") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandFpsMenu) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                        modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expandFpsMenu,
+                        onDismissRequest = { expandFpsMenu = false }
+                    ) {
+                        videoFpsOptions.forEach { opt ->
+                            DropdownMenuItem(
+                                text = { Text("$opt fps") },
+                                onClick = {
+                                    onVideoFpsChange(opt)
+                                    expandFpsMenu = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                ExposedDropdownMenuBox(
                     expanded = expandDurationMenu,
                     onExpandedChange = { expandDurationMenu = it }
                 ) {
@@ -3864,7 +3963,7 @@ private fun DashcamSettingsCard(
                         label = { Text("片段时长") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandDurationMenu) },
                         colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                        modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                     )
                     ExposedDropdownMenu(
                         expanded = expandDurationMenu,
@@ -3894,7 +3993,7 @@ private fun DashcamSettingsCard(
                         label = { Text("存储上限") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandStorageMenu) },
                         colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                        modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                     )
                     ExposedDropdownMenu(
                         expanded = expandStorageMenu,
@@ -3924,7 +4023,7 @@ private fun DashcamSettingsCard(
                         label = { Text("记录仪摄像头") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandCameraMenu) },
                         colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                        modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                     )
                     ExposedDropdownMenu(
                         expanded = expandCameraMenu,
